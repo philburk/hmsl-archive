@@ -1,0 +1,1 @@
+Macintosh Specific Changes to HMSLThis file is not complete.V4.19X7/8/92	Added GR_WINDOW_LEFT GR_WINDOW_TOP GR_WINDOW_WIDTH and	GR_WINDOW_HEIGHT to allow user to customize HMSL window.	Eg.    600 -> GR_WINDOW_WIDTH   HMSL.OPEN		Window postion after DRAG or GROW is preserved.		Font Size added to Text editor.	Fixed scrollbar update for FILE? and Paste.

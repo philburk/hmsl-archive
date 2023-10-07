@@ -1,0 +1,1 @@
+Set Echo 1Rez H4th.r -o H4th -appendSetFile -a B H4th -c ASMP -t APPL		# set the bundle bitLink H4th.a.o -o H4th -ss 80000 MIDIGlue.o

@@ -1,0 +1,1 @@
+: COMPILE  ( <name> -- , save NFA and compile later )    'n namebase - ( make nfa relocatable )	[compile] literal	( store nfa of word to be compiled )	[ 'n (compile) namebase - ] literal   \ compile call to (compile)	(compile); IMMEDIATE

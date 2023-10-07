@@ -1,0 +1,1 @@
+Modifications to HMSL code that needs to be merged.HMSL_TOP - removed conditional VERSION.OBJ_METHOD - special handling for H4thOBJ_STACK - need to optimize.

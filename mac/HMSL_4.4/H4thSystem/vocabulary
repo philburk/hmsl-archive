@@ -1,0 +1,1 @@
+\ Vocabulary support ANEW TASK-VOCABULARYdefer WHEN-SCANNEDdefer WHEN-VOC-SCANNED: SCAN-ALL-VOCS ( -- )    latest    BEGIN  dup 0>	WHILE  dup when-scanned	    prevname	REPEAT drop;

@@ -1,0 +1,1 @@
+\ Benchmarksanew task-benchdecimal1000000 constant 1meg: TRR 45 1meg 0 DO >R R> LOOP ;: TROT 23 45 67 1meg 0 DO rot LOOP ;: T2*D 1meg 0 DO 23 2* DROP LOOP ;

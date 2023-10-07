@@ -1,0 +1,1 @@
+\ Define STACK class.\\ Author: Phil Burk\ Copyright 1986 Delta ResearchANEW TASK-OBJ_STACK_CLASSMETHOD PUSH:   METHOD POP::CLASS OB.STACK  <SUPER OB.LIST:M PUSH: ( value -- )	add: self;M:M POP: ( -- value )	many: self 0>	IF last: self		-1 iv+> iv-many	ELSE		" POP: OB.STACK" " Stack underflow"		er_fatal ob.report.error	THEN;M;CLASS

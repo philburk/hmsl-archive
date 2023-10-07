@@ -1,0 +1,1 @@
+ANEW TASK-TEST_ASMcreate VAR1 20 allotASM FOO	LEA		VAR1,A0	MOVE.L	#$12345678,D0	MOVE.L	#$2,D1	MOVE.L	D0,$4(A0,D1)	MOVEQ	#9,d0	MOVE.L	D0,VAR1END-CODEASM BADFOO    move.b  d5,$6(a1,d1)        ; store byteEND-CODE

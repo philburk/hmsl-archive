@@ -1,0 +1,1 @@
+ANEW TASK-PATCH." Move these farther down into the system!!" crHEX: ODD@  ( addr -- val , fetch from an odd address )	[	5896 w,   \   addq.l  #4,(a6)		205e w,   \   move.l  (a6)+,a0		1d20 w,	  \   move.l  -(a0),-(a6)		1d20 w, 1d20 w, 1d20 w,	];: EXIT ( -- )	?comp	$ 4e75 w,; immediatedecimal
