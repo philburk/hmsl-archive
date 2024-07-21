@@ -1,0 +1,27 @@
+: $TABLE  CREATE  ( N --- )  ( <wordn> --in-- )
+             HERE dup >R swap   ( -- adr # )
+             DUP CELLS ALLOT R> SWAP  0  ( -- adr adr' # 0 )
+\
+\            DO   HERE OVER ! CELL+  ASCII " WORD DROP   ASCII " $,
+\
+             DO
+                ( -- base current )
+                HERE 2 pick - over !
+                CELL+  ASCII " WORD DROP   ASCII " $,
+\
+\            LOOP DROP
+\
+             LOOP 2drop
+\
+\         DOES>  ( $# <pfa> --- )  SWAP CELLS + @  $TYPE  ;
+\
+          DOES>  ( $# <pfa> --- )  SWAP CELLS over + @  + $TYPE  ;
+
+
+
+FALSE .IF : $TABLE  CREATE  ( N --- )  ( <wordn> --in-- )
+             HERE >R DUP CELLS ALLOT R> SWAP  0
+             DO   HERE OVER ! CELL+ FIND"  " " $, 
+             LOOP DROP
+          DOES>  ( $# <pfa> --- )  SWAP CELLS + @  $TYPE  ;
+.THEN

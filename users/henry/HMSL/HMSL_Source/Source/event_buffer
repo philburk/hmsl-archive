@@ -1,0 +1,593 @@
+\ Event Buffering
+\
+\ Maintain linked lists of events, distribute them
+\ into time hashed groups of 16.
+\ Four levels would allow 16x16x16x16 = 2**16 = 64K ticks
+\     = 18 minutes  precalculated music at 60 hertz.
+\ Enough levels (8) have been allocated to provide
+\ complete coverage of the 32 bit clock.
+\
+\ Each group will have a pointer to the first and last
+\ entry to the list.  Nodes will be drawn from a pool
+\ of prelinked nodes.
+\
+\ Author: Phil Burk
+\ Copyright 1989 -  Phil Burk, Larry Polansky, David Rosenboom.
+\ All Rights Reserved
+\ Changed Permits and Forbids in EB.ADD.NODE
+\
+\ MOD: 7/91 Modified to work with Mac
+\ MOD: 9/5/91 Changes merged with Amiga style.
+\ MOD: 9/25/91 Removed : 2!
+
+decimal
+include? { ju:locals
+
+ANEW TASK-EVENT_BUFFER
+
+exists? FORBID() not   host=amiga and .IF
+: FORBID() ( -- )
+    callvoid exec_lib forbid
+;
+: PERMIT() ( -- )
+    callvoid exec_lib permit
+;
+.THEN
+
+host=amiga .IF
+: DISABLE.CLOCK.INT ( -- sr )
+	forbid() true
+;
+
+: RESTORE.INTERRUPT ( sr -- )
+	drop permit()
+;
+.THEN
+
+host=mac .IF
+: DISABLE.CLOCK.INT ( -- sr )
+	disable.via
+;
+
+: RESTORE.INTERRUPT ( sr -- )
+	restore.sr
+;
+.THEN
+
+\ Pool of linked list nodes to allocate from.
+\ Define structure of a node.
+
+variable EB-ERROR
+1 constant EB_NO_CFA
+2 constant EB_BAD_NODE
+3 constant EB_NO_SLOT
+
+:STRUCT EBNode
+    rptr  eb_next   ( JForth relative address of next link )
+    long  eb_time   ( absolute time to execute event )
+    rptr  eb_cfa    ( cfa to call )
+    long  eb_data   ( data to pass )
+;STRUCT
+
+sizeof() EBNode 16 -
+.IF ." EBNode should be 16 bytes for shifting!" abort
+.THEN
+
+:STRUCT EBSlot
+    aptr  ebs_first
+    aptr  ebs_last
+;STRUCT
+
+\ Maintain a pool of event nodes.
+variable EB-NUM-NODES
+1024 eb-num-nodes !    ( this value can be increased )
+variable EB-POOL-PTR
+
+: EB.ALLOC.POOL ( num_nodes -- )
+    dup eb-num-nodes !
+    eb-pool-ptr @ 0=
+    IF sizeof() ebnode * mm.alloc
+       eb-pool-ptr !
+    ELSE drop
+    THEN
+;
+
+: EB.FREE.POOL ( -- )
+    eb-pool-ptr @ ?dup
+    IF mm.free eb-pool-ptr off
+    THEN
+;
+
+EBSlot EB-FREE-NODES  ( pointer to list of free nodes )
+
+: EB.NODE  ( index -- node )
+    4 shift   \  ( instead of )   sizeof() EBNode *
+    eb-pool-ptr @ +
+;
+
+: EB.NEXT ( node -- next_node )
+    @ inline
+;
+
+: EB.LINK ( next_node node -- )
+    ! inline
+;
+
+: EB.ALLOC.NODE ( -- node | 0 , alloc a node fom free pool )
+    eb-free-nodes eb.next dup
+    IF dup eb.next eb-free-nodes ! ( link free slot to second )
+       0 over eb.link
+    THEN
+;
+
+: EB.SETUP.NODE ( data cfa time node -- node )
+    dup>r ..! eb_time
+    r@ ..! eb_cfa
+    r@ ..! eb_data
+    r>
+;
+
+: EB.LINK2SLOT  { enode slot -- , add to end of list for slot }
+    slot @
+    IF  enode slot ..@ ebs_last ( last node )
+        eb.link  ( add to end of list )
+    ELSE enode slot eb.link
+    THEN
+    enode slot ..! ebs_last  ( set last pointer )
+    0 enode eb.link  ( make node be last )
+;
+
+: EB.FREE.NODE  ( node -- , free by adding to free list )
+    eb-free-nodes eb.link2slot
+;
+
+: EB.CLEAR.POOL  ( -- , mark all nodes as free )
+    0.0 eb-free-nodes 2!
+    0 eb.node  eb-num-nodes @ sizeof() ebnode *  0 fill
+    eb-num-nodes @ 1-  0
+    DO  0 ' drop 0 i eb.node eb.setup.node
+        eb.free.node
+    LOOP
+    
+;
+
+: EB.DUMP.NODE ( node -- , dump contents )
+    ." Time = " dup ..@ eb_time . cr
+    ." Data = " dup ..@ eb_data . cr
+    ." CFA  = " ..@ eb_cfa >name id. cr
+;
+
+: EB.DUMP.LIST ( list_header -- )
+    BEGIN dup
+    WHILE dup ." -------" cr
+        eb.dump.node @
+    REPEAT drop
+;
+
+\ Time Hashed Sorting Arrays
+4 constant EB_SHIFT/LEVEL    ( shift for time as one goes up )
+3 constant EB_SHIFT/SLOT     ( shift for fast indexing to slot )
+1 eb_shift/level shift constant EB_SLOTS/LEVEL
+8 constant EB_NUM_LEVELS
+
+\ Each list slot at a given level has a first and last pointer.
+:STRUCT EBLevel  ( one time level in hierarchy )
+    aptr   EBL_NEXT       ( next level in linked list of levels )
+    long   EBL_START_TIME ( time for first slot )
+    long   EBL_ABOVE_TIME ( time after last slot )
+    short  EBL_TIME_SHIFT ( shift value for slots )
+    eb_slots/level eb_shift/slot shift bytes EBL_SLOTS
+;STRUCT
+
+EBLevel eb-level0
+EBLevel eb-level1
+EBLevel eb-level2
+EBLevel eb-level3
+EBLevel eb-level4
+EBLevel eb-level5
+EBLevel eb-level6
+EBLevel eb-level7
+EBLevel eb-level8
+
+: EB.SLOT  ( index level -- &slot , index to slot )
+    .. ebl_slots swap
+    eb_shift/slot shift +
+;
+
+: EB.DUMP.LEVEL ( level -- )
+    cr ." Time range = " dup ..@ ebl_start_time .
+        dup ..@ ebl_above_time . cr
+    eb_slots/level 0
+    DO ." Slot " i . cr
+        i over eb.slot @ eb.dump.list
+    LOOP drop
+;
+
+: EB.TIME>SLOT ( time level -- slot | 0 , 0 if over )
+    2dup ..@ ebl_above_time time< ( -- t l f )
+    IF  tuck ..@ ebl_start_time -
+        over ..@ ebl_time_shift negate shift  ( shift right )
+        [ eb_slots/level 1- ] literal and
+        swap eb.slot
+    ELSE
+        2drop 0
+    THEN 
+;
+
+: EB.CLEAR.LEVEL  { level -- , clear slots at that level }
+    eb_slots/level 0
+    DO 0.0 i level eb.slot 2!
+    LOOP
+;
+
+: EB.CLEAR.ALL.LEVELS  ( -- )
+    eb-level0
+    BEGIN dup eb.clear.level
+        ..@ eb_next dup 0=
+    UNTIL drop
+;
+
+: EB.SETUP.LEVEL0 ( start-time -- )
+\ Set time for first slot and level above
+    $ FFFFFFF0 and dup eb-level0 ..! ebl_start_time
+    16 + eb-level0 ..! ebl_above_time
+\
+\ First level: 1 tick per slot.
+    0 eb-level0 ..! ebl_time_shift
+\
+    eb-level0 eb.clear.level
+;
+
+: EB.SETUP.LEVEL  { level prev_level -- }
+\ LInk levels together
+    level prev_level eb.link
+\
+\ Shift more then previous level
+    prev_level ..@ ebl_time_shift eb_shift/level +
+        level ..! ebl_time_shift
+\
+\ Force start time to nearest rounded time
+    prev_level ..@ ebl_start_time
+    $ FFFFFFF0 level ..@ ebl_time_shift shift AND
+        dup level ..! ebl_start_time
+\
+\ Calc time for next level up
+    16 level ..@ ebl_time_shift  shift
+       + level ..! ebl_above_time
+\
+    level eb.clear.level
+;
+
+: EB.SETUP.LEVELS ( start-time -- )
+    eb.setup.level0
+    eb-level1 eb-level0 eb.setup.level
+    eb-level2 eb-level1 eb.setup.level
+    eb-level3 eb-level2 eb.setup.level
+    eb-level4 eb-level3 eb.setup.level
+    eb-level5 eb-level4 eb.setup.level
+    eb-level6 eb-level5 eb.setup.level
+    eb-level7 eb-level6 eb.setup.level
+    eb-level8 eb-level7 eb.setup.level
+    0 eb-level8 eb.link
+;
+
+variable EB-IN-EVBUF
+
+: EB.EXEC.NODE ( node -- )
+    eb-in-evbuf on
+    dup ..@ eb_data
+    swap ..@ eb_cfa ?dup
+    IF execute
+    ELSE drop eb_no_cfa eb-error ! \ . ." EB.EXEC.NODE - CFA = 0!" cr
+    THEN
+    eb-in-evbuf off
+;
+
+: EB.PROCESS.SLOT ( slot -- )
+    dup @
+    BEGIN dup
+    WHILE dup eb.exec.node
+        dup @ swap eb.free.node
+    REPEAT drop
+    off
+;
+
+: EB.ADVANCE.TIME { level -- , advance time for level }
+    level ..@ ebl_above_time
+    dup level ..! ebl_start_time
+    16 level ..@ ebl_time_shift shift +
+    level ..! ebl_above_time
+;
+
+: EB.REMOVE.1ST  ( slot -- 1st_node , remove from list )
+    dup>r @ dup r> !
+;
+ 
+: EB.DISTRIBUTE ( slot level -- , distribute from list in slot )
+\ Take nodes from a slot in a higher level and put them
+\ in the appropriate slots in the lower level.
+    >r  ( save level )
+    BEGIN dup @ dup  ( -- slot node node )
+    WHILE
+        2dup @ swap !  ( remove node from slot )
+\        cr ." Distribute" dup eb.dump.node
+        dup ..@ eb_time  ( -- slot node time )
+        r@ eb.time>slot ?dup
+        IF  ( slot node slot_below )
+            eb.link2slot
+        ELSE ( -- slot node ) drop
+            eb_bad_node eb-error !
+\ ." EB.DISTRIBUTE - Bad node! - NOT IN INTERRUPT!" cr
+        THEN
+    REPEAT 2drop rdrop
+;
+
+: EB.GRAB.NEXT { level -- , grab next levels slot of events }
+    level eb.advance.time
+    level @
+    IF  level ..@ ebl_start_time
+        level @  ( -- time next_level )
+        ..@ ebl_above_time time< not
+        IF  level @ RECURSE
+        THEN
+    THEN
+    level ..@ ebl_start_time
+    level @ eb.time>slot ?dup ( slot to distribute )
+    IF level eb.distribute
+    ELSE eb_no_slot eb-error !
+    THEN
+;
+
+\ This word is called by tasking words.
+variable  EB-LAST-TIME  ( last time processed )
+
+: EB.PROCESS.NEXT ( -- , process next slot, always sequential )
+    eb-last-time @ 1+ dup eb-last-time !
+    eb-level0 ..@ ebl_above_time time< not
+    IF eb-level0 eb.grab.next
+    THEN
+    eb-last-time @ eb-level0 eb.time>slot ?dup
+    IF  eb.process.slot
+    THEN
+;
+
+: EB.TIME>LEVEL { time | level slot -- level slot | 0 }
+    eb-level0 -> level
+    BEGIN level
+        IF time level eb.time>slot dup 0=
+        ELSE 0 false
+        THEN
+\ ?terminal IF abort ." ABorted" THEN
+    WHILE drop level @ -> level  ( go up to next level )
+    REPEAT -> slot
+    level
+    IF level slot
+    ELSE 0
+    THEN
+;
+
+: EB.ADD.NODE ( data cfa time -- )
+\ clip time to current time
+    disable.clock.int >r  \ save status-reg
+    dup eb-last-time @ time>
+    IF
+        BEGIN
+            eb.alloc.node ?dup 0= 
+        WHILE
+            r> restore.interrupt
+            ." EB.ADD.NODE - Waiting for free node!" cr
+            ?terminal abort" Wait aborted!" cr
+            disable.clock.int >r
+        REPEAT
+        eb.setup.node
+        dup ..@ eb_time eb.time>level ?dup
+        IF nip eb.link2slot
+        ELSE .
+            ." EB.ADD.NODE - Couldn't find time slot!" abort
+        THEN
+    ELSE drop execute  ( just do it now )
+    THEN
+    r> restore.interrupt
+;
+
+: CAUSE  ( data cfa time -- , alias for eb.add.node )
+    eb.add.node
+;
+
+: EB.CLEAR  ( -- , clear all nodes and levels, leave time alone )
+    disable.clock.int
+    	eb.clear.pool
+    	eb.clear.all.levels
+    restore.interrupt
+;
+
+: EB.RESET  ( -- , reset system , called when time changes )
+    disable.clock.int
+    	eb.clear.pool
+    	rtc.time@ dup eb.setup.levels
+    	1- eb-last-time !
+    restore.interrupt
+;
+
+variable EB-MAX-LATE
+
+: EB.TASK ( -- , called by tasker !!!!!!!!!!!!!!!!!!! )
+    rtc.time@ eb-last-time @ - dup -8 <
+    IF  drop eb.reset
+    ELSE ( time-diff )
+\ keep track of how late
+    	dup eb-max-late @ max eb-max-late !
+        0 8 clipto 0  ( try to catch up )
+        DO eb.process.next
+        LOOP
+    THEN
+;
+
+: EB.INIT ( -- )
+    " EB.INIT" debug.type
+    disable.clock.int >r
+    eb-error off
+    eb.free.pool
+    eb-num-nodes @ eb.alloc.pool
+    eb.reset
+    r> restore.interrupt
+;
+
+: EB.TERM ( -- )
+    " EB.TERM" debug.type
+    disable.clock.int >r
+    eb.free.pool
+    r> restore.interrupt
+;
+
+: EB.REALLOC.POOL  ( num_nodes -- )
+    eb.term
+    eb-num-nodes !
+    eb.init
+;
+
+: SYS.INIT sys.init eb.init ;
+: SYS.TERM eb.term sys.term ;
+
+if.forgotten eb.term
+
+.NEED RECURSIVE
+: RECURSIVE ( -- , make word able to call self )
+    unsmudge
+; IMMEDIATE
+.ELSE
+." Get rid of RECURSIVE definition!" cr
+.THEN
+
+if-testing @ .IF
+\ Test of event buffering ---------------------------
+variable TEST-LIST
+  
+: TEST1
+    eb.clear.pool
+    eb.alloc.node dup test-list !
+    4 0
+    DO >r eb.alloc.node dup r> eb.link
+       i over ..! eb_data
+       ' dup over ..! eb_cfa
+    LOOP
+;
+
+: DUMWORD  ( data -- )
+	." data = " . ." eb-last-time = " eb-last-time ? cr
+;
+
+variable EB-TIME  ( fake time for event buffering tests )
+
+: WAIT.TICK ( -- )
+    BEGIN escape?
+      time@ eb-time @ time>
+    UNTIL
+    time@ eb-time !
+;
+
+: EB.CATCHUP ( -- )
+    BEGIN
+        eb.process.next
+        eb-last-time time@ time>
+		?terminal OR
+    UNTIL
+;
+
+: EB.RUN ( -- )
+	eb.catchup
+    time@ eb-time !
+    BEGIN
+        eb.process.next
+        wait.tick
+    AGAIN
+;
+
+variable EBT-OFFSET
+: EBT.ADD  ( data cfa time-offset )
+	ebt-offset @ + eb.add.node
+;
+
+: ADD.EVENTS ( -- )
+	time@ ebt-offset !
+    123 ' dumword 0  ebt.add
+    222 ' dumword 0  ebt.add
+    333 ' dumword 0  ebt.add
+    444 ' dumword 1  ebt.add
+    555 ' dumword 4  ebt.add
+    666 ' dumword 4  ebt.add
+    777 ' dumword 10  ebt.add
+    888 ' dumword 20  ebt.add
+    999 ' dumword 23  ebt.add
+    1111 ' dumword 23  ebt.add
+    2222 ' dumword 43  ebt.add
+    3333 ' dumword 259  ebt.add
+    4444 ' dumword 294  ebt.add
+    5555 ' dumword 387  ebt.add
+    6666 ' dumword 600  ebt.add
+;
+
+: TEST2
+	eb.init
+	add.events
+	eb.run
+;
+
+\ Moved to EVMIDI so that we can load w/out MIDI
+variable EBM-ZAP-PAD  ( only used by this word in background )
+
+: MIDI.ZAP  ( packed-data -- )
+    ebm-zap-pad 2dup !
+    swap 3 and 0
+	DO dup i + c@ midi.xmit
+	LOOP
+	drop
+;
+
+: ADD.MIDI.EVENTS
+    [ hex ]
+	time@ 5 + ebt-offset !
+    90326003 'c midi.zap 1  ebt.add
+    90320003 'c midi.zap 6  ebt.add
+
+    90346003 'c midi.zap 9  ebt.add
+    90367003 'c midi.zap 10  ebt.add
+    90386003 'c midi.zap 11  ebt.add
+
+    90340003 'c midi.zap 20  ebt.add
+    90360003 'c midi.zap 30  ebt.add
+    90380003 'c midi.zap 40  ebt.add
+    [ decimal ]
+;
+
+: ADD.SIMPLE.MIDI  ( -- , no overlapping events )
+    [ hex ]
+	time@ 5 + ebt-offset !
+    90326003 'c midi.zap 1  ebt.add
+    90320003 'c midi.zap 6  ebt.add
+
+    90346003 'c midi.zap 9  ebt.add
+    90340003 'c midi.zap 20  ebt.add
+    [ decimal ]
+;
+
+: BANG 100 midi.noteon ;
+
+: TEST3
+    20 rtc.rate!
+    eb.init
+    add.midi.events
+    eb.run
+;
+
+: TEST4
+    20 rtc.rate!
+    eb.init
+    add.midi.events
+;
+." 0 time-advance !" cr
+0 time-advance !
+.THEN
+
+if.forgotten eb.term
+

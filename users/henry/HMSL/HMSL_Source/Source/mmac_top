@@ -1,0 +1,14 @@
+\ Host Dependant Initializations for Macintosh running Mach2
+\
+\ Copyright 1987 - Phil Burk, Larry Polansky, David Rosenboom
+\ All Rights Reserved
+
+ANEW TASK-MMAC_TOP
+
+: HMSL.HOST.INIT ( -- , Initialize MAC)
+    load.segments
+    false if-testing !
+    false if-global !  ( for MACH2 jump tables )
+    0 cg-current-screen !
+    ro.init
+;

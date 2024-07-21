@@ -1,0 +1,8 @@
+\ setup for EE
+\
+\
+assign mod: JFORTH:modules
+assign ee: hp:ee
+cd ee:
+include ee
+

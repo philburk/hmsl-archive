@@ -1,0 +1,50 @@
+
+\ Create icons when SAVE-FORTHing.
+\
+\   The SAVE-FORTH and SAVE-IMAGE
+\ utilities check if they can open 'fd:j.info' and if so,
+\ copies it to the same directory thaT the image is being saved to,
+\ giving it the same name with a '.info' appended.
+\
+\   If it can't find the file, it doesn't create an icon, but no error
+\ message is displayed.
+\
+\   This scheme has several advantages...dictionary not used to hold
+\ a 'master' copy...the programmer may change the ICON used simply by
+\ creating his own with 'ICONED' and copying it to 'fd:j.info'...invisible
+\ to the programmer...little code...etc.
+\
+\ 00001 05-may-89 mdh replaced two ! words with ABS! ( was a scribble!!! )
+\                     use CALLVOID at end.
+
+
+decimal
+
+.need +null
+: +null  ( $adr -- )  count + 0 swap c!  ;
+.then
+
+: HAVE-ICON?  ( -- flag )
+  dos0 1-  pad $move
+  " .info" count pad $append
+  pad +null
+  pad 1+ (fopen) dup
+  IF     dup fclose
+  THEN   ;
+
+: MAKEICON  ( -- , pathname at dos0 )
+  have-icon? 0=
+  IF   
+       icon?  \ Make sure lib is open
+       0" fd:j"   >abs  call icon_lib GetDiskObject   -dup
+       IF
+            \ found master file, make filename at pad...
+            ( -- ABS&DiskObject )
+            \ init it so that Intuition will Auto-Locate it.
+            $ 8000,0000 over 58 +  ( offset to do_CurrentX )
+            ( 00001 ) 2dup abs!  cell+ abs!   ( pokes do_CurrentY, too! )
+            dos0 >abs over    ( -- ABS&Object ABSname ABS&Object )
+            call icon_lib PutDiskObject drop
+            ( -- &Object )  callvoid icon_lib FreeDiskObject  ( 00001 )
+       THEN
+  THEN ;

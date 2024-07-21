@@ -1,0 +1,217 @@
+\ Josip Slavenski piece.... 
+\ for Festival I.S.C.M in London, 1938
+\   Music for Natur-tone-System
+\   for electric Instuments and kettle-drums
+\
+\ "Trautonium quartett" - channel 1
+\ kettle drums          - channel 2
+\  what say, we use HMSL as a seqencer??
+\ really on sequences
+
+anew slav.spot
+\
+\ tuning section
+\
+\ the tuning trick is .. defer all actual notes!
+\ \\xxx -> notenumber of proper pitch, named in \\
+\ \\HN = note num for  harmonic N
+
+: \\H1 1 ;
+: \\H2 2 ;
+: \\H3 3 ;
+: \\H4 4 ;
+: \\H5 5 ;
+: \\H6 6 ;
+: \\H7 7 ;
+: \\H8 8 ;
+: \\H9 9 ;
+: \\H10 10 ;
+: \\H11 11 ;
+: \\H12 12 ;
+: \\H13 13 ;
+: \\H14 14 ;
+: \\H15 15 ;
+: \\H16 16 ;
+: \\H17 17 ;
+: \\H18 18 ;
+: \\H19 19 ;
+
+
+\
+\
+\
+
+
+: Tune1938 { | 8ve -- }
+\ notes 1 - 19 are the true harmonics (not the 53-tone)
+2 -> 8ve \ 2nd octave???
+1
+8ve 1 1 %%
+8ve 2 1 %%
+8ve 3 1 %%
+8ve 4 1 %%
+8ve 5 1 %%
+8ve 6 1 %%
+8ve 7 1 %%
+8ve 8 1 %%
+8ve 9 1 %%
+8ve 10 1 %%
+8ve 11 1 %%
+8ve 12 1 %%
+8ve 13 1 %%
+8ve 14 1 %%
+8ve 15 1 %%
+8ve 16 1 %%
+8ve 17 1 %%
+8ve 18 1 %%
+8ve 19 1 %%
+drop
+\ start other notes at 24, for luck
+
+\ other notes, as indicated...
+;
+
+\ HMSL Shape-section
+\
+\ one shape holds the "drum track".
+\ 4 shapes hold each trautonium track.
+OB.Shape drum
+OB.Shape TR1
+OB.Shape TR2
+OB.Shape TR3
+OB.Shape TR4
+
+\ they make a parallel sequence
+OB.Coll.Par PartII
+\ MIDI PLAYERS
+
+OB.Player P-Drum
+OB.Player P-TR1
+OB.Player P-TR2
+OB.Player P-TR3
+OB.Player P-TR4
+\ 5th wheel...
+\ ob.midi.instrument INS-midi-5
+\ estimate size of the composition....
+16 126 * K: S1938-size
+
+: InitPlayers
+\ shapes..
+s1938-size 3 new: Drum
+s1938-size 3 new: TR1
+s1938-size 3 new: TR2
+s1938-size 3 new: TR3
+s1938-size 3 new: TR4
+\
+1 new: P-Drum
+1 new: P-TR1
+1 new: P-TR2
+1 new: P-TR3
+1 new: P-TR4
+\ staple 'em to their players
+drum add: P-Drum
+Tr1 add: p-tr1
+Tr2 add: p-tr2
+Tr3 add: p-tr3
+Tr4 add: p-tr4
+\ configure players -
+\ notes start from 0...
+0 put.offset: ins-midi-1
+0 put.offset: ins-midi-2
+0 put.offset: ins-midi-3
+0 put.offset: ins-midi-4
+0 put.offset: ins-midi-5
+\ set channels...
+ 1 put.channel: ins-midi-1
+ 1 put.channel: ins-midi-2
+ 1 put.channel: ins-midi-3
+ 1 put.channel: ins-midi-4
+ 2 put.channel: ins-midi-5 \ drums...
+\ make notes organ-like...
+19 20 put.duty.cycle: p-tr1
+19 20 put.duty.cycle: p-tr2
+19 20 put.duty.cycle: p-tr3
+19 20 put.duty.cycle: p-tr4
+1 20 put.duty.cycle: p-Drum  \ except for drums
+\ no repeats
+1 put.repeat: p-tr1
+1 put.repeat: p-tr2
+1 put.repeat: p-tr3
+1 put.repeat: p-tr4
+1 put.repeat: p-drum
+\ staple em together..
+ ins-MIDI-1 put.Instrument: p-tr1
+ ins-MIDI-2 put.instrument: P-tr2
+ ins-MIDI-3 put.instrument: P-tr3
+ ins-MIDI-4 put.instrument: P-tr4
+ ins-MIDI-5 put.instrument: P-drum
+\ take up the collection..
+5 new: PartII
+\
+p-drum add: PartII
+p-Tr1 add: PartII
+p-Tr2 add: PartII
+p-Tr3 add: PartII
+p-Tr4 add: PartII
+
+
+\ other int stuff
+\ MIDI.INIT
+;
+
+: Term.Players
+free.hierarchy: PartII
+;
+
+\ score builders
+v: Cvel
+V: Cdur
+v: CTrk
+20 cdur ! 80 cvel !
+Tr1 Ctrk !
+: >1 ( note -- ) Cdur @ swap cvel @ Add: tr1 ;
+: >2 ( note -- ) Cdur @ swap cvel @ Add: tr2 ;
+: >3 ( note -- ) Cdur @ swap cvel @ Add: tr3 ;
+: >4 ( note -- ) Cdur @ swap cvel @ Add: tr4 ;
+: >D ( note -- ) Cdur @ swap cvel @ Add: drum ;
+: \\  ( note -- ) Cdur @ swap cvel @ Ctrk @ Add: [] ;
+
+: >>1 TR1 Ctrk ! ;
+: >>2 TR2 Ctrk ! ;
+: >>3 TR3 Ctrk ! ;
+: >>4 TR4 Ctrk ! ;
+: >>D drum Ctrk ! ;
+
+ 
+: 1stMovement
+\ the 1st was supposed to be a Bosanquet organ, but don't have it
+;
+
+
+
+: 2ndMovement
+\ the part I have... 126 bars
+>>1
+4 \c \\ 4 \e \\ 4 \f# \\ 5 \c \\
+>>2
+4 \e \\ 4 \g \\ 4 \b \\ 4 \g \\
+>>3 
+5 \c \\ 5 \b \\ 5 \e \\ 5 \d \\
+;
+
+\ actual piece
+: S1938
+InitPlayers
+\            there are 126 bars
+\  Start-list
+\            set up tuning
+\  Tune1938
+\  End-list
+
+2ndMovement
+
+ PartII HMSL.Play
+
+Term.Players
+;
+." ready!!!!... (s1938)" cr

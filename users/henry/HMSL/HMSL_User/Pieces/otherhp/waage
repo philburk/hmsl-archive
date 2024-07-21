@@ -1,0 +1,288 @@
+\
+\ Harold Waage like algorithms for paratactical tuning -
+\ as seen in 1/1 mag, autumn 1985
+\
+\ The idea is to run MIDI-in, keep track of on-notes.
+\ When each note comes in, add to list of on notes.
+\ assign the note a channel, and send note on.
+\ Then, normalize the pattern to correct for transposition.
+\ Look up the pattern in the pattern book to discover the 
+\  proper pitch-bend numbers.
+\ add back the normalization factor, send pitch on the right channel.
+\
+\ on-list:
+\   (by channel):note#,velocity,pitch-bend
+\
+\ patterns:
+\
+\
+\ assuming 1-octave pitchbends, there are 768 PBcents to the octave.
+\
+\ the original scheme is like this:
+\
+\ ( Notating "," as "down a comma",)
+\ When the interval 0-4 is detected, it is played 0-4, (Just Major 3rd)
+\
+\ The interval 0-3 is played 0,-3. (Just Minor 3rd)
+\
+\ This comma is theoretically tempered flat 
+\ by 1 cent , since equal Tempearment's "7" (5th) is flat by 2 cents already.
+\ (Waage keeps the fifths tempered to make a perfect circle of fifths)
+\
+\ Thus, (G|D)&B -> flatten B by this "comma".
+\
+\ However, when a dominant 7th is played, the minor 3rds would
+\ hurt the perfect 5th. So, when the lower third is changed, its changing
+\ is used to inhibit the upper third from changing.
+\ (G|D)&B&F= B,&D,=B,&D
+\
+\ Now the algorithm wants to tune the 'F' to 'F,,' to make it more consonant.
+\ Again, the B, signal is used to change the pitch of the F.
+\
+\ If we extend this idea to 9ths, (G B D F A),
+\  the unfixed circuit would produce:
+\ g b, d f,, a, because of the d (having been corrected from d,).
+\ So, we have to fix it again to make: (G|D).B.F.A =(b, F,, D, A,) =
+\ (b, f,, d A)
+\ I think this fixing up is too confusing.
+\
+\
+\ My scheme goes like this :
+\
+\ Arrange the on  notes in a circle of fifths:
+\ Db Ab Eb Bb F C G D A E B F# 
+\ find the longest "contiguous line" to be the backbone of the series.
+\ e.g. G D A 
+\ Now that we have a Key, intone with standard just methods (departing from 
+\ pythagorean and ptolomaic for septimal 7th)
+\ by  using the Pitch bend on each channel.
+
+\ Ab  eb   Bb   f    c   G   D   A   E   B     F#            c#
+\ 8/5 6/5  7/4 4/3  1/1  3/2 9/8 5/3 5/4 15/8 11/8 or 45/32 16/15
+\
+\ remember, in this scheme there is no difference between octaves.
+\ another scheme could use octave info to position the keys in a just scale.
+\ However, it would require more than 12 channels - or at least a snazzy
+\ channel allocation scheme.
+\
+\
+\
+\ input comes from any midi controller - output must go to a
+\ multitimbral polyphonic MIDI box which can play the same voice on all
+\ channels.(I use SoundProcess). 
+\ Note: set Pitch bend amount to 1 semitone before running this.
+\
+\
+\ JHHL ??? 88 - edited again Jun 5 89
+anew Waage.spot
+
+\ The notes which are on: 0..127 (velocity is registered)
+ob.shape NotesPlaying
+\ counts howmany ons etc.  0..11 
+ob.shape Counts
+v: OnPattern
+\
+
+\ something must play it !
+\
+
+\ the retuning offset (detected by a run in sorting.)
+v: RetuneOff
+: Sort.Note
+\ note comes in, 0..11 comes out, sorted by circ of 5
+;
+v: Note
+V: Velo
+V: NumPlaying
+V: shutdown
+
+\ bit-set? == btst
+\ clr-bit set-bit
+\ transpose trick...
+v: PatternXpose
+V: TonPat
+V: TonMax
+
+\ c g d a e b F# c# ab Eb Bb F
+: NoteBit ( -- bit )
+\ the 7* moves it in a circle of fifths !!!!
+note @ 12 mod  7 * 12 mod 11 swap -
+;
+
+: BitNoto ( bit -- transposed note in 12 )
+11 swap - 7 * 12 mod 
+;
+
+: Note. ( note -- )
+case
+00 of ." C  " endof
+01 of ." C# " endof
+02 of ." D  " endof
+03 of ." Eb " endof
+04 of ." E  " endof
+05 of ." F  " endof
+06 of ." F# " endof
+07 of ." G  " endof
+08 of ." Ab " endof
+09 of ." A  " endof
+10 of ." Bb " endof
+11 of ." B  " endof
+endcase
+;
+
+
+\ play with this word to alter pitch amounts!
+\ assuming 1-octave pitchbends, there are 768 PBcents to the octave.
+\ these could be more accurate, since we send low order bend byte..
+: RatioPB ( note -- )
+case
+00 of 0 endof \ 1/1   = 0
+01 of 8 endof \ 16/15 = 71.5  .. e= 64 +7.5 or else (c#)  = 0  unset
+02 of 2 endof \ 9/8   = 130.5 .. e=128 2.5
+03 of 10 endof \ 6/5  = 202.01 ..e=192 10
+04 of -9 endof \ 5/4  = 247.24 ..e=256 -8.76
+05 of -1 endof \ 4/3  = 318.74 ..e=320 -1.26
+06 of -6 endof \ 45/32 = 377.74 .. e =384 - 6.25
+\		11/8  = 352.84 ..e=384 -31.15
+07 of 1 endof \ 3/2   = 449.25 ..e=448 1.25
+08 of 9 endof \ 8/5   = 520.75 ..e=512 8.75
+09 of -10 endof \ 5/3 = 565.98 ..e=576 -10.01
+10 of -20 endof \ 7/4 = 620.04 ..e=640 -20 
+11 of -8 endof \ 15/8 = 696.49 ..e=704 -7.5
+endcase
+;
+
+
+: Do.Control ( num amt )
+\ wheel = shutup
+over 1 = if 2drop 
+ShutDown On
+else \ send all controls -- like "pedal" to all 12 channels
+12 0 do
+ i 1+ midi.channel!
+ 2dup midi.control
+loop 2drop 
+then
+;
+
+
+: PatRot
+\ rotate tonpat mod 12 
+tonPat @ 2* dup 12 bit-set? if 1+  12 clr-bit then tonpat !
+;
+
+
+: Waage.PB
+\ transform on pattern
+numplaying @  0> if
+patternXpose off
+OnPattern @ dup TonMax ! TonPat !
+12 0 do
+TonPat @ TonMax @ > if i 7 * 12 mod  patternxpose ! tonPat @ TonMax ! then
+PatRot
+loop
+\ what pattern is it?
+ patternxpose @ note. binary onpattern ? ." /" tonmax ? decimal cr
+\ send pb-s on each channel to transpose the notes...
+\
+0 11 -do
+tonMax @ i bit-set? if 
+ i bitNoto dup 
+ patternxpose  @ + 12 mod 1+ MIDI.Channel! 
+ratioPB 64 + 7 shift  MIDI.Bend
+then
+1 -loop
+\ cr
+ 
+\
+then
+;
+
+
+\ scan on-notes and make a pattern
+: BitPatMake
+onpattern off
+12 0 do
+onpattern @ 
+i 
+i get: counts  if   set-bit  else clr-bit then 
+onpattern !
+loop
+\ ." new:" onpattern @ binary . decimal cr
+;
+
+
+: Do.Note.Off ( note vel -- )
+Velo ! Note ! Numplaying decr
+\ off note in playing... a note plays if velo >0
+0 note @ put: NotesPlaying
+\ set the note pattern bit...
+-1 notebit +to: Counts 
+
+BitPatMake
+waage.PB
+\ get a channel for it; it's note number mod 12
+note @ 12 mod 1+ MIDI.Channel! Note @ velo @ MIDI.NoteOff
+;
+
+: Do.Note.ON ( note vel -- )
+velo ! note ! 
+\ check velo=0 == noteoff
+velo @ if-not
+note @ 64 Do.Note.Off
+else
+numplaying incr
+\ save note in playing...
+velo @ note @ put: NotesPlaying
+\ set the note pattern bit...
+1 notebit +to: Counts 
+BitPatMake
+\ now discover what the pitchbends should be - bend first tho...
+Waage.PB
+\ get a channel for it; it's note number mod 12
+note @ 12 mod 1+ MIDI.Channel! Note @ velo @ MIDI.NoteOn
+then
+;
+
+: DO.ProgCh ( progno -- )
+12 0 do
+dup  
+   i 1+  midi.channel! MIDI.program 
+loop
+drop
+;
+
+
+: Waa.init
+cr
+." use Controller wheel to stop this program!" cr
+\ we need structures to hold playing note info
+128 1 new: NotesPlaying
+12  1 new: Counts
+ShutDown Off
+MIDI.Clear
+mp.reset
+    'c Do.note.on  mp-on-vector !
+    'c Do.note.off  mp-off-vector !
+    'c Do.Control  mp-Control-Vector !
+    'c Do.progch mp-Program-Vector !
+\ set prog to 1
+1 do.Progch
+;
+
+: Waa.play
+\ watch the midi's and retune them
+MIDI.Parser.on
+begin MIDI.PArse shutdown @ until
+;
+
+: Waa.end
+MIDI.Parser.off
+MIDI.Clear
+;
+
+: Waage
+Waa.init Waa.play waa.end
+;
+." Waage in..." cr
+

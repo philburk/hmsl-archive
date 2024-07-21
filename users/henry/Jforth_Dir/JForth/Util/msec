@@ -1,0 +1,49 @@
+\ Use the DOS delay function for an approximate
+\ time delay.  It uses software timing for fractions
+\ of 20 milliseconds which is calibrated for the Amiga 1000.
+\ this will be slightly inaccurate on an Amiga 3000.
+\
+\ MOD: PLB 6/2/90 Check for 0 or 1 being passed to DELAY
+\     Calling DELAY() with 0 or 1 causes DOS errors!
+\ MOD: PLB 9/6/91 Abandon the use of the DOS_LIB Delay
+\	function because the V1.3 version can cause disk
+\	errors even at 15 ticks!  Use WaitTOF instead.
+\	Yes I know this is a kludge.  This is just a VERY
+\	CHEAP and DIRTY kind of delay.  NOT accurate.
+\ 00001 PLB/MDH 1/16/92 Add check for graphics_lib open
+
+decimal
+ANEW TASK-MSEC
+
+variable MSEC-WARN
+
+: MSEC ( NUMBER_OF_MILLISECONDS -- , DELAY )
+	0 max
+	dup
+	60 1000 */  ( calculate number of frames to wait )
+	dup 2 >
+	IF	graphics_lib @ 0= dup>r
+		IF
+    		graphics? \ open it if we need it
+    	THEN
+    	dup 0 DO callvoid graphics_lib WaitTOF LOOP
+    	r>
+    	IF
+    		-graphics \ close it if we opened it
+    	THEN
+    ELSE
+    	drop 0
+    THEN
+    ( -- n , number of frames waited for )
+    1000 60 */ -
+\
+\ Perform remaining milliseconds less than DOS timing resolution.
+\ This is only accurate for a 68000 running at 7.14 MHz,
+\ for example a standard Amiga 500.
+    0  
+    DO 349 0
+        DO  ( one millisecond )
+        LOOP
+    LOOP
+;
+

@@ -1,0 +1,65 @@
+\ Execute CLI command line
+\ Define automatic actions for BYE
+\
+\ Your AUTO.xxxx words should call the previous AUTO.xxxx, eg.
+\
+\ : AUTO.INIT  auto.init init.my.stuff ;
+\    then in some other file
+\ : AUTO.INIT  auto.init init.other.stuff ;
+\
+\ Author: Phil Burk  8/16/88
+\ Copyright 1988 Phil Burk
+
+\ 00001 07-aug-91 mdh  Added JSTARTED examination so clicmd is done once
+\ 00002 16-aug-91 plb  SAVE-FORTH calls AUTO.TERM and AUTO.INIT
+\          Added FIND&EXECUTE
+\ 00003 19-aug-91 Turn JSTARTED ON in AUTO.EXEC.CLI to avoid
+\          SAVE-FORTH from command line.
+\ 00004 25-jan-92 Cleaned-up output. added AUTO.TERM.ALL and COLD
+
+ANEW TASK-AUTO
+
+: AUTO.TERM  ( -- , should be called by all others )
+    >newline ." AUTO.TERM" cr
+;
+
+: FIND&EXECUTE ( $name -- , 00002 )
+	find
+    IF execute
+    ELSE   >newline ( 00004 )   $type ."  not found!" cr
+    THEN
+;
+
+: BYE  ( -- , call cleanup words )
+    " AUTO.TERM" find&execute \ 00002
+    bye
+;
+
+: AUTO.EXEC.CLI ( -- , execute Forth commands following CLI command )
+  JSTARTED @ 0=   \ 00001
+  IF   \ 00001
+  	JSTARTED ON \ 00003
+     clicommand count bl scan
+     >newline 2dup type cr   \ 00004
+     $interpret
+  THEN \ 00001
+;
+
+: AUTO.INIT ( -- , make auto.exec.cli part of startup )
+    auto.init  \ MUST call this!
+    auto.exec.cli
+;
+
+: AUTO.TERM.ALL  ( -- )  \ 00004
+  " AUTO.TERM" find&execute
+;
+
+: SAVE-FORTH ( -- , cleanup before saving, 00002 )
+    AUTO.TERM.ALL  \ 00004
+	save-forth
+    " AUTO.INIT" find&execute
+;
+
+: COLD  ( -- )   \ 00004
+  AUTO.TERM.ALL   cold
+;

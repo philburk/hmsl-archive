@@ -1,0 +1,169 @@
+\
+\ special "bent" chromelodeon for use by K. Bookstein for 
+\ Partch's 23rd Psalm
+\
+." This takes forever to load. You must CD to the ee directory" cr
+."  if the next thing you see is 'cant find EE'... JHHL" cr
+include?  ee.spot  ee 
+
+anew j1.spot
+\ good 'ol harry....
+\
+\ Chomelodeon's A-L, A-R registers
+\ a 440 = 4.3072
+\ g 392 = 4.2389 (really 4.2389.402134
+\ ... and for johnnie, Ab = 3072 - 341 = 2731
+\ .... which is pretty close to g392 +341 = 2730
+\
+\
+\ :H% transposes into "Harry's" scale before transmitting (i.e. G-392
+
+: %H ( note  Oct num den -- Note+1 ) \ sends it down as well !
+{ Note Oct Num Den  -- } 
+\ actually calculate!
+Note  0 127 within? If 
+Note oct 2+ num den %?  2389  ( 2731 ) + 
+\ temp. taken out for fun
+E!> 25 msec  ( E!. )
+else Note . ." :>>bad" 
+then 
+Note 1+
+;
+
+: I?
+%? 2404 + 4096 /mod . ." ." . cr ;
+\
+\
+\ --------------------
+\
+\ Al-Ar stops
+\ altered like this:
+\ 
+\ C (36) is now B (35) (40/21)
+\ C#(37) is now Bb(34) (15/8)
+\ D#(39) is now Ab(32) (20/11)
+\ E (40) is now F (29) (7/4)
+\
+\ -------------------------------
+
+: Al-ArB
+\
+\ "Automatic Bookstein feature:" go directly to TX81Z format
+\ 
+\ ENVir:TX
+Start-list
+21 \ starts on low A, but not the lowest a
+\
+2 001 01 %H \ 0A.----- 1/1
+\
+2 009 08 %H \ 0A#
+1 040 21 %H \ 0B.  -- Harry sez this is pretty low
+2 005 04 %H \ 1C.
+2 004 03 %H \ 1C#
+2 016 11 %H \ 1D.
+2 003 02 %H \ 1D#
+2 008 05 %H \ 1E.
+2 007 04 %H \ 1F.
+2 016 09 %H \ 1F#
+2 009 05 %H \ 1G.
+2 020 11 %H \ 1G#
+2 011 06 %H \ 1A.
+\
+2 015 08 %H \ 1A#
+2 040 21 %H \ 1B.
+
+\ eaten      2 005 03 %H \ 2C.----< lowest key 36
+2 040 21 %H \ 2C.----< lowest key 36 is now "B."
+
+\ eaten 2 160 81 %H \ 2C# 37
+2 015 08 %H \ 2C# 37  is now "Bb"
+
+3 001 01 %H \ 2D.----- 1/1 38
+
+\ eaten 3 081 80 %H \ 2D# 39
+2 020 11 %H \ 2D# 39 is now Ab
+
+\ eaten 3 033 32 %H \ 2E. 40 
+2 007 04 %H \ 2E. 40 is now F
+ 
+3 021 20 %H \ 2F. 41
+3 016 15 %H \ 2F#
+3 012 11 %H \ 2G.
+3 011 10 %H \ 2G#
+\
+3 010 09 %H \ 2A.
+3 009 08 %H \ 2A#
+3 008 07 %H \ 2B.
+3 007 06 %H \ 3C.----< 2nd 48
+3 032 27 %H \ 3C#
+3 006 05 %H \ 3D.
+3 011 09 %H \ 3D#
+3 005 04 %H \ 3E.
+3 014 11 %H \ 3F.
+3 009 07 %H \ 0F#
+3 021 16 %H \ 3G.
+3 004 03 %H \ 3G#
+\
+3 027 20 %H \ 3A.
+3 011 08 %H \ 3A#
+3 007 05 %H \ 3B.
+3 010 07 %H \ 4C.----< 3nd 60
+3 016 11 %H \ 0C#
+3 040 27 %H \ 0D.
+3 003 02 %H \ 0D#
+3 032 21 %H \ 0E.
+3 014 09 %H \ 0F.
+3 011 07 %H \ 0F#
+3 008 05 %H \ 0G.
+3 018 11 %H \ 0G#
+\
+3 005 03 %H \ 1A.
+3 027 16 %H \ 0A#
+3 012 07 %H \ 0B.
+3 007 04 %H \ 0C.----< 4nd 72
+3 016 09 %H \ 0C#
+3 009 05 %H \ 0D.
+3 020 11 %H \ 0D#
+3 011 06 %H \ 0E.
+3 015 08 %H \ 0F.
+3 040 21 %H \ 0F#
+3 064 33 %H \ 0G.
+3 160 81 %H \ 0G#
+\
+4 001 01 %H \ 1A.
+4 081 80 %H \ 0A#
+4 033 32 %H \ 0B.
+4 021 20 %H \ 0C.----< 5nd 84
+4 016 15 %H \ 0C#
+4 012 11 %H \ 0D.
+4 011 10 %H \ 0D#
+4 010 09 %H \ 0E.
+4 009 08 %H \ 0F.
+4 008 07 %H \ 0F#
+4 007 06 %H \ 0G.
+4 032 27 %H \ 0G#
+4 006 05 %H \ 1A.
+4 011 09 %H \ 0A#
+\
+4 005 04 %H \ 0B.
+4 014 11 %H \ 0C. ----> 6th 96
+4 009 07 %H \ 0C#
+4 021 16 %H \ 0D.
+4 004 03 %H \ 0D#
+4 005 03 %H \ 0E.
+4 011 08 %H \ 0F.
+4 007 05 %H \ 0F#
+4 010 07 %H \ 0G.
+4 016 11 %H \ 0G#
+4 040 27 %H \ 1A.
+4 003 02 %H \ 0A#
+4 008 05 %H \ 0B.
+4 009 05 %H \ 0C. ---< 7th 108
+\
+cr
+drop
+end-list
+." -- all done!" cr
+;
+
+." To send the tuning out, just type  AL-ARB, and wait 1 second " cr

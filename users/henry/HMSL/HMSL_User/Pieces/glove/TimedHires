@@ -1,0 +1,131 @@
+\ Hires with Timer
+
+\ Added hi-res support a la glove-list posting from Manfred Kraus,
+\ manfredo@medapl.cs.tu-berlin.de
+
+\ Author: rnm 10/22/91
+\ Mod   : rnm 11/25/91 to use parallel port interface
+\ Mod   : rnm 12/2/91 to use the timer.device for usec timing
+\ Mod   : rnm 12/2/91 pass data address to PollForPacket
+\ Copyright (©) Robert Marsanyi 1991
+
+include? usec glove_timer
+include? ShowPoll ParPoll
+anew task-hires
+
+\ Data structures
+
+341 CONSTANT LOOP>MSEC
+96 CONSTANT D2BYTES
+22 CONSTANT D2BITS
+100 CONSTANT D2SLOW
+
+.NEED _glove_data
+:struct _glove_data
+	ubyte	gd_dum0
+	byte	gd_x
+	byte	gd_y
+	byte	gd_z
+	ubyte	gd_rot
+	ubyte	gd_fingers
+	ubyte	gd_keys
+	ubyte	gd_dum7
+	ubyte	gd_dum8
+	ubyte	gd_dum9
+	ubyte	gd_dumA
+	ubyte	gd_dumB
+;struct
+.THEN
+
+_glove_data GloveBuf
+
+\ Hi-res support
+
+.NEED usec	( should be in glove_timer
+: usec ( length -- , just loop for a delay time )
+	LOOP>MSEC 1000 */ 0 DO LOOP
+;
+.THEN
+
+: SetWrite ( -- , signature before writing bytes )
+	C1L0
+	7212 usec
+	C1L1
+	2260 usec
+;
+
+: WriteData ( byte -- , write data to latch line )
+	8 0 DO
+		dup $ 80 AND IF
+			C1L1
+			C0L1
+			C1L1
+		ELSE
+			C1L0
+			C0L0
+			C1L0
+		THEN
+		1 shift				( shift up one bit )
+		D2BITS usec
+	LOOP drop
+;
+
+: SetHires ( -- , send hires signature to glove )
+	StrobeReset
+	4 0 DO
+		D2BITS usec
+		StrobeData		( prepare for next data bit )
+	LOOP				( read 4 dummy bits )
+	SetWrite
+	$ 06 WriteData D2BYTES usec
+	$ C1 WriteData D2BYTES usec
+	$ 08 WriteData D2BYTES usec
+	$ 00 WriteData D2BYTES usec
+	$ 02 WriteData D2BYTES usec
+	$ FF WriteData D2BYTES usec
+	$ 01 WriteData 892 usec
+	C1L0 30 msec
+;
+
+\ Get 12-byte packet
+
+: PollForPacket { packet -- , read a 12-byte packet }
+	7 0 DO
+		PollGlove
+		packet i + c!				( store at next position )
+		D2BYTES usec
+	LOOP
+	5 0 DO
+		PollGlove
+		packet i 7 + + c!			( store at next position )
+		D2SLOW usec
+	LOOP
+;
+
+\ Test word
+
+: ShowPacket ( packet -- , display values )
+	12 0 DO
+		dup i + c@ .hex
+	LOOP drop cr
+;
+
+: ShowZ ( packet -- , just the z value )
+	dup c@ $ A0 = IF
+		dup 3 + c@ .hex cr?
+	THEN drop
+;
+
+: PollPackets ( -- , loop and display )
+	BEGIN
+		GloveBuf PollForPacket GloveBuf ShowPacket
+		?terminal
+	UNTIL
+;
+	
+\ Init and Term
+
+: init.glove	gt.init init.glove SetHires ;
+: term.glove	term.glove gt.term ;
+
+: DoGlove	init.glove PollPackets term.glove ;

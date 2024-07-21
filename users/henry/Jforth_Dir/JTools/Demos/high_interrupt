@@ -1,0 +1,146 @@
+\ JForth - Host Dependant Interrupt based 60 Hz timer.
+\
+\ Use a Vertical Blanking Interrupt Server
+\ to increment a variable every 1/60th of a second.
+\ Do this in high level to show what must be done
+\ to do high level Forth interrupts.
+\
+\ The interrupt routine must setup A3-A6 to what
+\ JForth needs.  A6 must point to a stack that is
+\ used only be the interrupt server.  The
+\ values for these registers are contained in an array
+\ whose address is passed through the interrupt structure.
+\
+\ If you call HIGH LEVEL Forth words from an Interupt
+\ you must be VERY CAREFUL not to affect any other Forth
+\ code.  Do not call words that use temporary storage
+\ variables.  Do not do anything that takes too long
+\ or that does any I/O.  No EMIT or ." or KEY , etc.
+\
+\ Be sure to turn off the clock before
+\ forgetting this code.
+\
+\ This code was extracted from HMSL and modified.
+\ HMSL is the Hierarchical Music Specification Language
+\ from the Mills College Center for Contemporary Music
+\
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk
+\
+\ MOD: PLB 5/12/89 Fix A6-A5 mixup when saving and restoring
+\      registers in interrupt server.
+
+include? interrupt ji:exec/interrupts.j
+include? INTB_VERTB ji:hardware/intbits.j
+
+ANEW TASK-AJF_RTC
+decimal
+variable VERTBINTR
+variable TIME-COUNT
+
+\ See the ROM Kernal Manual for a full description.
+: ADDINTSERVER() ( type interrupt -- )
+	>abs
+	call exec_lib addintserver drop
+;
+
+: REMINTSERVER() ( type interrupt -- )
+	>abs
+	call exec_lib remintserver drop
+;
+
+\ Create special stack just for interupt.
+CREATE INT-STACK 256 allot
+4 allot    \ extra just for protection from underflow
+: TOP-INT-STACK int-staCK 256 + ;
+
+
+\ Create memory area for holding A4, A5 and A6
+4 ARRAY AREGS-HOLDER
+
+ASM GET.A3A4A5 ( -- A3 A4 A5 , push A4 and A5 onto stack )
+	MOVE.L     TOS,-(A6)
+	MOVE.L     A3,-(A6)
+	MOVE.L     A4,-(A6)
+	MOVE.L     A5,TOS
+	RTS
+END-CODE
+
+: SETUP.AREGS-HOLDER  ( -- , setup image of A registers)
+	get.A3a4a5
+	2 aregs-holder !  ( A5 = User Pointer )
+	1 aregs-holder !  ( A4 = Base of JForth )
+	0 aregs-holder !  ( A3 = Base + 64K )
+	top-int-stack >abs 3 aregs-holder !  ( data stack )
+;
+
+: INCR.TIMER  ( -- , high level word to increment timer )
+	1 time-count +!
+;
+
+: TIME.INT.SERVER1 ( -- , called when vertical blanking occurs )
+\ Low Level version.
+\ The manual implies that A1 points to the is_data member.
+\ I found through experimentation that A1 actually contains
+\ the contents of is_data.
+	[  ( lay down code to avoid loading assembler )
+	$ 5291 w,   \ addq.l    #1,(a1)       ( increment counter )
+	$ 7000 w,   \ moveq.l   #0,d0         ( continue chain )
+	]
+;
+
+ASM TIME.INT.SERVER2  ( -- )
+\ This is a version of TIME.INT.SERVER that calls
+\ HIGH LEVEL Forth code to do its thing.
+	MOVEM.L    D2-D7/A2-A6,-(A7)  \ Save non scratch registers.
+\ A1 points to the image in memory of what should be in A3,A4,A5,A6
+	MOVEM.L    (A1)+,A3-A6        \ Setup Forth registers
+	CALLCFA    INCR.TIMER         \ Call High Level
+	MOVEM.L    (A7)+,D2-D7/A2-A6
+	MOVEQ.L    #0,D0
+	RTS
+END-CODE
+
+: CLOCK.INIT  ( -- , setup interrupt)
+	0 time-count !
+	setup.aregs-holder
+	vertbintr @ 0=  ( make sure not done twice )
+	IF
+		MEMF_PUBLIC sizeof() interrupt allocblock ?dup
+		IF
+			dup>r vertbintr !  ( save for TERM )
+\ Set values in structure.
+			NT_INTERRUPT r@ .. is_node ..! ln_type
+			-60  r@ .. is_node ..! ln_pri
+			0" VertB Timer" >abs r@ .. is_node ..! ln_name
+			0 aregs-holder >abs r@ ..! is_data
+			' time.int.server2 >abs r@ ..! is_code
+\
+\ Add to EXEC List of Interrupt Servers for VERTB.
+			INTB_VERTB r> addintserver()
+		ELSE
+			." TIME.INT.INIT - Not enough space for timer interrupt!" cr
+			abort
+		THEN
+	THEN
+;
+
+: CLOCK.TERM ( -- , remove and free timer interrupt )
+	vertbintr @ ?dup
+	IF  INTB_VERTB over remintserver()
+		freeblock
+		0 vertbintr !
+	THEN
+;
+
+: TIME@  ( -- current_time )
+	time-count @
+;
+
+: TEST ( -- , test high level interrupt )
+	clock.init
+	BEGIN time@ . cr
+		?terminal
+	UNTIL
+	clock.term
+;

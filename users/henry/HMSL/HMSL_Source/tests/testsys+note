@@ -1,0 +1,24 @@
+\ Test sending a sysex message followed by a note on.
+
+ANEW TASK-TESTSYS+NOTE
+
+: SEND.SYSEX  ( N -- , send N characters plus wrapper )
+    midi.start.sysex
+    0 midi.xmit
+    0 DO i midi.xmit
+    LOOP
+    midi.end.sysex
+;
+
+: (TEST)  ( N -- )
+    send.sysex
+    50 100 midi.noteon
+    200 msec
+    midi.lastoff
+;
+
+: TEST  ( -- )
+    8 (test)
+;
+\ 6 including start and stop
+

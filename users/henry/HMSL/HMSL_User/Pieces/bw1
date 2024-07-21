@@ -1,0 +1,297 @@
+\ Oct 21 1995
+
+\ the idea is to get 8 possibilities - statically determined
+\ and return them for each incoming note-on
+\ "active" list may not be needed anymore.
+
+\ lightly based on a suggestion from Benedict Weiser
+\ Sept 95.
+
+anew bw.spot
+
+\ just how many choices....
+11 constant AWidth
+
+create assoc 128 aWidth * cells  allot
+
+\ records which associated note was played instead of the real one
+create Played 128 cells allot
+
+\ records which the fact that this note is now playing
+create Played' 128 cells allot
+
+v: lastprg
+-1 lastprg !
+
+v: ShutDown
+
+\ which notes are actually note-on'd
+v: NumActive \ basetone is set when NumActive goes from 0->1
+
+create Active 32 cells allot \ a little generous...
+
+: Note. ( note -- )
+dup 
+12 mod
+case
+00 of ." C  " endof
+01 of ." C# " endof
+02 of ." D  " endof
+03 of ." Eb " endof
+04 of ." E  " endof
+05 of ." F  " endof
+06 of ." F# " endof
+07 of ." G  " endof
+08 of ." Ab " endof
+09 of ." A  " endof
+10 of ." Bb " endof
+11 of ." B  " endof
+endcase
+12 / .
+;
+
+
+\ this is the totally random re-assignment scheme.
+
+: setupassocs
+128 0 do
+ AWidth 0 do
+
+\ this is a roughly gaussian distribution
+\ 
+ 128 choose 
+ 128 choose 
+ 128 choose
+ 
+ + + 3 /
+
+\ i is the inside, j is the outside
+ j AWidth * i +  cells assoc + !
+
+ loop
+loop
+
+\ check ?
+
+\ cr
+\ ." Table of associations " cr
+
+\  128 0 do
+\ i note. ." : " 
+\ 8 0 do
+\ j 8 * i + cells assoc + @ note.
+\ loop
+\ cr
+\ loop
+
+;
+
+
+\ this is the offset table for the no-so-random re-assignment scheme
+\ this had better be at least AWidth in width
+
+create offsets
+\ 0 , 1 , -1 ,  4 , -5 ,  7 , -8 , 9 , 11 , 12 ,
+
+ 0 , 1 , -1 ,  2 , -2 ,  3 , -3 , 4 , -4 , 5 , -5 ,
+
+: setupassocs1
+128 0 do
+ AWidth 0 do
+
+ j i cells offsets + @ +
+127 min 0 max
+
+ j AWidth * i +  cells assoc + !
+ loop
+loop
+;
+
+
+
+
+\ new feature: make sure new note is not playing now!
+v: choice
+AWidth choice !
+
+\ pick a note from our little table of possibilities
+: getgamut ( n -- n1)
+AWidth * ( point at proper assoc slot )
+  choice @ choose + cells assoc + @ 
+;
+
+
+v: cellno
+v: found
+
+\ debug function
+: active.
+." (" NumActive @ dup . ." )"  0 do
+ i cells Active + @ note. ." ,"
+loop
+cr
+;
+
+\ do this the q&d way!
+: !Active? ( n -- 1/0 )
+cells Played' + @ not
+;
+
+
+v: velo
+v: note
+v: note'
+
+\ this gets a real note in, it noff's it's correspondant.
+
+: Do.note.off ( note vel -- )
+velo ! note !
+
+note @ cells Played + @ dup note' ! ( save it first! )
+
+ velo @ midi.noteoff
+
+\ helps active know the note is free!
+0 note @ cells played + !
+note' @ cells Played' + off
+
+\ remove assoc note from active playing list
+
+found off
+NumActive @ 1 do
+
+ found @ if
+\ transfer me to 1 lower...
+  i cells Active + @ i 1- cells active + !
+
+ else
+\ not yet found... see if it is.
+  note' @ i cells Active + @ = found !
+ then
+
+loop
+
+numActive decr
+\ zap last program #
+-1 lastprg !
+\ debugger line
+\ numActive @ if-not
+\ cls
+\ then
+
+;
+
+
+: Do.note.on ( note vel -- )
+velo ! note !
+
+velo @ if-not
+note @ 64 do.note.off
+else
+
+\ keep choosing notes till a fresh one shows up.
+
+begin
+note @ getgamut dup note' !
+
+( note' on stack) !active?
+
+\ debug ?? notify conflict?
+\ dup  if-not ." !" cr then
+until
+
+\ debug line
+\ active.  note @ note.  ." ->" note' @ note. cr
+
+\ actually play it!
+note' @ velo @ MIDI.Noteon
+
+\ remember which note got chosen.
+note' @ note @ cells Played + !
+note' @ cells Played' + on
+
+\ save transformed  note... to avoid clashes. 
+note' @ numActive @ cells Active + !
+numActive INCR
+
+then
+;
+
+: Do.Control ( num amt )
+\ wheel = change choice! not modulation!
+over 1 = if
+Awidth * 127 / choice !
+drop
+else \ send all controls -- like "pedal" 
+ midi.control
+then
+;
+
+
+\ these numbes start at 0.. but midi.program thinks of 1..n
+
+: DO.ProgCh ( progno -- )
+
+dup dup 0 = swap lastprg @ = and if
+drop shutdown on
+else
+\ dumbass thing wants numbers 1--128 not 0..127!
+dup lastprg !
+1+ MIDI.program 
+\ crank volume
+ 7 127 MIDI.control
+then
+;
+
+
+: bw.init
+\ for every midi note in, pull 8 note numbers out.
+
+\ setupassocs
+setupassocs1
+Shutdown off
+
+\ clear played' array
+128 0 do
+i cells played' + off
+loop
+
+MIDI.Clear
+mp.reset
+    'c Do.note.on  mp-on-vector !
+    'c Do.note.off  mp-off-vector !
+    'c Do.Control  mp-Control-Vector !
+    'c Do.progch mp-Program-Vector !
+\ set prog to 1
+0 do.Progch
+
+1 midi.channel!
+;
+
+
+: bw.play
+\ watch the midi's and retune them
+cls
+." Mod control wheel controls the width of divergence" cr
+." To stop, chose program 0 twice!" cr
+MIDI.Parser.on
+begin MIDI.Parse shutdown @ until
+;
+
+: bw.end
+MIDI.Parser.off
+MIDI.Clear
+MIDI.kill
+;
+
+: bw
+bw.init bw.play bw.end
+." Done!" cr
+;
+
+\ sets choice (1..8)
+: schoice ( n -- )
+choice !
+;
+
+." bw, schoice  ready... " cr

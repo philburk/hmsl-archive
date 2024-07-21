@@ -1,0 +1,68 @@
+\ Find a window with a given title.
+\
+\ Author: Phil Burk
+\ Copyright 1991 Phil Burk
+\ All Rights Reserved.
+
+include? { ju:locals
+
+ANEW TASK-FIND_WINDOW
+
+.NEED WindowToFront()
+: WindowToFront() ( window -- )
+	callvoid>abs intuition_lib WindowToFront
+;
+.THEN
+
+.NEED ActivateWindow()
+: ActivateWindow() ( window -- )
+	callvoid>abs intuition_lib ActivateWindow
+;
+.THEN
+
+: GET.FIRST.WINDOW ( -- window|0 )
+	intuition?
+	intuition_lib @ >rel \ get IntuitionBase
+	s@ ib_ActiveScreen dup
+	IF
+		s@ sc_FirstWindow
+	THEN
+;
+
+: $FindWindow { $name | wind result -- window true | false }
+\ The name only has to be the first part of window title.
+	false \ default result
+	get.first.window -> wind
+	BEGIN
+		wind
+		IF
+			wind s@ wd_title 0count
+			$name c@ >=
+			IF
+				$name count swap text=?
+				IF
+					drop wind true
+					true
+				ELSE
+					wind s@ wd_NextWindow -> wind
+					false
+				THEN
+			ELSE
+				wind s@ wd_NextWindow -> wind
+				drop false
+			THEN
+		ELSE
+			true \ couldn't find
+		THEN
+		?terminal OR
+	UNTIL
+;
+
+: JForthToFront ( -- , bring JForth window to front and activate )
+	" JForth" $findwindow
+	IF
+		dup windowToFront()
+		ActivateWindow()
+	THEN
+;
+

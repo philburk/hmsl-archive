@@ -1,0 +1,76 @@
+\ Demonstrate simple graphics operations using JForth.
+\ This demo is similar to the BOXES demo from Commodore.
+\
+\ Author: Phil Burk
+\ Copyright 1986  Delta Research
+\
+\ MOD: PLB 1/16/87 INCLUDE?s added.
+
+INCLUDE? NewWindow.Setup JU:AMIGA_GRAPH
+INCLUDE? ?CLOSEBOX   JU:AMIGA_EVENTS
+INCLUDE? CHOOSE JU:RANDOM
+
+ANEW TASK-DEMO_BOXES
+
+: RANDOM.BOX  ( w h -- , draw random box in bounds , in current color)
+	dup choose swap choose   ( -- w y y , Generate two random Y values )
+	2sort >r  ( -- w y1 , push highest Y value )
+	swap dup choose swap choose  ( -- y1 x x )
+	2sort >r swap r> r>    ( -- x1 y1 x2 y2 )
+	gr.rect  ( Draw filled rectangle. )
+;
+
+VARIABLE #BOXES/100
+: RANDOM.BOXES ( flag -- , draw boxes in multiple colors )
+	BEGIN
+		100 0 DO
+\ This only works on V1.2 Beta-4 of Amiga-DOS.
+\ Other versions do not change color. They always use 3 .
+			gr.color@ 1+ 3 and gr.color!  ( Cycle colors. )
+\ Stay within bounds of current window.
+\ Access window structure. ( In 'C':   gr_currentw->width )
+			gr-curwindow @  s@ wd_width
+			gr-curwindow @  s@ wd_height
+			random.box
+		LOOP
+		1 #boxes/100 +!
+\
+\ Occasionally change from Insert Mode <--> XOR Mode.
+		dup
+		IF 5 choose 2 =
+			IF gr.mode@
+				1- 1 xor 1+ gr.mode! ( Toggle drawing mode. )
+			THEN
+		THEN
+		?closebox
+	UNTIL drop
+	gr_insert_mode gr.mode! ( Back to normal drawing mode. )
+;
+
+NewWindow BoxWindow   ( Create a template for the new window. )
+
+: (BOXES) ( flag -- , Perform boxes with XOR or not)
+	cr ." BOXES - Hit CLOSE BOX to stop!" cr
+	gr.init            ( Initialize graphics system. )
+	BoxWindow NewWindow.Setup     ( Set defaults for window )
+\ Create window from template and make it the current window.
+	BoxWindow  gr.opencurw
+	IF  0 #boxes/100 !
+		random.boxes
+		gr.closecurw
+		cr #boxes/100 @ 100 * . ."  boxes drawn!" cr
+	ELSE drop
+	THEN
+	gr.term
+;
+
+
+: BOXES  ( -- , Demonstrate boxes )
+	false (boxes)
+;
+
+: FANCY-BOXES  ( -- , Demonstrate boxes with XOR )
+	true  (boxes)
+;
+
+cr ." Enter:   BOXES     for demo!" cr

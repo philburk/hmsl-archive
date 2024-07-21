@@ -1,0 +1,28 @@
+\ Sample testing.
+\
+ANEW TASK-TEST_SAMP
+
+: TS.SETUP
+    ins-amiga-1 put.instrument: player-1
+    2000 put.repeat: player-1
+    0 put.envelope: ins-amiga-1
+    adc-sample put.waveform: ins-amiga-1
+    20 put.offset: ins-amiga-1
+\
+    0 shape-1 0stuff: player-1
+    16 3 new: shape-1
+    10 4 100 add: shape-1
+    10 4  90 add: shape-1
+    10 5 100 add: shape-1
+    10 6  80 add: shape-1
+    shape-1 add: shape-holder
+;
+
+\ Quickies for lazy typists.
+: PH
+    player-1 hmsl.play
+;
+
+: SP
+    sample ph
+;

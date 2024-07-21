@@ -1,0 +1,323 @@
+
+\ All Rights Reserved, Mike Haas, 1987
+\
+\ VERY handy utilities to dynamically expand a memory area being handled
+\ with +STACK and -STACK...
+\
+\ : Enlarge?  ( var #bytes -- , error check area big enough, expand if not )
+\ : StackInsert     ( data index var -- , expand dynamically )
+\ : StackFind       ( data var -- index true OR index false )
+\ : StackRemove     ( index var -- , remove data, move any above )
+\ : StackFindRemove ( data var -- )
+
+
+anew task-stackutils
+
+.need term
+  : term ;
+.then
+
+
+\ this may be used to establish an initial allocation size for these
+\ DYNAMIC structures.  For example: MEMF_PUBLIC GetInitialSize allocblock
+
+variable InitialSize   1024 InitialSize !
+
+: GetInitialSize   ( -- n1 )   InitialSize @   ;
+
+
+\ This word just saves a couple text instantiations
+
+: STACK_ALLOC_ERR?  ( mem -- mem , handler for various allocation places )
+  -dup 0= ?abort" Can't allocate stack memory!"
+;
+
+
+: ENLARGE?  ( var #bytes -- , error check area big enough, expand if not )
+\
+\ This does the smarts of auto allocation...
+\ IF   the memblock stored in the variable is less than the #bytes,
+\ THEN allocate a large enough area (1k boundries), copy old to new,
+\      de-allocate old, store new in var...
+\
+  swap >r    \ save var adr       ( -- #bytes )         ( --r-- var )
+  r @  >r    \ generate memadr    ( -- #bytes )         ( --r-- var memblk )
+  r sizemem                       ( -- #bytes memsize )
+  over <     \ too small?         ( -- #bytes flag )    ( --r-- var memblk )
+  IF
+     dup 1024 /mod                ( -- #b rem #k )      \   "
+     swap  IF 1+ THEN             ( -- #b #k' )         \   "
+     1024 *  MEMF_CLEAR  swap
+     allocblock stack_alloc_err?  ( -- #b newblk )      \   "
+     \ dup 1024 erase
+     r over                       ( -- #b new old new ) \   "
+     over freebyte move           ( -- #b new )         \   "
+     r freebyte over freebytea !
+     r> freeblock dup r ! >r      ( -- #b )             ( --r-- var newblk )
+  THEN
+  drop 2 xr> 2drop  ;
+
+ 
+: StackInsert  ( data index var -- , expand dynamically )  >r
+  dup r@ @ freecell <=
+  IF   ( -- data ix )
+       r@ dup @  freebyte cell+  Enlarge?
+       2dup cells r@ @ +             ( -- d ix d from )
+       dup cell+                     ( -- d ix d from to )
+       r@ @ freecell 4 pick - cells  ( -- d ix d from to cnt )  move
+       cell r@ @ freebytea +!
+       over cells r@ @ + ! ( -- d ix )
+  ELSE 1 ?abort" 'StackInsert' ... out-of-range index!"
+  THEN 2drop r> drop
+;
+
+.NEED ASM
+
+: StackLocate  ( data var -- index-to-INSERT-at , to keep it sorted )
+  @ >r     ( -- data )
+  0  r@ freecell 1- 0 max  ( -- data lo hi )  \ points to bottom & top of range
+  BEGIN
+         ( -- data lo hi )   \ ?pause
+         2dup -
+  WHILE
+         ( -- data lo hi )
+         over cells  r@ + @   ( -- data lo hi lodata )
+         3 pick   ( -- data lo hi lodata data )  2dup >
+         IF
+              \ lo is not low enough...
+              2drop  drop  dup 2/ swap  ( -- data lo hi )
+         ELSE
+              \ Is Lo too low?  ( -- data lo hi lodata data )
+              <            ( -- data lo hi flag )
+              IF
+                    \ yep, move it up...
+                    2dup swap - ( -- data lo hi hi-lo )
+                    2/ 1 max   rot + swap ( -- data <<hi-lo/2>1max>+lo hi )
+              ELSE
+                    \ data = lodata
+                    drop dup
+              THEN
+         THEN
+         ( -- data lo hi )
+  REPEAT
+  drop swap   ( -- lo data )   r> dup freebyte ?dup
+  IF
+       ( -- lo data adr freebyte )  cell- + @  >
+       IF
+            1+
+       THEN
+  ELSE
+       2drop
+  THEN
+;
+
+.ELSE
+
+ASM StackLocate  ( data var -- index-to-INSERT-at , to keep it sorted )
+     move.l  0(org,tos.l),d4		d4 = memadr
+     move.l  (dsp)+,tos			tos=data, stack clean for xit
+     clr.l   d2				d2=lo
+     move.l  -8(org,d4.l),d3		d3=hi ...
+     move.l  d3,d1			d1=freebyte
+     asr.l   #2,d3
+     tst.l   d3				1- 0 max
+     beq     1$
+       subq.l  #1,d3
+1$:  cmp.l   d2,d3
+     beq     3$
+     move.l  d2,d0			get lodata in d0...
+     asl.l   #2,d0
+     add.l   d4,d0
+     move.l  0(org,d0.l),d0
+     cmp.l   d0,tos
+     bge     2$
+       \ lo is not low enough...
+       move.l  d2,d3
+       asr.l   #1,d2
+       bra     1$
+     \ Is Lo too low?
+2$:  beq     3$				<<hi-lo/2>1max>+lo
+     move.l  d3,d0
+     sub.l   d2,d0
+     asr.l   #1,d0
+     cmp.l   #1,d0
+     bge     4$
+       moveq.l  #1,d0
+4$:  add.l   d0,d2
+     bra     1$
+3$:  tst.l   d1
+     beq     5$
+       subq.l  #4,d1
+       add.l   d4,d1
+       cmp.l   0(org,d1.l),tos
+       ble     5$
+         addq.l  #1,d2
+5$:  move.l  d2,tos
+END-CODE
+
+.THEN
+
+
+.NEED ASM
+
+: StackFind  ( data var -- index true OR index false )
+\
+\ Always returns index which is that of the data if true, or the index
+\ to 'StackInsert' at if false, and the data is to be added.
+\
+  \ over hex 8 .r
+  >r
+  dup r@ StackLocate  ( data index )  dup r@ @ freecell 1- <=
+  IF
+       ( -- data ix )
+       dup cells r@ @ + @  ( -- data ix ixdata )
+       rot =  ( -- ix flag )
+  ELSE
+       swap drop 0
+  THEN
+  r> drop  \ over 8 .r  dup 8 .r   out @ 35 > if cr then
+;
+
+.ELSE
+
+asm StackFind  ( data var -- index true OR index false )
+     forth{ ] >r dup r@ StackLocate [ }  ( -- data index , -r- var )
+     moveq.l  #0,d1
+     move.l   (rp)+,a0		a0=var
+     move.l   0(org,a0.l),a0    a0=base
+     add.l    org,a0            a0=baseABS
+     \
+     move.l   -8(a0),d0         d0=freebyte
+     asr.l    #2,d0             d0=freecell
+     subq.l   #1,d0
+     cmp.l    d0,tos
+     bgt      1$
+       move.l   tos,d0
+       asl.l    #2,d0
+       move.l   0(a0,d0.l),d0
+       cmp.l    (dsp),d0
+       bne      1$
+         moveq.l  #-1,d1
+1$:  move.l   tos,(dsp)
+     move.l   d1,tos
+end-code
+
+.THEN
+
+
+
+: StackRemove  ( index var -- , remove data, move any above )
+  @ >r dup r@ freecell <
+  IF   ( -- ix )  dup  \ dup so that we don't need an 'ELSE drop' part
+       cells r@ +  dup cell+ swap     ( ix from to -- )
+       over  r@ dup freebyte + - abs  ( ix from to cnt -- )  move
+       [ cell negate ] literal  r@ freebytea +!
+  ELSE 1 ?abort" StackRemove' ... out-of-range index!"
+  THEN
+  r> 2drop
+;
+
+
+: StackFindRemove  ( data var -- )
+  dup >r  stackfind
+  IF
+       ( -- ix )
+       dup r@ stackremove
+  THEN
+  r> 2drop
+;
+
+
+\ 0 value TS  ( test stack )   variable tsv
+\ 
+\ : makets   ( #elements -- )
+\   TS   ?dup
+\   IF   freeblock  tsv off
+\   THEN
+\   MEMF_CLEAR over cells allocblock?  dup tsv !  -> TS   0
+\   DO
+\        i cells  tsv +stack
+\   LOOP
+\ ;
+\ 
+\ 
+\ : testts
+\   ts
+\   IF   cr
+\        ts freebyte 10 +  0
+\        DO
+\             ?pause   i dup 6 .r    tsv stacklocate  6 .r   12 spaces
+\             out @  40 >
+\             IF   cr
+\             THEN
+\        LOOP
+\   ELSE
+\        abort" TS has not been allocated!"
+\   THEN
+\ ;
+
+
+\ general word for cleaning up stacks...
+
+: FreeStack  ( varadr -- )
+  dup @ -dup
+  IF
+     \ over >newline ." Releasing DynamicStack: "
+     \ [ initialsize  ' initialsize - abs ] literal - >name id. cr     
+     freeblock  dup off
+  THEN
+  drop
+;
+
+
+: GetStackVAR  ( size var -- var )
+  dup @ 0=
+  IF
+     ( -- size var )  MEMF_PUBLIC MEMF_CLEAR or
+     2 pick  allocblock?   over !
+  THEN
+  swap drop
+;
+
+
+: DynamicStack  ( size -- , <name> )  ?exec
+  \
+  \ Create the objects necessary to automatically allocate a stack object.
+  \ If the 'size' passed is zero, then fetch 'InitialSize' when opening.
+  \
+  >in @ >r
+  bl word drop  r@ >in !
+  " VAR" count here $append   skip-word? on  [compile] variable
+  latest name> ( -- size varcfa )  \ execute
+  \
+  \  ( -- size varcfa )  ( -r- >in )
+  \
+  bl word drop  r> >in !    skip-word? on  2 x>r  [compile] :
+  r>  ( -- size )  ?dup
+  IF
+     [compile] literal
+  ELSE
+     ' InitialSize cfa,    compile @
+  THEN
+  r> ( -- varcfa )  cfa,   compile GetStackVAR   [compile] ;
+  \
+  \ now the stackBASE fetcher...
+  \
+  latest name>   ( -- lastpfa )  >r
+  bl word  " BASE" count rot $append  skip-word? on  [compile] :
+  r> cfa,  compile @  [compile] ;
+;
+
+
+
+\ Words for easily reading and writing into the stack...
+
+: Stack@  ( cell base -- data )
+  2dup freecell >= abort" Out of range STACK@"
+  swap cells + @
+;
+
+: Stack!  ( data cell base -- )
+  2dup freecell >= abort" Out of range STACK!"
+  swap cells + !
+;

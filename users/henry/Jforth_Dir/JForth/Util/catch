@@ -1,0 +1,115 @@
+\ Error trapping tools.
+\ Catch an ABORT or other errors.
+\
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk
+\
+\ I believe others have implemented very similar tools.
+\ WARNING: This code does not restore the stack!
+\
+ANEW TASK-CATCH
+
+$ CDEF4321 constant CATCH_OK_FLAG
+$ CDEF6543 constant CATCH_BAD_FLAG
+
+: CATCH{ ( -- , tuck flag onto return stack )
+    r>  ( save return address )
+    [ $ 48E7,0600 , ]  ( push i,j onto rstack )
+    catch_ok_flag >r
+    >r
+;
+
+: }CATCH? ( -- error? , true if THROW occurred )
+    r>  ( save return address )
+    r> 
+    [ $ 4CDF,0060 , ]  ( pop i,j from rstack )
+    CASE
+        catch_ok_flag OF false ENDOF
+        catch_bad_flag OF true ENDOF
+        ." }CATCH? - Return stack mangled!" cr
+        ." Improper use of CATCH{ }CATCH?" cr
+        quit
+    ENDCASE
+    swap >r
+;
+
+.NEED RDEPTH
+: RDEPTH ( -- #r )
+    r0 @ rp@ - cell/
+;
+.THEN
+
+defer catch-old-abort
+
+: THROW  ( -- , eat return stack until flag )
+    rdepth  ( don't use a DO LOOP in this
+    BEGIN 1- ( decrement depth )
+        1 rpick catch_ok_flag = 0=
+        over 4 < IF ." THROW not caught!" cr
+          catch-old-abort
+        THEN
+    WHILE rdrop
+    REPEAT  ( --R-- flag &}catch? , found flag )
+    r> rdrop catch_bad_flag >r >r
+;
+
+variable catch-abort-on?
+
+: CATCH.ABORT.ON  ( -- , set abort vector to throw )
+    catch-abort-on? @ 0=
+    IF  what's abort is catch-old-abort
+        ' throw is abort
+        catch-abort-on? on
+    ELSE ." Catch abort already on!" cr
+    THEN
+;
+: CATCH.ABORT.OFF
+    catch-abort-on? @
+    IF  what's catch-old-abort is abort
+        catch-abort-on? off
+    ELSE ." Catch abort already off!" cr
+    THEN
+;
+
+if.forgotten catch.abort.off
+       
+\ Test Catch
+false .IF
+: TC.BAD
+    ." Throwing now!" cr
+    throw
+    ." Won't see this!" cr
+;
+
+: TC.NAIVE1
+    ." N1.start" cr
+    tc.bad
+    ." N1.bad throw" cr
+;
+
+: TC.NAIVE2
+    500 400 DO
+        ." N2.start" cr
+        tc.naive1
+        ." N1.bad throw" cr
+    LOOP
+;
+
+: TC.WISE
+    ." DO Catch" cr
+    catch{
+       tc.naive2 ." After TC.NAIVE2 call" cr
+    }catch?
+    IF ." Error detected!" cr
+    ELSE ." No error" cr
+    THEN
+;
+
+: TC.TEST
+    6 4 DO
+    tc.wise
+    ." End of test!" cr
+    i . cr
+    LOOP
+;
+.THEN

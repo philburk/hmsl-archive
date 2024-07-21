@@ -1,0 +1,45 @@
+\ Initialize an icon to do its thing.
+\
+\ include? DiskObject ji:workbench/workbench.j
+\
+\ MOD: PLB 1/23/89 Added xxDiskxx calls.
+\ 00002 13-apr-91 mdh Added tooltype calls
+
+anew task-icon-support
+
+0 .IF  \ These are no longer supported by Commodore
+
+: GetWBObject()  ( 0name -- wbobject )   icon?
+   call>abs icon_lib GetWBObject  if>rel    ;
+
+: PutWBObject()   ( 0name WBWBObject -- 0-if-fail )
+  call>abs icon_lib PutWBobject  dup 0=
+  IF  >newline ." PutWBObject() Failed"
+  THEN  ;
+
+: FreeWBObject()  ( wbobject -- )
+   callvoid>abs icon_lib FreeWBObject ;
+
+.THEN
+
+: GetDiskObject() ( name -- object ) icon?
+    call>abs icon_lib GetDiskObject if>rel
+;
+
+: PutDiskObject() ( name object -- result )
+    call>abs icon_lib PutDiskObject
+;
+
+: FreeDiskObject() ( object -- result )
+    callvoid>abs icon_lib FreeDiskObject
+;
+
+: FindToolType()  ( tooltypearray 0$name -- 0$type / 0 )  \ 00002
+  call>abs icon_lib FindToolType if>rel
+;
+
+: MatchToolValue() ( 0$type 0$value -- 0 or 1 )  \ 00002
+  call>abs icon_lib MatchToolValue
+;
+
+\ Additional Icon help in ju:Set-Icon

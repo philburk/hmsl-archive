@@ -1,0 +1,49 @@
+
+\ Defered words defined as usual...
+\
+\       DEFER TESTWORD
+\
+\ Subsequent defining of the cfa to be inserted begins with 'IS->'...
+\
+\       : is->TESTWORD  ( etc. etc ...
+\
+\ and the word will automatically be put into TESTWORD
+
+
+anew task-NewColon
+
+
+: :   ( -- , <name> , check for deferred init... )
+\
+\ Create a header just like usual...
+\
+  [compile] :
+\
+\ Does it begin with 'IS->'? ...
+\
+  latest  1+ odd@  dup $ 49532d3e  ( "IS->" )  =
+  IF
+\
+\    Yes, find a deferred word to match?
+\     
+     drop  latest 5 +           ( -- text )
+     latest c@ $ 1f and  4 -    ( -- text cnt )
+     here off   here $append    ( -- )
+     here find
+     IF
+\
+\       It's in the dictionary    ( -- cfa )   is it defered?
+\
+        dup cell- @               ( -- cfa sizef )
+        dup  USERDEF_ID and       ( -- cfa sizef flag )
+        swap GLOBDEF_ID and or    ( -- cfa flag )
+        IF
+\
+\          Yep, poke it in...       ( -- cfa )
+\
+           latest name>  over >is !
+        THEN
+      THEN
+  THEN
+  drop
+;

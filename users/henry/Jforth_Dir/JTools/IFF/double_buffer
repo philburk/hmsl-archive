@@ -1,0 +1,219 @@
+\ Fast Double Buffering
+\ Open a Screen with a backdrop window,
+\ Init two views and use them for buffering.
+\ Provide word to switch display/drawing surface.
+\
+\ Author: Phil Burk
+\ Copyright 1990 Phil Burk
+\
+\ 00001 PLB 9/23/91 Use DBUF-WINDOWS rastport
+\ 00002 PLB 1/24/92 Changed name of ERROR locals to ERROR?, so no conflict.
+
+getmodule includes
+include? choose ju:random
+include? bitmap>screen ju:screen_support
+
+ANEW TASK-Double_Buffer
+
+variable DBUF-VIEW0
+variable DBUF-VIEW1
+
+variable DBUF-BITMAP0
+variable DBUF-BITMAP1
+
+variable DBUF-SCREEN
+variable DBUF-WINDOW
+
+variable DBUF-RASTPORT
+
+variable DBUF-CUR-BUF  \ 0 or 1 for currently DISPLAYED "buffer"
+
+: DBUF.UNMAKE.VIEWS  ( -- )
+	dbuf-view0 @ ?dup
+	IF
+		free.view
+		dbuf-view0 off
+	THEN
+\
+	dbuf-view1 @ ?dup
+	IF
+		free.view
+		dbuf-view1 off
+	THEN
+;
+
+: DBUF.UNMAKE  ( -- close and free everything )
+	dbuf-window @ ?dup
+	IF	dup gr-curwindow @ =
+		IF
+			drop GR.CloseCurW
+		ELSE
+			gr.CloseWindow
+		THEN
+		dbuf-window off
+	THEN
+\
+	dbuf-screen @ ?dup
+	IF	CloseScreen()
+		dbuf-screen off
+	THEN
+\
+	dbuf-bitmap0 @ ?dup
+	IF	Free.Bitmap
+		dbuf-bitmap0 off
+	THEN
+\
+	dbuf-bitmap1 @ ?dup
+	IF	Free.Bitmap
+		dbuf-bitmap1 off
+	THEN
+
+	dbuf.unmake.views
+;
+
+
+: DBUF.MAKE0  { bdepth bwidth bheight camg | error? -- error? , first buffer }
+	dbuf.unmake
+	true -> error?
+	bdepth bwidth bheight
+	alloc.bitmap   ?dup
+	IF
+		dup dbuf-bitmap0 !
+		camg bitmap>screen  ?dup
+		IF
+			dup dbuf-screen !
+			screen>backwindow ?dup
+			IF
+				dbuf-window !
+				0 dbuf-cur-buf !
+				dbuf-window @ s@ wd_rport dbuf-rastport ! \ 00001
+				false -> error?
+			THEN
+		THEN
+	THEN
+	error? dup
+	IF dbuf.unmake
+	THEN
+;
+
+: DBUF.SELECT.BITMAP ( 0|1 -- bitmap )
+	IF
+		dbuf-bitmap1 @ dup 0=
+		IF
+			drop dbuf-bitmap0 @
+		THEN
+	ELSE dbuf-bitmap0 @
+	THEN
+	dup 0= abort" DBUF.SELECT.BITMAP - found no bitmap!"
+;
+
+: DBUF_DRAWING_BITMAP ( -- bitmap )
+	dbuf-cur-buf @ 1 xor dbuf.select.bitmap
+
+;
+: DBUF_SHOWING_BITMAP ( -- bitmap )
+	dbuf-cur-buf @ dbuf.select.bitmap
+;
+
+: DBUF.DRAWTO  ( 0|1 -- , draw to that bitmap )
+	dbuf.select.bitmap
+	dbuf-rastport @ link.bm>rp
+	dbuf-rastport @ >abs gr-currport !
+;
+
+: DBUF.DISPLAY ( 0|1 -- , display that view )
+	IF dbuf-view1 @
+	ELSE dbuf-view0 @
+	THEN
+	LoadView()
+;
+
+: DBUF.SWITCH  ( -- , switch between double buffers )
+	dbuf-cur-buf @
+	dup 1 xor dup dbuf-cur-buf !
+	dbuf.display
+	dbuf.drawto
+;
+
+: DBUF.MAKE.VIEW  ( bitmap -- view | 0 , use bitmap in screen, make view)
+	dbuf-screen @ .. sc_bitmap
+	copy.planes
+	dbuf-screen @ remake.screen
+\
+\ now make view for it
+	dbuf-screen @ screen>view
+;
+
+: DBUF.MAKE.VIEWS  ( -- error? , make views for both buffers )
+	dbuf.unmake.views
+	true  \ default error flag
+	dbuf-bitmap0 @ dbuf.make.view ?dup
+	IF	dbuf-view0 !
+\
+		dbuf-bitmap1 @ dbuf.make.view ?dup
+		IF	dbuf-view1 !
+			drop false \ return value
+		THEN
+	THEN
+	dup
+	IF dbuf.unmake.views
+	THEN
+;
+
+: DBUF.MAKE1  { bdepth bwidth bheight | error? -- error? , second buffer }
+	true -> error?
+	bdepth bwidth bheight
+	alloc.bitmap   ?dup
+	IF
+		dbuf-bitmap1 !
+\		alloc.rastport ?dup \ 00001
+\		IF  dbuf-rastport !
+			1 dbuf.drawto
+			dbuf.make.views -> error?
+\		THEN
+	THEN
+\
+	error? dup
+	IF dbuf.unmake
+	THEN
+;
+
+if.forgotten dbuf.unmake
+
+1 .IF
+\ test double buffering
+: T1
+	graphics?
+	4 320 200 0 dbuf.make0
+;
+: T2
+	4 320 200 dbuf.make1
+;
+
+: TDRAW ( -- draw )
+	gr.clear
+	50 50 gr.move
+	60 0
+	DO 16 choose gr.color!
+		320 choose 200 choose gr.draw
+	LOOP
+;
+
+: TLOOP ( -- )
+	dbuf.switch
+	BEGIN
+		tdraw  dbuf.switch
+		?terminal
+	UNTIL
+;
+
+: TEST
+	t1 abort" t1 failed"
+	t2 abort" t2 failed"
+	tloop
+	dbuf.unmake
+;
+
+
+.THEN
+

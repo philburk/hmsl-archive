@@ -1,0 +1,33 @@
+\ telephonic scale for phone deviltry:
+
+anew phone.spot
+
+\ dtmf tones
+
+: phs
+start-list
+zero-set
+
+3 2 do
+i \f	697 hz>pts e!>
+i \g	770 hz>pts e!>
+i \a	852 hz>pts e!>
+i \b	941 hz>pts e!>
+
+i \f#	1209 hz>pts e!>
+i \g#	1336 hz>pts e!>
+i \a#	1477 hz>pts e!>
+
+i 1+ \c#	1633 hz>pts e!>	\ mil. row!
+
+\ other tones:
+i \c	440 hz>pts e!>
+i \d	350 hz>pts e!>
+i \eb	480 hz>pts e!>
+i \e	620 hz>pts e!>
+loop
+
+end-list
+
+;
+." phs!" cr

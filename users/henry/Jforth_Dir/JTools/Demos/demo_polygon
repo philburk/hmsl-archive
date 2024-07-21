@@ -1,0 +1,55 @@
+\ Demonstrate the drawing of polygons using the area routines.
+\
+\ Author: Phil Burk
+\ Copyright 1987
+include? gr.init ju:amiga_graph
+include? ?closebox ju:amiga_events
+include? gr.area.init ju:polygon
+include? choose ju:random
+
+ANEW TASK-DEMO_POLYGON
+
+: PG.INIT
+	gr.init
+	gr.opentest
+	gr.area.init
+;
+
+: PG.TERM
+	gr.area.term
+	gr.closecurw
+	gr.term
+;
+
+: PG.TEST.MANY  ( N -- )
+	0 DO
+		10 10   20 40   30 15 gr.triangle
+		i 3 and gr.color!
+	LOOP
+;
+
+: PG.RANDOM.POLY ( N_vertices -- )
+	600 choose 180 choose gr.areamove
+	0 DO
+		600 choose 180 choose gr.areadraw
+	LOOP
+	gr.areaend
+;
+
+: PG.FUN ( N -- )
+	0 DO
+		10 choose 2 + pg.random.poly
+		i 3 and gr.color!
+	LOOP
+;
+
+: DEMO.POLYGON ( -- )
+	pg.init
+	BEGIN 50 pg.fun
+		?closebox
+	UNTIL
+	pg.term
+;
+
+cr ." Enter:  DEMO.POLYGON    for demo!" cr
+

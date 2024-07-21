@@ -1,0 +1,12 @@
+Modifications made to HMSL  between V3.16 and V3.17
+
+* Fixed bug in instruments that gave errors when closing
+an instrument multiple times or with a set channel.
+
+* Added new control grids with simpler interface.
+
+Macintosh only -----
+
+* Fixed MIDI output buffer overflow problem.
+
+* Allow dual MIDI outputs and inputs.

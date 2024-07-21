@@ -1,0 +1,16 @@
+decimal
+
+variable rand-seed
+here rand-seed !
+: RANDOM ( -- rand# , between 0 and $ FFFF )
+    rand-seed @ [ $ cefc w, 7933 w, ]
+    3583 + $ ffff and
+    dup rand-seed !
+;
+
+: CHOOSE  ( range -- rand# , between 0 and range )
+    random * -16 shift
+;
+
+: WCHOOSE  ( hi lo -- rand# , between lo and hi )
+  tuck -  choose +  ;

@@ -1,0 +1,28 @@
+Changes between HMSL Amiga versions 3.14 and 3.15
+
+---- Changes to Instruments -------------------------
+
+* Instruments are now subclasses of OB.LIST.
+  Notes are tracked and are turned off individually
+  when NOTE.OFF: is called.  Allows a mix of calls to
+  NOTE.OFF: and LAST.NOTE.OFF:
+
+* Calling NOTE.ON: with velocity = 0 calls NOTE.OFF:
+
+* ALL.OFF: ( -- ) added to OB.MIDI.INSTRUMENT to turn all
+    hanging notes off.  Called automatically from CLOSE:.
+
+* A count of how many times an instrument is OPENed or CLOSEd
+  is kept allowing an instrument to be shared.
+
+---------------------------------------------------------
+
+* SCRAMBLE: ( start end dim -- , reorder values )
+  added to OB.SHAPE . Available from shape editor.
+
+* EXTEND: now does a NEW: if it has not been done before.
+  It used to crash.
+
+* START: declaration removed from WAVEFORMS file.
+
+* STOP: declaration removed from ENVELOPES file.

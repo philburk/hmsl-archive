@@ -1,0 +1,8 @@
+\ Structure Editor
+\
+\ Author: Phil Burk
+\
+\ Copyright 1986
+ANEW TASK-STRUCT_EDITOR
+
+OB.SCREEN STRUCT-EDITOR

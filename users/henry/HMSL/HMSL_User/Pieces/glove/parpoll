@@ -1,0 +1,100 @@
+\ Par_poll
+
+\ Parallel port version of poll.
+\ Thanks to xxxxx for sample c code and a useful pinout diagram.
+\ Author: rnm 11/25/91
+\ Copyright (©) Robert Marsanyi 1991
+
+include? par@ par_port decimal
+anew task-par_poll
+
+1 CONSTANT GCLOCK
+2 CONSTANT GLATCH
+4 CONSTANT GDATA
+GCLOCK GLATCH | CONSTANT GCLOLAT
+
+\ Operating routines
+
+: C0L0
+	0 par!
+;
+
+: C1L0
+	GCLOCK par!
+;
+
+: C0L1
+	GLATCH par!
+;
+
+: C1L1
+	GCLOLAT par!
+;
+
+: StrobeReset ( -- , reset glove for next 8 bits )
+	C1L0					( latch lo )
+	C1L1					( latch hi )
+	1 0 DO LOOP				( tiny delay )
+	C1L0					( latch lo )
+;
+
+: StrobeData ( -- , lo-hi to pin 6 )
+	C0L0
+	C1L0
+;
+
+: GetDataBit ( -- bit , look at pin 4 )
+		par@ GDATA AND	( data bit )
+		-2 shift		( shift into bit 0 position )
+;
+
+: PollGlove ( -- glovebits )
+	StrobeReset
+	0 				( initial glovebits )
+	8 0 DO
+		1 shift			( move glovebits up one bit )
+		GetDataBit
+		OR				( with glovebits )
+		StrobeData		( prepare for next data bit )
+	LOOP	( -- glovebits )
+;
+
+\ Event loops
+
+1 7 shift CONSTANT GloveA
+1 6 shift CONSTANT GloveB
+1 5 shift CONSTANT GloveSelect
+1 4 shift CONSTANT GloveStart
+1 3 shift CONSTANT GloveUp
+1 2 shift CONSTANT GloveDown
+1 1 shift CONSTANT GloveLeft
+1         CONSTANT GloveRight
+
+v: pollrate 200 pollrate !		( poll rate in msecs )
+
+: PollForEvent ( mask -- , poll until mask satisfied )
+	BEGIN
+		pollrate @ msec
+		pollglove over AND
+	UNTIL drop ( mask )
+;
+
+: ShowPoll ( -- )
+	BEGIN
+		pollrate @ msec
+		pollglove h. cr?
+		?terminal
+	UNTIL
+;
+
+\ Init and Term
+
+: InitPort
+	GCLOLAT par.set.i/o			( write on clock, latch lines )
+;
+
+: init.glove
+	InitPort
+;
+
+: term.glove ;

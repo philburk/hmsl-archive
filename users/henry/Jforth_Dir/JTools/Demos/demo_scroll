@@ -1,0 +1,95 @@
+\ Demonstrate scrolling by calling graphics library.
+\
+\ Author: Phil Burk
+\ Copyright 1986  Delta Research
+
+include? newwindow.setup ju:amiga_graph
+include? ?closebox ju:amiga_events
+include? choose ju:random
+
+ANEW TASK-DEMO_SCROLL
+
+\ Example of calling AMIGA graphics library.
+: SCROLLRASTER ( rp dx dy xmin ymin xmax ymax -- , scroll region )
+	call graphics_lib ScrollRaster drop
+;
+
+\ Example of acessing AMIGA structure.
+: WINDOWLIMITS? ( -- w h , access window structure for x,y limits )
+	gr-curwindow @ ..@ wd_width
+	gr-curwindow @ ..@ wd_height
+;
+
+\ Variables for tracking curtain position.
+VARIABLE CURT-YMAX
+VARIABLE CURT-XMAX
+VARIABLE CURT-LEFT
+VARIABLE CURT-RIGHT
+
+: SPREAD.CURTAIN ( #pixels -- , Split window in middle. )
+	gr-currport @ over 0  ( Scroll left hand side. )
+	0  0    curt-left @  curt-ymax @   ScrollRaster
+\
+	gr-currport @ over negate  0  ( Then right side. )
+	curt-right @  0    curt-xmax @  curt-ymax @   ScrollRaster
+\
+	dup curt-right +!   negate curt-left +!  ( Update curtain position.)
+;
+
+: MEASURE.WINDOW  ( -- , Setup variables for scrolling. )
+	WindowLimits? curt-ymax !
+	dup curt-xmax !
+	2/ dup curt-left ! curt-right !
+;
+
+: DRAW.GAP  ( -- , Draw four lines inside gap between curtains. )
+\ Cycle colors.
+	gr.color@ 1+ 3 AND
+	dup gr.bcolor@ =  ( Don't draw lines the same as background color )
+	IF 1+ 3 AND THEN
+	gr.color!
+\
+\ Draw four lines in bounds within gap.
+	curt-left @      curt-ymax @ choose gr.draw ( left )
+	curt-right @ curt-left @ wchoose 0 gr.draw ( top )
+	curt-right @     curt-ymax @ choose gr.draw ( right )
+	curt-right @ curt-left @ wchoose curt-ymax @ gr.draw ( bottom )
+;
+
+: PULL.CURTAIN ( -- , Pull curtain apart. )
+	measure.window
+	curt-left @  curt-ymax @ 2/ gr.move
+	0 gr.bcolor!
+	BEGIN
+		50 0 DO
+			1 spread.curtain
+			draw.gap
+			curt-left @ 6 <  ( At edge? )
+\ Restart curtain in current center of window.
+			IF  measure.window
+				gr.bcolor@ 1+ 4 mod gr.bcolor! ( change background )
+			THEN
+		LOOP
+		?closebox
+	UNTIL
+;
+
+NewWindow NewCurtain   ( Create a template for the new window. )
+
+: CURTAINS  ( -- , Demonstrate scrollraster. )
+	gr.init
+	NewCurtain NewWindow.Setup   ( Set defaults for window )
+\
+\ The address of the title string must be converted to absolute
+\ addressing for use by the Amiga operating System.
+	0" Curtains!" >abs NewCurtain ..! nw_title ( change title )
+\
+\ Create window from template and make it the current window.
+	NewCurtain gr.opencurw
+	IF  pull.curtain
+		gr.closecurw
+	THEN
+	gr.term
+;
+
+cr ." Enter:   CURTAINS     for demo!" cr

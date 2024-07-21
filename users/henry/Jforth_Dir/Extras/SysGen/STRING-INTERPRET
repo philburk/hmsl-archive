@@ -1,0 +1,43 @@
+\ execute a string in  addr cnt  form ... Mike Haas, Delta Research
+
+\ 00001 18-aug-91  mdh     Incorporated XBLK
+
+: $INTERPRET  ( string-addr string-cnt -- ???? )  dup 1024 <
+  IF
+     PUSHTIB
+     XBLK @ >r ( 00001 )  BLK @ >r cprevstart @ >r  lastscan @ >r
+     2dup tib swap move      #TIB !  drop  ( -- )
+     >in off   fblk off   blk off   xblk off ( 00001 )
+     (interpret)
+     r> lastscan !   r> cprevstart !  r> blk !  r> xblk ! ( 00001 )
+     PULLTIB
+  ELSE
+     >newline ." Maximum $INTERPRET string size = 1024 character!"  quit
+  THEN
+;
+
+\ : $INTERPRET  ( string-addr string-cnt -- ???? )
+\   'TIB @ >r     #TIB @ >r     >IN @ >r   FBLK @ >r   BLK @ >r
+\   #TIB !  'TIB !  >in off   fblk off   blk off
+\   cprevstart @ >r  clinestart @ >r  clinenum @ >r  lastscan @ >r
+\   (interpret)
+\   r> lastscan !  r> cprevstart !
+\   r> blk !   r> 'tib !
+\ ;
+
+\ : $INTERPRET  ( string-addr string-cnt -- ???? )
+\   'TIB @ >r     #TIB @ >r     >IN @ >r   FBLK @ >r   BLK @ >r
+\   #TIB !  'TIB !  >in off   fblk off   blk off
+\   BEGIN   bl word   dup c@  \ is there anything in the input stream left?
+\   WHILE   find              \ YES ... is it in the dictionary?
+\           IF   compiling?  over >name immediate? 0= and
+\                IF   cfa,    \ COMPILE it if in comp mode AND its not immediate
+\                ELSE execute \ otherwise, EXECUTE the thing!
+\                THEN
+\           ELSE  \ if its not found in dictionary, is it a number?
+\                 number?
+\                 0= 0 ?error  drop [compile] literal
+\           THEN
+\   REPEAT  \ while we did find find something, go back and check again...
+\   drop    \ nothing left to EXECUTE, get rid of address on stack
+\   r> blk !   r> fblk !   r> >in !   r> #tib !   r> 'tib !   ;

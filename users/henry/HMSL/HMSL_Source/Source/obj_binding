@@ -1,0 +1,13 @@
+\ BINDING for Object Oriented Development Environment
+\
+\ This code provides words for binding a message to the appropriate
+\ method for an object.  Binding can occur at compile time ( "EARLY" ),
+\ or at run time, ( "LATE" )
+\ 
+\ Author: Phil Burk
+\ Copyright 1986 Phil Burk
+\
+\ MOD: PLB 11/29/86 Added MAC RO calls.
+\   For relocating systems, like on the MAC, relocatable tokens
+\   are stored in the dictionary, and absolute addresses are used at
+\   run time (when possible ).  The object stack conta

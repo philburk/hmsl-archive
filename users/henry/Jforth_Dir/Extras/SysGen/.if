@@ -1,0 +1,103 @@
+\ Changes: BTD added .NEED . Skips to .THEN  
+\ Conditional compilation words
+
+\ 00001 16-mar-91 mdh  .NEED now checked when nesting, just like .IF
+
+
+: EXISTS?  ( --- WORD-FOUND?-FLAG ) BL WORD FIND SWAP DROP ;
+\ usefull for conditional compilation. BTD
+
+: INCLUDE?   ( --- )  ( <file-name> <WORD> --in-- ) EXISTS?
+    IF-NOT   [] INCLUDE 
+    ELSE     BL WORD DROP 
+    THEN  ;
+
+: $=  ( $1 $2 --- EQUALS-flag )  2DUP C@ SWAP C@ = 
+     IF    1+ SWAP COUNT  COMPARE 0=  
+     ELSE  2DROP FALSE
+     THEN  ;
+
+: $-  ( $1 $2 --- NOMALIZED-$1-MINUS-$2 )   
+  2DUP ( - $1 $2 $1 $2  )
+  COUNT ROT COUNT        ( -- $1 $2 2adr 2cnt 1adr 1cnt )
+  ROT   min              ( -- $1 $2 2adr 1adr mincnt )
+  >r swap r>  COMPARE ( 1 2 FLAG ) DUP>R  0=
+  IF      C@ SWAP C@ SWAP - R> + 
+  ELSE    2DROP R> 
+  THEN   ;
+     
+: CHECK.THEN?  ( -- flag )
+  here  $" .THEN"  $=
+;
+
+: CHECK.IF?  ( -- flag )
+  here  $" .IF"   $=
+  here  $" .NEED" $=  OR   ( 00001 )
+;
+
+: >.THEN  ( -- , find next occurence of .THEN, disregard .ELSE )
+  BEGIN
+    bl word  c@
+    IF
+       check.then? ?dup 0=
+       IF
+          check.if?
+          IF
+             [ latest name> ] aliteral execute
+          THEN
+          false
+       THEN
+    ELSE
+       true
+    THEN
+  UNTIL
+;
+
+: CHECK.IF  ( -- )
+  check.if?
+  IF
+     >.THEN
+  THEN
+;
+
+: .IF  ( flag --- )  ( ".else"-or-".then" <text> --in-- <skip text if false> )
+  IF-NOT
+     BEGIN
+        BL WORD c@
+        IF
+           here  $" .ELSE"  $=   check.then?    or ?dup 0=
+           IF
+              check.if  false
+           THEN
+        ELSE
+           true
+        THEN
+     UNTIL
+  THEN
+; immediate
+
+
+: .ELSE  ( --- )  ( ".then" <text> --in-- <skip text> )
+     BEGIN
+        BL WORD c@
+        IF
+           check.then?  ?dup 0=
+           IF
+              check.if false
+           THEN
+        ELSE
+           true
+        THEN
+     UNTIL
+; immediate
+
+: .THEN ; immediate
+
+
+
+\ tested sept 9/86 BTD. works except that COMPARE does not return the 
+\ correct comparision flags. should be:  0 = , -1 $a<$b , +1 $a>$b.
+
+: .NEED  ( --- )  ( <NEEDED-WORD> --IN-- )
+  BL WORD FIND  SWAP DROP NOT  [] .IF  ; IMMEDIATE 
+       

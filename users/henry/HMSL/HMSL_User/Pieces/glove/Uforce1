@@ -1,0 +1,248 @@
+\ test RM certitude
+
+include? msg.do test_messages
+anew task_uforce
+
+NO-COMMAS
+
+\ when switches are dn dn dn dn , the  bottom and top
+\ sensors are on instead of blr and tur.
+
+.NEED _Uforce_data
+\ with game switches in position : dn dn dn up
+\
+\   tul    tur     top
+\   tll    tlr
+\ ------------
+\   bul    bur     base
+\   bll    blr      sensors
+
+:struct _Uforce_data
+	ubyte	uf_btn \ bit0 = 0- one button hit, bt1 = other
+
+	ubyte	uf_bll
+	ubyte	uf_blr
+	ubyte	uf_bot \ also tlr when switch is up. 
+	ubyte	uf_bul
+
+	ubyte	uf_tll
+	ubyte	uf_tul
+	ubyte	uf_tur
+	ubyte	uf_top 
+
+	ubyte	uf_dum9
+	ubyte	uf_dumA
+	ubyte	uf_dumB
+;struct
+
+\ fetching words
+: uf.btn1 glmsg .. gl_data  ..@ uf_btn 1 and ;
+: uf.btn2 glmsg .. gl_data  ..@ uf_btn 2 and ;
+: uf.btn glmsg .. gl_data  ..@ uf_btn ;
+
+: uf.top glmsg .. gl_data  ..@ uf_top ;
+: uf.bot glmsg .. gl_data  ..@ uf_bot ;
+
+: uf.tul glmsg .. gl_data  ..@ uf_tul ;
+: uf.tur glmsg .. gl_data  ..@ uf_tur ;
+: uf.tll glmsg .. gl_data  ..@ uf_tll ;
+: uf.tlr glmsg .. gl_data  ..@ uf_bot ; \ synonym when last sw is up
+
+: uf.bul glmsg .. gl_data  ..@ uf_bul ;
+: uf.bll glmsg .. gl_data  ..@ uf_bll ;
+: uf.blr glmsg .. gl_data  ..@ uf_blr ;
+\ note: no bur sensor! oshibka!
+.THEN
+
+
+
+\ number is an inverse distance
+: dis. ( in -- out )
+case
+0 of ." 0 " endof
+1 of ." 1 " endof
+3 of ." 2 " endof
+7 of ." 3 " endof
+15 of ." 4 " endof
+31 of ." 5 " endof
+47 of ." 6 " endof
+55 of ." 7 " endof
+63 of ." 8 " endof
+
+95 of ." 9 " endof
+111 of ." A " endof
+119 of ." B " endof
+127 of ." C " endof
+191 of ." D " endof
+175 of ." E " endof
+215 of ." F " endof
+223 of ." G " endof
+239 of ." H " endof
+247 of ." I " endof
+251 of ." J " endof
+dup .
+endcase
+
+;
+
+\
+: btn.
+dup
+ 2 and 0= if ." Sl" else ." --" then
+ 1 and 0= if ." St " else ." -- " then
+
+;
+
+: uf
+test.init
+
+gl_reset msg.do
+
+\ gl_start msg.do
+begin
+ gl_poll msg.do
+
+  uf.btn btn.
+
+  uf.bll dis.
+  uf.blr dis.
+  uf.bot dis.
+  uf.bul dis.
+ ."   "
+  uf.tll dis.
+  uf.top dis.
+  uf.tur dis.
+  uf.tul dis.
+\ ."   "
+\  glmsg .. gl_data  ..@ uf_dum9 dis.
+\   glmsg .. gl_data  ..@ uf_dumA dis.
+\   glmsg .. gl_data  ..@ uf_dumB dis.
+cr
+200 msec
+?terminal until
+\ gl_stop msg.do
+
+test.term
+;
+
+\ one byte game modes
+: uf1
+slow
+test.init
+
+gl_reset msg.do
+
+\ gl_start msg.do
+
+begin
+ gl_poll msg.do
+
+  glmsg .. gl_data  ..@ uf_btn h.
+12 emit 
+?terminal until
+\ gl_stop msg.do
+
+test.term
+;
+
+\ window w/grafix
+\ declare some sizes
+30 k: uff_top
+10 k: uff_w
+2  k: uff_ws
+uff_w uff_ws + k: uff_wws
+30 k: uff_l
+
+: rekt { x y val -- }
+0 gr.color!
+x uff_wws * uff_l +
+y  uff_wws * uff_top +
+x uff_wws * uff_l + 256 8 / +
+y  uff_wws * uff_top + uff_w +
+gr.rect
+
+
+1 gr.color!
+
+x uff_wws * uff_l +
+y  uff_wws * uff_top +
+x uff_wws * uff_l + val 8 / +
+y  uff_wws * uff_top + uff_w +
+gr.rect
+
+;
+
+
+: dott { x y v -- }
+\ v is 1 or 0
+v if 1 else 2 then  gr.color!
+x uff_wws * uff_l +
+y  uff_wws * uff_top +
+x uff_wws * uff_l + 2 +
+y  uff_wws * uff_top + uff_w +
+gr.rect
+
+;
+
+v: biter
+
+: uff
+    gr.init  ( just to make sure )
+
+    WindowTemplate  NewWindow.Setup
+   200 WindowTemplate ..! nw_Height
+   150 WindowTemplate ..! nw_Width
+    WindowTemplate  gr.opencurw
+    0= abort" GR.OPENTEST aborted!"
+
+test.init
+
+gl_reset msg.do
+
+begin
+ gl_poll msg.do
+\  0   4
+\ tul tur   1
+\ tll top   2
+\ bul xxx   3
+\ bll blr   4
+ 
+\  glmsg .. gl_data  ..@ uf_btn btn.
+
+0 5  uf.bll rekt
+4 5  uf.blr rekt
+0 4  uf.bul rekt
+2 6  uf.bot rekt
+
+0 2  uf.tll rekt
+2 0  uf.top rekt
+0 1  uf.tul rekt
+4 1  uf.tur rekt
+
+\ upper butt
+0 8   uf.btn 2 and dott
+\ lower butt
+1 9   uf.btn 1 and dott
+\ single byte decode
+uf.tur biter !
+
+0 11 biter @ 1 and dott
+1 11 biter @ 2 and dott
+2 11 biter @ 4 and dott
+3 11 biter @ 8 and dott
+
+4 11 biter @ 16 and dott
+5 11 biter @ 32 and dott
+6 11 biter @ 64 and dott
+7 11 biter @ 128 and dott
+
+100  msec
+?terminal until
+
+test.term
+
+gr.closecurw
+;
+
+
+." uf uf1 (1 bit game mode ) and uff (graphic)  are the words. "

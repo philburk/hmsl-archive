@@ -1,0 +1,125 @@
+\ Support for ASL Library
+\
+\ Warning - ASL - the Application Specific Library is
+\ only available under AmigaDOS 2.0 or higher!
+\
+\ 00001 PLB 10/22/91 Fixed CALLs, CALL>ABS now does IF>ABS
+\ 00002 PLB 1/4/92 Use TAG-PAD instead of PAD 256 +
+\ 00003 PLB 1/25/92 Change stack diagrams, NO CODE CHANGE,
+\           was $PROMPT , now 0PROMPT
+\ 00004 PLB 3/4/92 Remove debugging code.
+
+\ Author: Phil Burk
+\ Copyright 1991 Phil Burk
+\ All Rights Reserved
+
+getmodule includes
+include? taglist{ ju:taglist
+include? libraries_asl_h ji:libraries/asl.j
+
+decimal
+
+ANEW TASK-ASL_SUPPORT
+
+: AllocASLRequest() ( type ptags -- request )
+	call>abs asl_lib AllocASLRequest \ 00001
+	if>rel
+;
+
+: AllocFileRequest() ( -- request )
+	call asl_lib AllocFileRequest
+	if>rel
+;
+
+: ASLRequest() ( request ptags -- result )
+	call>abs asl_lib ASLRequest \ 000001 was bad, thanks Marty
+;
+
+
+: FreeASLRequest() ( request -- )
+	callvoid>abs asl_lib FreeASLRequest
+;
+
+: RequestFile() ( request -- result )
+	call>abs asl_lib RequestFile
+;
+
+
+: ASL.FILENAME>PAD ( file-request -- , copy full name to pad )
+	pad off
+	dup s@ rf_Dir 0count dup 0>
+	IF
+		pad $append
+		pad count + 1- c@   ( dup emit cr ) \ 00004
+		ascii : = NOT
+		IF
+			" /" count pad $append
+		THEN
+	ELSE
+		2drop
+	THEN	
+	s@ rf_File 0count pad $append
+;
+
+\ Here are two useful examples of using the ASL library. ------
+
+: ASL.REQUEST.FILE ( 0prompt -- $name true | false ) \ 00003
+	asl?
+\ build taglist with prompt
+	tag-pad \ 00002
+	taglist{
+		asl_hail swap +tag.abs
+	}taglist
+\
+\ allocate file requester
+	asl_FileRequest swap AllocASLRequest() ?dup
+	IF
+		dup RequestFile()
+		IF
+\ copy filename to pad for passing back to user
+			dup asl.filename>pad
+		THEN
+\ free up requester
+		FreeASLRequest()
+		pad true
+	ELSE
+		false
+	THEN
+;
+
+.NEED OpenDiskFont()
+: OpenDiskFont() ( text-attr -- font | null )
+	call>abs diskfont_lib OpenDiskFont if>rel
+;
+.THEN
+
+.NEED CloseFont()
+: CloseFont() ( font -- )
+	callvoid>abs graphics_lib CloseFont
+;
+.THEN
+
+: ASL.REQUEST.FONT ( 0prompt -- font true ) \ 00003
+	diskfont? asl?
+\ build taglist with prompt
+	tag-pad \ 00002
+	taglist{
+		asl_hail swap +tag.abs
+	}taglist
+\
+\ allocate file requester
+	asl_FontRequest swap AllocASLRequest() ?dup
+	IF
+		dup>r
+		tag-pad \ 00002
+		ASLRequest()
+		IF
+			r@ .. fo_Attr OpenDiskFont() true
+		ELSE
+			false
+		THEN
+		r> FreeASLRequest()
+	ELSE
+		false
+	THEN
+;

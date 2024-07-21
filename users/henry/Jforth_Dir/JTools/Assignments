@@ -1,0 +1,3 @@
+; Use indirect execution because IconX doesn't support conditionals.
+; You can now modify your Assigns file to use conditionals.
+execute assigns

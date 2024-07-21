@@ -1,0 +1,265 @@
+\ MORPH Class
+\ MORPHS are a class of music objects based on abstract morphology
+\ and hierarchy.
+\
+\ A hierarchy of morphs communicate with each other by
+\ sending messages up and down the tree.  Some parameters
+\ contain a time and a return address.
+\ The time is used to maintain synchronization.
+\ The METHODS that support this messaging system are:
+\    EXECUTE:    ( time raddr -- , perform specific operation)
+\    ?EXECUTE:   ( time raddr -- time true | false , true if already done )
+\    TERMINATE:  ( time -- , stop execution using time )
+\    DONE:       ( time raddr -- , inform parent of completion )
+\    ABORT:      ( -- , cleanup self, abort parents. )
+\    START:      ( -- , starts a morph executing NOW )
+\    STOP:       ( -- , stop a morph and its children )
+\    PREFAB:     ( set up a morph to something useable )
+\    
+\ Aborts are issued to objects in the multi-tasker.  They
+\ send abort messages up the hierarchy so all morphs get aborted.
+\
+\ Author: Phil Burk
+\ Copyright 1986 -  Phil Burk, Larry Polansky, David Rosenboom.
+\ All Rights Reserved
+\
+\ MOD: PLB 10/13/86 Changed from OB.IVAR to IV.LONG
+\ MOD: PLB 1/??/86 Rewrote EXECUTE: technique.
+\ MOD: PLB 3/2/87 Add ABORT: processing.
+\ MOD: PLB 3/6/87 Add PRINT.HIERARCHY:
+\ MOD: PLB 5/23/87 Add STOP: , changed TASK: to not return done?
+\      Changed SET.INVOKER to GET and PUT.INVOKER:
+\ MOD: PLB 5/24/87 Added flag=true if executing.
+\ MOD: PLB 6/4/87 Add PUT.DATA: DEFAULT:
+\ MOD: PLB 7/8/87 Add GET.NAME|NFA:
+\ MOD: PLB 10/28/87 Add START:
+\ MOD: PLB 5/17/89 Add ?EXECUTE:  to return if_done_flag
+\ MOD: PLB 9/26/89 Add PREFAB: and BUILD:
+\ MOD: PLB 2/23/90 Put STOP: in ABORT:
+\ MOD: PLB 4/5/90 Rewrote STOP code
+\ MOD: PLB 7/12/90 Put DEFAULT before FREE in CLEANUP:
+\ 00001 11/12/91 Change START: to use RTC.TIME@, Added START.AT:
+
+ANEW TASK-MORPH
+
+( Methods for morph)
+METHOD TASK:
+METHOD DONE:
+METHOD START:
+METHOD START.AT:
+METHOD ABORT:
+METHOD STOP:
+METHOD PUT.INVOKER:
+METHOD GET.INVOKER:
+METHOD DEFAULT:
+METHOD PRINT.HIERARCHY:
+METHOD FREE.HIERARCHY:
+METHOD DEFAULT.HIERARCHY:
+METHOD ?HIERARCHICAL:
+METHOD PUT.DATA:
+METHOD GET.DATA:
+METHOD GET.NAME|NFA:
+METHOD ?EXECUTING:
+METHOD ?EXECUTE:
+METHOD PREFAB:
+METHOD BUILD:
+METHOD CLEANUP:
+METHOD TERMINATE:
+
+( DEFINE MORPH CLASS )
+:CLASS OB.MORPH <SUPER OB.ELMNTS
+    IV.SHORT IV-IF-ACTIVE
+    IV.SHORT IV-IF-RECURSE
+    IV.LONG  IV-INVOKER    ( execution invoker )
+    IV.LONG  IV-MORPH-DATA ( User data )
+
+:M DEFAULT: ( -- , Set to default condition. )
+     0 iv=> iv-invoker
+     false iv=> iv-if-active
+;M
+    
+:M INIT:   ( -- )
+     init: super
+     self default: [] ( Pick up later default definitions.)
+( DEFAULT: should thus never call INIT: )
+;M
+
+:M ?EXECUTING:  ( -- flag , true if currently executing )
+    iv-if-active
+;M
+
+: MO.TRACK.DONE ( time raddr -- time raddr , report completion of child )
+      if-debug @
+      IF 2dup >newline  name: self ."  <-DONE- "  name: []
+         ."    , T = " . cr
+      THEN
+;
+: MO.TRACK.EXEC ( time raddr -- time raddr , report execution of child )
+    if-debug @
+    IF 2dup >newline  ?dup
+       IF name: []
+       ELSE ." 0 "
+       THEN ."  -EXEC-> "  name: self
+       ."    , T = " . cr
+    THEN
+;
+
+:M DONE: ( time raddr -- , handle completion of child )
+      mo.track.done 2drop
+;M
+
+: SEND.DONE ( time -- , send DONE: message to invoker )
+    iv-invoker ?dup  ( check for parent's existence )
+    IF 0 iv=> iv-invoker
+       self swap done: []   ( notify invoker )
+    ELSE drop
+    THEN
+;
+
+: MORPH.STOP  ( time -- )
+    false iv=> iv-if-active
+    send.done  ( notify parent, if any )
+;
+
+:M TERMINATE: ( time -- )
+    iv-if-active
+    IF  morph.stop
+    THEN
+;M
+
+:M STOP:  ( -- )
+    time@ self terminate: []
+;M
+
+:M ABORT: ( -- , abort self and parent. )
+    iv-invoker ?dup  ( check for parent's existence )
+    IF 0 iv=> iv-invoker   ( clear for later execution. )
+       abort: []   ( abort invoker )
+    THEN
+    self stop: []
+;M
+
+:M PUT.INVOKER: ( invoker -- , set return address for DONE: )
+    iv=> iv-invoker
+    true iv=> iv-if-active
+;M
+
+:M GET.INVOKER: ( invoker -- , get morph who executed )
+    iv-invoker
+;M
+
+: MORPH.CHECK.STOP  ( time -- , send done if parent and stop )
+    iv-if-recurse
+    IF  0 iv=> iv-if-recurse
+        " MORPH.CHECK.STOP" " Recursion prevented!"
+        er_fatal ob.report.error
+    THEN
+\
+    iv-if-active
+    IF TRUE iv=> iv-if-recurse
+\ This next call could trigger recursion!!!!
+       self terminate: []
+       if-debug @
+       IF " MORPH.CHECK.STOP" " Morph already executing!"
+          er_return ob.report.error
+       THEN
+       FALSE iv=> iv-if-recurse
+    ELSE drop
+    THEN
+;
+
+: IF.EXEC|DROP ( n cfa -- , execute or drop )
+    ?dup
+    IF -1 exec.stack?
+    ELSE drop
+    THEN
+;
+
+:M ?EXECUTE: ( time invoker -- time true | false )
+    drop true
+;M
+
+:M EXECUTE: ( time invoker --, exec all morphs in collection )
+    self ?execute: []  IF drop THEN
+;M
+
+:M START.AT: ( time -- , execute starting then )
+    0 ( no parent )
+    self execute: []  ( use latest execution method )
+;M
+
+:M START: ( -- , execute now )
+    rtc.time@ ( 00001 )
+    start.at: self
+;M
+
+( Task is called repeatedly by multitasker )
+:M TASK: ( -- , do single time slice )
+;M
+
+:M ?HIERARCHICAL:  ( -- flag , true if can contain other morphs)
+    true
+;M
+
+CREATE MORPH-INDENT 0 ,
+
+:M PRINT.HIERARCHY: ( -- , print just name , doesn't nest )
+    >newline morph-indent @ spaces name: self >newline
+;M
+
+:M FREE.HIERARCHY: ( -- , Just free self )
+    self ?hierarchical: []
+    IF  reset: self
+        BEGIN manyleft: self
+        WHILE next: self free.hierarchy: []
+        REPEAT
+    THEN
+    self free: []
+;M
+
+:M DEFAULT.HIERARCHY: ( -- , Just default self )
+    self ?hierarchical: []
+    IF  reset: self
+        BEGIN manyleft: self
+        WHILE next: self default.hierarchy: []
+        REPEAT
+    THEN
+    self default: []
+;M
+
+:M CLEANUP:  ( -- , easy cleanup of entire hierarchy )
+    self default.hierarchy: []
+    self free.hierarchy: []
+    self free: []
+;M
+
+:M PUT.DATA: ( data -- , Place User data in Morph )
+    iv=> iv-morph-data
+;M
+:M GET.DATA: ( -- data , Get User data from Morph )
+    iv-morph-data
+;M
+
+\ This is used when the names of several morphs must be stored
+\ indirectly.
+\ Similar to GET.NAME: but never uses the PAD, ie. NFA->$ .
+:M GET.NAME|NFA: ( -- $name | nfa )
+    iv-name ?dup 0=
+    IF address: self pfa->nfa
+    THEN
+;M
+
+:M BUILD: ( ? -- )
+;M
+:M PREFAB: ( -- )
+;M
+;CLASS
+
+\ Handy for printing names that might be zero.
+: OB.NAME ( object -- , print name if non-zero )
+    ?dup IF name: []
+    ELSE ." 0"
+    THEN
+;
+
+V: HMSL-ABORT   ( Flag set true for top loop to abort. )

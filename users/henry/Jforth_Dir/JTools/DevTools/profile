@@ -1,0 +1,509 @@
+\ PROFILE - Real time interrupt based performance analyser.
+\
+0 .IF
+
+To profile your code enter:
+
+	PROFILE   executable forth statement
+	
+For example:
+
+	PROFILE	  100,000 BENCH.THING
+
+Profile will interrupt the code and increment a "slot"
+corresponding to a block of code.  It automatically
+adjust the slots to the full dictionary
+Profile will print a report of where it spent it's time.
+The percentages are % of a slot compared to all slots,
+and % of a slot compared to total time including all other tasks.
+
+Other words:
+
+	PF.ZOOMIN  ( slot# -- , adjust slots to detail a slot )
+	PF.ZOOMOUT ( -- , adjust slots to full dictionary )
+	PF.WHO     ( slot# -- , print what words are in that slot )
+	PF-INT-RATE ( -- addr , variable holding desired intrs/sec )
+	PF-%-REPORT ( n -- , threshold percentage to report slot )
+
+There is code to scan return stack for PC
+Controlling variables are:
+
+	PF_NUM_GRAB   ( #cells to grab )
+	PF_A7_MIN_OFF ( bytes off A7to start looking )
+.THEN
+
+\ Uses CIAB Timer B
+\
+\ Author: Phil Burk
+\ Copyright 1989 Phil Burk
+\
+
+\ 00001 06-jun-91 mdh/plb added Auto.Init
+getmodule includes
+
+exists? HMSL .IF
+	getmodule hmod:hmsl-includes
+.THEN
+
+decimal
+include? ciacrb ju:ciab_rsrc.f
+include? msec ju:msec
+
+ANEW TASK-PROFILE.F
+decimal
+
+\ Report results of PROFILE -----------------------------
+variable PF-SLOT-SUM
+variable PF-SUM-REPORTED
+variable PF-INT-RATE
+60 11 * 3 / 1+ pf-int-rate !
+
+\ Simple Structure Used by timer interrupt
+128 constant PF_NUM_SLOTS	\ slots for histogram
+  6 constant PF_NUM_GRAB	\ number of cells to grab from A7 stack
+ 40 constant PF_A7_MIN_OFF	\ minimal starting offset to look
+
+:STRUCT PFData
+    long	pf_a7_off	\ offset into return stack to find PC
+    aptr	pf_start	\ starting address, ABSOLUTE
+    aptr	pf_shift	\ shift found address
+    long	pf_misses	\ count of interrupts outside slot range
+    pf_num_slots cells bytes pf_slots
+;STRUCT
+
+
+PFData PF-DATA  4 allot ( for safety!!!!!!! )
+
+52 pf-data ..! pf_a7_off	\ default for A1000 under V1.3
+
+
+ASM PF.GRAB.STACK  ( -- , peek at return stack )
+\ A1 contains pointer to PF-Data structure
+	move.l	#[ PF_NUM_GRAB ],D0
+	move.l	a7,a0
+	adda.l	#[ pf_a7_min_off ],a0	\ start up here
+	adda.l	#[ pf_slots ],a1  \ offset to slot area
+1$:	move.l	(a0)+,(a1)+
+	dbra.w	d0,1$
+	moveq.l	#0,d0
+	rts
+END-CODE
+
+ASM ANALYSE_PC
+\ D0 = absolute address
+\ A1 = address of PF-DATA
+	sub.l	[ pf_start ](a1),d0	\ - starting address
+	blt.s	1$					\ get out if below
+	move.l	[ pf_shift ](a1),d1	\ get shift ammount
+	asr.l	d1,d0				\ calc offset into pf_slots
+	andi.l	#$FFFFFFFC,D0		\ long word align
+	cmp.l	#[ pf_num_slots cells ],d0
+	bge.s	1$
+	adda.l	#[ pf_slots ],a1
+	adda.l	d0,a1				\ A1 = slot address
+	bra.s	2$
+
+1$:	adda.l	#[ pf_misses ],a1	\ A1 = adddress of PF_MISSES
+
+2$:	move.l	(a1),d0				\ Increment slot or LONG at (a1)
+	addq.l	#1,d0
+	move.l	d0,(a1)
+	rts
+END-CODE
+
+ASM ASMTEST.PF ( D0:abspc A1:abs:pf-data: -- )
+	move.l	tos,A1
+	move.l	(dsp)+,d0
+	move.l	(dsp)+,tos
+	bsr		analyse_pc
+	rts
+END-CODE
+
+: PFTEST ( abspc -- )
+	pf-data >abs
+	asmtest.pf
+;
+
+ASM PF.ANAL.INT
+	move.l	(a1),d0	\ offset for A7
+	move.l	$0(a7,d0.l),d0	\ get return address
+	bsr	analyse_pc	\ analyse
+ 	moveq.l	#0,d0
+ 	rts
+END-CODE
+
+
+ASM PF.GATHER ( -- , increment appropriate slot )
+    addq.l    #1,(a1)     ( increment counter for now )
+1$: moveq.l   #0,d0       ( continue chain )
+    rts
+END-CODE
+
+
+\ ---------------------------------------------------
+
+\ CIAB Timer B interface
+
+variable CIABB-INTR
+0 constant CLEAR
+
+: CIABB.START   ( -- , start real time clock running )
+    CIAB ..@ ciacrb
+        ciacrbF_RUNMODE comp AND  ( reset that bit )
+        ciacrbF_LOAD | ciacrbF_START |
+    CIAB ..! ciacrb
+;
+
+: CIABB.SET.INTR  ( -- , set interrupt bits )
+    CLEAR CIAICRF_TB |  SetICR() drop
+    CIAICRF_SETCLR CIAICRF_TB | AbleICR()
+;
+
+: CIABB.START.TIMER ( -- , start timer and interrupts )
+    CIABB.start
+    CIABB.set.intr
+;
+
+: CIABB.RESET.INTR ( -- , clear interupts )
+    CLEAR CIAICRF_TB |  AbleICR()
+;
+
+: CIABB.STOP ( -- , stop timer advance )
+    CIAB ..@ ciacrb
+        ciacrbF_START comp AND  ( reset that bit )
+    CIAB ..! ciacrb
+;
+
+: CIABB.STOP.TIMER ( -- , turn off timer )
+    CIABB.reset.intr
+    CIABB.stop
+;
+
+variable CIABB-LATCH  ( cuz the real latch is write only )
+
+: CIABB.SET.LATCH  ( count-down-value -- , used to set rate )
+    $ FFFF min
+    dup CIABB-latch !
+    dup $ ff and CIAB ..! ciatblo
+    -8 ashift CIAB ..! ciatbhi
+;
+
+: CIABB.READ  ( -- count , for testing )
+    CIAB ..@ ciatblo
+    CIAB ..@ ciatbhi 8 ashift or
+;
+
+
+: PF.INSTALL.INT  ( cfa -- ok? , setup interrupt)
+    CIAB?   ( open resource )
+    CIABB-INTR @ 0=  ( make sure not done twice )
+    IF
+        MEMF_PUBLIC sizeof() interrupt allocblock ?dup
+        IF  
+            dup>r CIABB-INTR !  ( save for TERM )
+\ Set values in structure.
+            NT_INTERRUPT r@ .. is_node ..! ln_type
+            127  r@ .. is_node ..! ln_pri
+            0" PF CIA Timer" >abs r@ .. is_node ..! ln_name
+            pf-data >abs r@ ..! is_data
+            ( CFA ) dup >abs r@ ..! is_code
+\
+\ Add ICR interrupt vector.
+            CIAICRB_TB r> addICRVector() dup
+            IF ." CIA Interrupt already owned by" cr
+               .. is_node ..@ ln_name >rel 0count type cr
+               CIABB-INTR @ freeblock
+               CIABB-INTR off
+               false
+            ELSE drop CIABB.start.timer true
+            THEN
+       ELSE
+           ." PF.INSTALL.INT - Not enough space for interrupt!" cr
+           false
+       THEN
+    ELSE true
+    THEN
+    nip
+;
+
+: PF.REMOVE.INT ( -- , remove and free timer interrupt )
+    CIABB-INTR @ ?dup
+    IF  CIABB.stop.timer
+        CIAICRB_TB over remICRVector()
+        freeblock
+        0 CIABB-INTR !
+        0 ciarsrc_lib !
+    THEN
+;
+
+: pf.RATE@ ( -- ticks/second )
+    CIABB-latch @ 0=
+    IF 60
+    ELSE 715,819 CIABB-latch @ /
+    THEN
+;
+
+: pf.RATE! ( ticks/second -- )
+    dup 11 <
+    IF ." 11 = minimum rate!" drop 11
+    ELSE   dup 1000 >
+        IF ." 1000 = maximum rate!" drop 1000
+        THEN
+    THEN
+    715,819 swap / CIABB.set.latch
+;
+
+: PF.INSTALL.ANAL  ( -- ok? , start hardware timer )
+    pf.remove.int
+    'c pf.anal.int pf.install.int
+;
+
+: PF.INSTALL.GRAB  ( -- ok? , start hardware timer )
+    pf.remove.int
+    'c pf.grab.stack pf.install.int
+;
+
+ASM 2LOG  ( N -- log2(N) , calc integer log )
+     move.l   #0,d0
+1$:  addq.l   #1,d0
+     lsr.l    #1,tos
+     bne      1$
+     sub.l    #1,d0
+     move.l   d0,tos
+     rts
+END-CODE
+
+: PF.SIZE>SHIFT  ( slotsize -- shift )
+	1- 2* 2log  ( round up to nearest 2**N )
+	2- ( don't shift as much to make cell offset ) 1 max
+;
+
+: PF.SHIFT>SIZE  ( shift -- slotsize  )
+	2+ 1 swap shift
+;
+
+: PF.SET.SCOPE  ( start bucketsize -- )
+	pf.size>shift pf-data ..! pf_shift
+	>abs pf-data ..! pf_start
+;
+
+: PF-SLOT  ( index -- addr )
+	cells pf-data .. pf_slots +
+;
+
+: PF.CLEAR.SLOTS  ( -- )
+	pf_num_slots 0
+	DO
+		0 i pf-slot !
+	LOOP
+	0 pf-data ..! pf_misses
+;
+
+: PF.MAX.SLOTS  ( -- max )
+	0
+	pf_num_slots 0
+	DO
+		i pf-slot @ max
+	LOOP
+;
+
+: PF.SUM.SLOTS  ( -- sum )
+	0
+	pf_num_slots 0
+	DO
+		i pf-slot @ +
+	LOOP
+;
+
+: PF.SLOT>ABS ( slot# -- absaddr )
+	pf-data ..@ pf_shift pf.shift>size *
+	pf-data ..@ pf_start +
+;
+
+: PF.SLOT>ADDR ( slot# -- reladdr )
+	pf.slot>abs >rel
+;
+
+: PF.ZOOMIN  ( slot -- )
+	pf.slot>addr
+	pf-data ..@ pf_shift pf.shift>size
+	pf_num_slots / 8 max
+	pf.set.scope
+;
+
+: PF.ZOOMOUT  ( -- )
+	0
+	here pf_num_slots /
+	pf.set.scope
+;
+
+pf.zoomout
+
+: AUTO.INIT ( -- )  \ 00001
+  AUTO.INIT  pf.zoomout
+;
+
+\ Scan dictionary for words in range -------------------
+variable PF-LO-ADDR
+variable PF-HI-ADDR
+
+: PF.WHEN.SCANNED  ( nfa -- , print if within current slot )
+	dup>r ( save NFA )
+	name>  ( get CFA )
+	dup pf-hi-addr @ >  ( does word start above HI )
+	IF
+		drop
+	ELSE
+		dup 2- w@ ( get size field ) + ( calc end of word )
+		pf-lo-addr @ >
+		IF
+			4 spaces r@ id. flushemit cr?  \ must overlap
+			?pause
+		ELSE
+\			' drop is when-scanned  ( past last possible )
+		THEN
+	THEN
+	rdrop
+;
+
+: PF.WHO  ( slot# -- , list words in slot )
+	>newline ." Scanning - Please wait!" cr
+	dup pf.slot>addr pf-lo-addr !
+	1+ pf.slot>addr pf-hi-addr !
+	' pf.when.scanned is when-scanned
+	' drop is when-voc-scanned
+	scan-all-vocs cr
+;
+
+: PF.REPORT.SLOT  ( i -- )
+	dup 3 .r
+	base @ >r hex
+	." : $" dup pf.slot>addr 8 .r
+	."  - $" dup 1+ pf.slot>addr 8 .r
+	decimal
+	."  = " pf-slot @ dup 8 .r
+		dup pf-sum-reported +!
+	dup 100 * pf-slot-sum @ /
+		."  = " 3 .r ." % slots"
+	100 * pf-slot-sum @ pf-data ..@ pf_misses + /
+		."  = " 3 .r ." % total"
+	r> base !
+	cr
+;
+
+
+: PF.REPORT.SLOTS ( threshold -- , report if above threshold )
+	cr
+	pf_num_slots 0
+	DO
+		i pf-slot @
+		over >
+		IF
+			i pf.report.slot
+		THEN
+	LOOP
+	drop
+	bl 21 emit-to-column ." Total = "
+	pf-slot-sum @		8 .r ."  = "
+	pf-sum-reported @ 100 * pf-slot-sum @ /
+		3 .r ." % slots = "
+	pf-sum-reported @ 100 * pf-slot-sum @
+	pf-data ..@ pf_misses + /
+		3 .r ." % total"
+	cr
+;
+
+variable PF-%-REPORT
+5 pf-%-report !
+
+: PF.REPORT  ( -- , report all significant slots )
+	0 pf-sum-reported !
+	pf.sum.slots dup pf-slot-sum !
+	pf-%-report @ * 100 /  ( report anything over x% )
+	pf.report.slots
+;
+
+\ Determine offset on A7 stack for return address -------
+20 max-inline !
+here constant AROUND_HERE
+: PF.SCAN.ME  ( -- offset | -1 )
+	-1
+	PF_NUM_GRAB 2*  0
+	DO
+		pf-data .. pf_slots i 2* + @ >rel
+		dup around_here >
+		IF
+			140 ( = size of PF.SCAN.ME )
+			around_here + <
+			IF
+				drop i 2* pf_a7_min_off + LEAVE
+			THEN
+		ELSE drop
+		THEN
+	LOOP
+;
+
+: PF.SCAN.UNTIL ( -- n | -1 )
+	-1
+	BEGIN
+		drop pf.scan.me dup 0<
+	WHILE
+		?terminal abort" aborted"
+	REPEAT
+;
+
+: PF.SCAN.STACK  ( -- , scan stack to determine the A7 offset )
+	40 pf.rate!
+	pf.install.grab
+	100 msec
+	IF
+		pf.scan.until dup 0>
+		IF
+			dup >newline ." A7 Offset = " . cr
+			dup pf-data ..! pf_a7_off		
+		THEN
+		drop
+		pf.remove.int
+	THEN
+;
+
+: PF.STATUS  ( -- )
+	>newline
+	." Start     = $"
+		pf-data ..@ pf_start >rel .hex cr
+	." End       = $"
+		pf_num_slots pf.slot>addr .hex cr
+	." Slot Size = $"
+		pf-data ..@ pf_shift pf.shift>size .hex cr
+	." HERE      = $"
+		here .hex cr
+	." Int Rate  = " pf.rate@  . ." per second" cr
+;
+
+: PROFILE  ( -- , start performance analyser )
+	pf.scan.stack
+	pf.clear.slots
+	pf-int-rate @ pf.rate!
+	pf.status
+	." Profile begun!" cr
+	pf.install.anal
+		eol word pad 128 + $move
+	IF  ( installed )
+		pad 128 + count $interpret
+		pf.remove.int
+		pf.report
+	THEN
+;
+
+: PF.TERM ( -- )
+    pf.remove.int
+;
+
+if.forgotten pf.term
+
+true .IF
+\ Test it
+: EAT* 0 DO 23 45 * drop LOOP ;
+." To test, enter:    PROFILE  100,000 EAT*" cr
+.THEN
+

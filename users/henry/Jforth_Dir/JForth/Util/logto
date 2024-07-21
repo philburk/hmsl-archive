@@ -1,0 +1,133 @@
+\ Send output to a file or device.
+\
+\ You can send to the printer with   LOGTO PRT:
+\
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research
+\
+\ MOD: PLB 12/28/86 Add filtering of CRs.
+\ MOD: PLB 9/9/88 Add IF.FORGOTTEN , SAVE-FORTH fix.
+\ MOD: PLB 1/21/89 Add PRINTER.ON, some reorganization.
+\ MOD: PLB 10/3/90 Add HIGHLIGHT-INPUT OFF
+\ 00001 PLB 1/25/92 Changed USER variables to VARIABLEs
+\ 00002 PLB 1/25/92 Changed redef of SAVE-FORTH to AUTO.TERM
+
+ANEW TASK-LOGTO
+
+decimal
+\ Provide a log of the output to a file. 
+VARIABLE LOGTO-ID \ 00001
+VARIABLE LOGTO-OLDEMIT \ 00001
+
+decimal
+
+: LOGGED?  ( -- flag )
+  logto-oldemit @ 0= 0=
+;
+
+: <LOGSTOP>  ( -- , Stop logging files )
+  logged?
+  IF  logto-oldemit @ is emit
+      logto-oldemit off
+  THEN
+;
+
+variable LOGBUF     80 allot
+variable #LOGGED
+
+: FLUSHLOG  ( -- , send chars to console, if appropriate )
+  #logged @
+  IF  logto-id @  logbuf  #logged @  fwrite    #logged @ -
+      IF   <logstop>
+           .err ." FLOGEMIT failed to write buffer; recommend LOGEND" quit
+      THEN
+      #logged off
+  THEN
+;
+
+: FLOGEMIT  ( char -- )
+  dup 13 =
+  IF  drop
+  ELSE
+     dup  #logged @  logbuf + c!  1 #logged +!
+     $ 0a =   #logged @ 79 >  or
+     IF flushlog
+     THEN
+  THEN
+;
+
+: LOGTO&EMIT ( char -- , send to both file and screen )
+    dup logto-oldemit @execute
+    flogemit
+;
+
+: LOGSTART  ( -- , Start logging characters )
+  LOGGED?
+  IF   ." can't LOGSTART, already logged." cr
+  ELSE
+  	[ exists? highlight-input .IF ]
+		highlight-input @
+		IF  highlight-input off
+		    ." HIGHLIGHT-INPUT turned OFF" cr
+		THEN
+	[ .THEN ]
+	what's emit logto-oldemit !  ( save old cfa )
+	' logto&emit is emit         ( set vector )
+  THEN
+;
+
+: $LOGTO  ( $filename -- , Open file and log characters to it. )
+    logto-id @ 0=
+    IF  new $FOPEN ?dup
+        IF   logto-id !   logstart
+        ELSE ." Could not be opened!" cr abort
+        THEN
+    ELSE ." Can't LOGTO " $type  ." , already logged."
+    THEN
+;
+
+: LOGTO ( <name> --IN-- , Log characters to a file. )
+    #logged off  fileword  $logto
+;
+
+: LOGSTOP  ( -- , temporarily stop logging )
+    logged?
+    IF flushlog <logstop>
+    THEN
+;
+
+: <LOGEND> ( -- , used internally )
+    flushlog
+    logstop
+    logto-id @ fclose
+    logto-id off
+;
+
+: LOGEND ( -- . terminate logto, close file )
+    logto-id @
+    IF <logend>
+    ELSE ." Can't LOGEND, not logged!" cr
+    THEN
+;
+
+: LOGTERM ( -- , used internally for cleanup )
+    logto-id @
+    IF  ." Turning off LOGTO !!!" cr
+        <logend>
+    THEN
+;
+
+: PRINTER.ON  ( -- , turn on printer echo )
+    " PRT:" $logto
+;
+: PRINTER.OFF ( -- )
+    logend
+;
+
+decimal
+if.forgotten logterm
+
+: AUTO.TERM ( -- , in case of BYE or SAVE-FORTH 00002 )
+    logterm
+    auto.term
+;

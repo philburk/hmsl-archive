@@ -1,0 +1,197 @@
+\ Demonstrate simple sprite control.
+\ Move a HARDWARE sprite about in a custom screen.
+\ Leave a trail of color to mark it's path.
+\ DS-XMIN and DS-YMAX can be changed to generate different patterns.
+\
+\ Author:  Phil Burk
+\ Copyright 1986 Delta Research
+
+decimal
+INCLUDE? NewWindow.Setup JU:AMIGA_GRAPH
+INCLUDE? ?CLOSEBOX JU:AMIGA_EVENTS
+INCLUDE? NewScreen.Setup JU:SCREEN_SUPPORT
+INCLUDE? SPRITES JI:GRAPHICS/VIEW.j
+INCLUDE? SimpleSprite JI:GRAPHICS/SPRITE.J
+INCLUDE? GETSPRITE() JU:SPRITES
+INCLUDE? { JU:LOCALS
+
+ANEW TASK-DEMO_SPRITE
+
+decimal
+
+\ Declare necessary Amiga 'C' structures.
+NewScreen SpriteNewScreen
+NewWindow SpriteNewWindow
+SimpleSprite Sprite-1
+
+VARIABLE SPRITE-SCREEN
+
+: CLOSE.SPRITE.SCREEN ( -- , CLose demo screen )
+	sprite-screen @ closescreen()
+;
+
+: OPEN.SPRITE.SCREEN ( -- screen | NULL )
+\ Set to default values.
+	SpriteNewScreen NewScreen.Setup
+	SpriteNewWindow NewWindow.Setup
+\
+\ Modify defaults for this demo.
+\ Allow SPRITEs for this screen.
+	SPRITES SpriteNewScreen ..! ns_viewmodes
+	4 SpriteNewScreen ..! ns_depth  ( 16 colors )
+	0" Sprite - JForth - Delta Research" >abs
+		SpriteNewScreen ..! ns_DefaultTitle
+\
+\ Open Screen and store pointer in NewWindow structure.
+	SpriteNewScreen openscreen() dup Sprite-Screen !  ( Open screen. )
+\
+\ Sometimes the Amiga can build a bad COPPER list for screens.
+\ This can happen if you have Emacs and Workbench up in INTERLACE
+\ mode and open a NON-INTERLACE screen.
+\ The following calls will correct this problem (hopefully).
+	dup
+	IF  sprite-screen @ screentoback()
+		RemakeDisplay()
+		sprite-screen @ screentofront()
+	THEN
+;
+
+\ Check for proper opening.
+: OPEN.SPRITE.WINDOW  ( screen -- window | NULL )
+	>abs SpriteNewWindow ..! nw_screen
+\
+\ Set up window.
+	CUSTOMSCREEN   SpriteNewWindow ..! nw_type
+	0    SpriteNewWindow ..! nw_TopEdge
+	320  SpriteNewWindow ..! nw_Width
+	200  SpriteNewWindow ..! nw_Height
+	SpriteNewWindow gr.opencurw
+;
+
+: OPEN.SPRITE ( -- sprite# )
+	sprite-1 -1 GetSprite() dup -1 =
+	abort" OPEN.SPRITE - Sprite could not be allocated!"
+	0 sprite-1 ..! ss_x
+	0 sprite-1 ..! ss_y
+	12 sprite-1 ..! ss_height
+;
+
+\ Build sprite data, sprites are two planes deep.
+2 base !   ( Use binary to see which bits are on. )
+CREATE SPRITE-DATA
+here
+	0 w,    0 w,   ( position control, used by system. )
+\        Plane0                    Plane1
+	0000,0011,1100,0000 W,    0000,0000,0000,0000 W,
+	0000,1101,1011,0000 W,    0000,0001,1000,0000 W,
+	0001,0001,1000,1000 W,    0000,0001,1000,0000 W,
+	0010,0001,1000,0100 W,    0000,0001,1000,0000 W,
+	0100,0001,1000,0010 W,    0000,0001,1000,0000 W,
+	1000,0001,1000,0001 W,    0000,0001,1000,0000 W,
+	1000,0001,1000,0001 W,    0000,0011,1100,0000 W,
+	0100,0001,1000,0010 W,    0000,1101,1011,0000 W,
+	0010,0001,1000,0100 W,    0001,1001,1001,1000 W,
+	0001,0001,1000,1000 W,    0000,0001,1000,0000 W,
+	0000,1101,1011,0000 W,    0000,0001,1000,0000 W,
+	0000,0011,1100,0000 W,    0000,0000,0000,0000 W,
+		0 W,     0 W,   ( unattached simple sprite. )
+
+here swap - constant SPRITE_DATA_SIZE
+decimal
+
+VARIABLE SPRITE-DATA-PTR  ( point to ALLOCed CHIP RAM copy )
+: CHANGE.SPRITE
+\ Allocate CHIP memory and copy sprite to it.
+\ AMIGAs with more than 512K RAM might be running
+\ JForth in FAST RAM.  We could NOT, therefore, use
+\ the SPRITE-DATA directly since it would be inaccessable
+\ to the graphics coprocessors.
+	MEMF_CHIP sprite_data_size allocblock ?dup
+	IF dup sprite-data-ptr !   ( save memory pointer )
+		sprite-data swap sprite_data_size cmove ( copy )
+	THEN
+	0 sprite-1 sprite-data-ptr @ ChangeSprite()
+;
+
+VARIABLE SPRITE-NUM
+
+: FREE.SPRITE
+	sprite-num @ freesprite()
+	sprite-data-ptr @ freeblock
+;
+
+\ Sprite MOTION control ------------------------------------
+\ Slowly cycle through the 16 colors, using a diferent set of 5,
+\ every 71 passes.
+VARIABLE DS-COLOFF  ( Color offset )
+VARIABLE DS-COUNT   ( Count of bounces. )
+VARIABLE DS-CYCLEN
+VARIABLE DS-#COLORS
+71 ds-cyclen !
+4 ds-#colors !
+: DS.NEXT.COLOR  ( -- )
+	gr.color@ ds-coloff @ -
+	ds-#colors @ mod 1+
+	ds-coloff @ + gr.color!   ( advance color )
+	ds-count @ 1+ dup ds-count ! ( count bounces )
+	ds-cyclen @ >
+	IF  ds-coloff @ 1+
+		16 ds-#colors @ - mod  ds-coloff ! ( move to next group )
+		0 ds-count !
+	THEN
+;
+
+\ Use local variables to enhance readability.
+\ The first two parameters are addresses so you need to use @ and !
+: BOUNCE.OFF { bo-apos bo-avel bo-min bo-max -- , bounce thing }
+	bo-apos @ bo-avel @ +
+	dup bo-min bo-max within?
+	IF bo-apos !    ( update position )
+	ELSE drop bo-avel @ negate bo-avel !  ( bounce )
+\ Special color control for this demo, optional.
+		ds.next.color
+	THEN
+;
+
+\ Sprite position and velocity control.
+VARIABLE DS-XPOS
+VARIABLE DS-YPOS
+VARIABLE DS-XVEL
+VARIABLE DS-YVEL
+VARIABLE DS-XMAX
+VARIABLE DS-YMAX
+\ Initial values.
+5 ds-xpos ! 5 ds-ypos !
+1 ds-xvel ! 1 ds-yvel !
+290 ds-xmax !  181 ds-ymax !
+
+: MOVE.SPRITE ( -- , Move sprite around screen )
+	2 gr.color!
+	ds-xpos @ 5 + ds-ypos @ 5 - gr.move
+	BEGIN
+		ds-xpos ds-xvel 0 ds-xmax @ bounce.off
+		ds-ypos ds-yvel 0 ds-ymax @ bounce.off
+		0 sprite-1  ds-xpos @ ds-ypos @  movesprite()
+		ds-xpos @ 5 + ds-ypos @ 5 - gr.draw ( leave trail )
+		?CLOSEBOX
+	UNTIL
+;
+
+: GO.SPRITE  ( -- Run Sprite demo. )
+	." GO.Sprite - JForth - Delta Research" cr
+	gr.init
+	open.sprite.screen ?dup
+	IF  open.sprite.window
+		IF  open.sprite sprite-num !
+			change.sprite
+			move.sprite
+			free.sprite
+			gr.closecurw
+		THEN
+		close.sprite.screen
+	ELSE ." Could not open screen!" cr
+	THEN
+	gr.term
+;
+
+." Enter:    GO.Sprite   for demo." cr

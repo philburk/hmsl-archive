@@ -1,0 +1,663 @@
+\ '83 standard to other standards .
+\
+\ BTD dec 20. fixed RECURSE and MYSELF , added ?DO
+\   Now takes 8 msec to change standards, and compiles to 5.5 k
+\ BTD oct 7/86  compiles into 3k !!! 
+\ smudges and unsmudges apropritate name fields for each standard. 
+\ Should be impossible to tell it's not the selected standard if you want
+\ oct 8 /86 btd seems to work. about 2 msec to change standards. Does
+\ more work than it has to.   
+\ compiles to 3,820 bytes.  could seperate out '83 stuff later to reduce size. 
+\ size depends on what is already refined.
+\
+\ ********************************* CAVEATS ******************************
+\ 79 is supposed to alway search FORTH, not implimented at this time.
+\ FIG and 79 are fixed trees. could impliment but not very useful.
+\ BLK  ( in BLOCK ) ?UPPERCASE     
+\ DCONSTANT DVARIABLE DROT  
+\ TRUE = 1   fig and 79.  TRUE = -1 in 83 .
+\ Put -TEXT ?ERROR WARNING ENCLOSE here. 
+\ New instructions:  CCR@ CCR! These are allowed on the 68020.
+\ Mtasking words: activate stop backround-activate SUSPEND PAUSE SLEEP
+\ WAKE .
+\ LENGTH ( lcount )  LAST  
+\ Jforth  divides are not FLOORED , '83 standard divides are.
+\ FIG MOVE is a word move. BMOVE is the fig smart cmove
+\ ************************************************************************
+\
+\ MOD: PLB 8/8/88 Fixed bug in ROLL
+\ MOD: PLB 8/16/88 RECURSE - Added ?COMP , now uses CFA,
+\          Moved RECURSE and ROLL to BUILDSYS
+\ MOD: PLB 1/21/89 Fixed >BODY , >LINK , etc.
+
+decimal
+INCLUDE? PATCHED JU:BUG-PATCHES
+decimal
+VARIABLE START-STACK
+SP@ START-STACK !
+
+EXISTS? FORTH-83 NOT
+.IF  CR CR ." This is the conversion file for an '83 standard Forth, " cr
+           ." Jforth in particular, it will not work with any other standard"
+     CR CR 
+: FORTH-83  ; 
+.THEN 
+ 
+: SKIP-COMMENTS  ( ADR --- ADR1 )  ( <CLOSE-PAREN> ... --IN-- ) 
+   BEGIN DUP " (" $= OVER " (S" $= OR
+   WHILE DROP ASCII ) WORD DROP BL WORD 
+   REPEAT ;
+
+: CASE:  ( COUNT --- ) DROP ( we don't use it ) 
+   CREATE
+     BEGIN  BL WORD DUP SKIP-COMMENTS  " ;"  $=
+     WHILE-NOT  FIND NOT
+                IF    >NAME ID.  TRUE  ?ABORT" NOT FOUND"
+                THEN  ,
+     REPEAT  DROP
+   DOES>  ( N <BODY> --- )  SWAP CELLS + @EXECUTE ;
+
+.NEED PERFORM
+: PERFORM  @EXECUTE BOTH ;
+.THEN
+
+
+.NEED .ID
+: .ID ID. ;
+.THEN
+
+.NEED BETWEEN
+: BETWEEN  WITHIN? BOTH ;
+.THEN
+
+.NEED COMP
+: COMP -1 XOR ;
+.THEN
+
+.NEED DROPS
+: DROPS XDROP ;
+.THEN
+
+.NEED IMMEDIATE?
+: IMMEDIATE? ( NFA --- FLAG ) C@ [ HEX 40 DECIMAL ] LITERAL
+    AND  ;
+.THEN
+
+.NEED INTERPRETING?
+: INTERPRETING?  ( --- FLAG ) STATE @ 0= ;
+.THEN
+
+.NEED CNT>RANGE
+: CNT>RANGE  ( ADR CNT --- HI-ADR LO-ADR ) 
+   ( convert adr and cnt to to-adr from-adr for LOOP )  OVER + SWAP ;
+.THEN
+ 
+.NEED MORE
+: MORE  ( offset size --- offset +size )  OVER CONSTANT + ;
+.THEN
+
+0
+1 MORE     IS-JFORTH
+1 MORE     IS-83
+1 MORE     IS-79
+1 MORE     IS-FIG
+CONSTANT   #STANDARDS
+
+CREATE STANDARDS #STANDARDS CELLS ALLOT
+STANDARDS #STANDARDS CELLS ERASE 
+
+USER STANDARD  
+
+: JFORTH? ( --- FLAG )   IS-JFORTH STANDARD @ =  ;
+: '83?    ( --- FLAG )   IS-83     STANDARD @ =  ;
+: '79?    ( --- FLAG )   IS-79     STANDARD @ =  ;
+: FIG?    ( --- FLAG )   IS-FIG    STANDARD @ =  ;   
+
+$ 20 CONSTANT IMMEDIATE-MASK
+
+INCLUDE? Y/Q JU:Y-OR-QUIT
+: yes?  ( --- )  .s  y/q ;
+
+variable testing
+testing off
+
+: REVEAL-WORDS ( ADR --- )  ( 0-TERMINATED-LIST-OF-NFA'S )   
+    BEGIN DUP  @ DUP ( adr adr@ adr@ ) 
+    WHILE DUP    testing @ if dup ." revealing " id. cr then 
+          C@ ( a a@ a@c@ ) IMMEDIATE-MASK COMP AND  SWAP C! ( a )  CELL+ 
+    REPEAT  2DROP
+    hash-damaged on ;
+
+: HIDE-WORDS ( ADR --- )  ( 0-TERMINATED-LIST-OF-NFA'S )   
+    BEGIN DUP  @ DUP
+    WHILE DUP  testing @ if dup ." hiding " id. cr then   
+          C@               IMMEDIATE-MASK OR        SWAP C!        CELL+ 
+    REPEAT  2DROP
+    hash-damaged on ;
+
+: ADD-STANDARD  ( --- )  ( add to STANDARDS array ) 
+     #STANDARDS 0 
+     DO  I CELLS STANDARDS +  @ 0=
+         IF   HERE I CELLS STANDARDS + ! RETURN
+         THEN
+     LOOP TRUE ?ABORT" No room left in STANDARDS area " ;
+ 
+: CREATE-STANDARD  
+    CREATE  ( <NFA STANDARD-CODE>PAIRS    STANDARD-CODE --- <PAIRS> .... ) 
+        ( DUP STANDARD ! )  DUP ,  ADD-STANDARD  
+        SP@ START-STACK @ - ABS CELL/  1  
+        DO  ( nfa voc-cod ... voc-code ) I PICK OVER = 
+            IF   I 1+ PICK       , 
+            THEN 
+        2 +LOOP 0 , DROP 
+    DOES>  ( <BODY> --- )  ( BODY: <STANDARD> <NFA'S-TO-REVEAL> 0   )     
+      ( BODY )  DUP @ STANDARD !  CELL+ 
+      STANDARDS #STANDARDS  CELLS CNT>RANGE  
+      DO    DUP I @ = NOT I @  AND 
+            IF  I @ HIDE-WORDS 
+            THEN   
+      CELL +LOOP  ( BODY )  REVEAL-WORDS  ; 
+    
+INCLUDE? CONDITION jf:CONDITION
+
+: STANDARD? ( --- ) 
+  CONDITION   
+       '83? IF ." '83"    ELSE  
+       '79? IF ." '79"    ELSE 
+       FIG? IF ." FIG"    ELSE 
+    JFORTH? IF ." JFORTH" ELSE 
+     ." UNKNOWN" TRUE
+  ENDCOND  ."  STANDARD"   ;
+
+
+\ **************************************************************************
+
+
+.NEED ROLL
+: ROLL ( NX ... N0 X --- NX-1 ... N0 NX )
+    >r r@ ( -- nx..n0 x )
+    pick sp@ ( -- nx..n0 NX &n0 )
+    dup cell- swap ( -- nx..n0 NX &NX &n0 )
+    r> 1+ cells  ( -- nx..no nx &NX &n0 [x+1]cells )
+    cmove> drop
+; ( -- nx-1..n0 nx )
+.THEN
+
+.NEED >NAME
+: >NAME ( 'ADR --- NAME-ADR )  NFA ;
+: NAME>   PFA ;
+: >LINK  >NAME CELL-   ;
+: LINK>  CELL+ NAME>   ;
+: L>NAME CELL+ ;
+: >BODY DO-DOES-SIZE +  ; IMMEDIATE
+: BODY> DO-DOES-SIZE -  ; IMMEDIATE
+.THEN
+
+' ROLL >NAME IS-83
+' ROLL >NAME IS-JFORTH
+( FIG '79 ) : ROLL  ( Nth-item... N --- Nth-item ) 1-   ( 83 ) ROLL ;
+LATEST IS-FIG 
+LATEST IS-79     ( nfa fllag nfa flag ) 
+( Do you see what's happening?  Soon I'll have a nice list )  
+
+' FORTH-83                  >NAME  IS-83
+: 79-STANDARD     ;     LATEST IS-79
+: FIG-STANDARD    ;     LATEST IS-FIG
+: JFORTH-STANDARD ;     LATEST IS-JFORTH
+
+' ' >NAME IS-83
+' ' >NAME IS-JFORTH
+( FIG ) : '  ( --- pfa )  [COMPILE] ' [COMPILE] LITERAL  ; IMMEDIATE
+LATEST IS-FIG 
+LATEST IS-79
+
+' PICK >NAME IS-JFORTH
+' PICK >NAME IS-83
+: PICK  ( Nth-item... N --- Nth-item... Nth-item ) 1- PICK ;
+LATEST IS-79
+LATEST IS-FIG
+
+: BUILDS ( --- ) ( NAME --IN-- )  CREATE ;
+( might as well let any standard use it. ) 
+
+.NEED HIDE
+: HIDE UNSMUDGE ;
+.THEN
+
+' CREATE >NAME IS-JFORTH
+' CREATE >NAME IS-79
+' CREATE >NAME IS-83
+( FIG ) : CREATE  ( --- )  (CREATE)  ( HEADER )  HIDE ;
+LATEST IS-FIG
+
+\ Simple synonyms ( FIG ) 
+.NEED NFA
+: NFA  ( PFA>NFA )    ( ' --- NAME )  >NAME   ;
+: PFA  ( NFA>PFA )    ( NAME --- ' )   NAME>   ;
+: CFA  ( PFA>CFA )    ( BODY --- ' )      ; IMMEDIATE
+: LFA  ( PFA>LFA )    ( ' --- LINK ) 2 CELLS -  ;
+.THEN 
+
+\ fig stuff
+: IN   ( --- ADR )    >IN ;
+
+.NEED ?DUP
+: ?DUP -DUP ;
+.ELSE  : -DUP  ?DUP ;
+.THEN
+
+: MINUS  NEGATE ;
+: ;S   [COMPILE] EXIT INLINE ; 
+
+.NEED (NUMBER) 
+: (NUMBER)   CONVERT ;
+.THEN
+
+: R    R@ INLINE ;
+: DMINUS  DNEGATE ;
+
+.NEED NIP
+: NIP  ( N1 N2 --- N2 )  SWAP DROP ;
+.THEN
+
+.NEED TUCK 
+: TUCK  ( N1 N2 --- N2 N1 N2 ) DUP -ROT ;
+.THEN
+
+.NEED D@
+: D@ 2@ ;
+.THEN
+
+.NEED D!
+: D!  2!  ;
+.THEN
+
+.NEED DSWAP
+: DSWAP  2SWAP  ;
+.THEN
+
+.NEED DDROP
+: DSWAP  2DROP  ;
+.THEN
+
+.NEED DDUP
+: DDUP 2DUP  ;
+.THEN
+
+.NEED RECURSE
+: RECURSE  ( --- )  ?COMP LATEST NAME> CFA,  ;
+   IMMEDIATE   
+.THEN
+
+.NEED MYSELF
+( FIG ) : MYSELF  [COMPILE] RECURSE  ; IMMEDIATE 
+.THEN
+
+.NEED */
+: */  ( N1 N2 N3 --- {N1*N2}/N3  )   */MOD NIP ;
+.THEN
+
+\ ******************************* SOME F83 STUFF ************************
+
+.NEED FLIP 
+( 83 ) : FLIP BYTE-SWAP ; 
+.THEN 
+
+.NEED DEFINED
+: DEFINED  ( --- HERE 0 | CFA +-1 )  BL WORD FIND ;
+.THEN 
+
+.NEED SPAN
+USER SPAN 
+: EXPECT  ( ADR LEN --- )  DUP SPAN ! EXPECT ;
+.THEN 
+
+.NEED ?NEGATE
+: ?NEGATE  ( N1 N2 --- +-N1 )  +- ;
+.THEN
+
+.NEED DOVER 
+: DOVER  ( D1 D2 --- D1 D2 D1 ) 3 PICK 3 PICK ;
+.THEN
+
+.NEED 2OVER
+: 2OVER  DOVER ;
+.THEN
+
+.NEED <> 
+ : <>    ( N1 N2 --- FLAG )   = NOT  ;
+.THEN 
+
+.NEED 4DUP
+: 4DUP  ( <4CELLS> --- <4CELLS> <4CELLS> )  4 XDUP ;
+.THEN
+
+.NEED DU<    ( will go in kernal ) 
+: DU< ( DU1 DU2 --- FLAG )  ROT SWAP DDUP U< 
+    IF    4 XDROP TRUE
+    ELSE  <>  
+          IF   2DROP FALSE
+          ELSE U< 
+          THEN
+    THEN ;
+.THEN
+
+.NEED D<    ( will go in kernal ) 
+: D<  ( D1 D2 --- FLAG )  2 PICK OVER = 
+     IF   DU<  
+     ELSE NIP ROT DROP < 
+     THEN ;
+.THEN
+
+.NEED D>
+: D>  ( D1 D2 --- FLAG )  2SWAP D< ;
+.THEN
+
+.NEED D0=
+: D0=   ( D1 --- FLAG ) OR 0= ;
+.THEN
+  
+.NEED DMAX 
+: DMAX  ( D1 D2 --- D3 )  4DUP D< IF DSWAP THEN DDROP ;
+.THEN
+
+.NEED DMIN 
+: DMIN  ( D1 D2 --- D3 )  4DUP D> IF DSWAP THEN DDROP ;
+.THEN
+
+.NEED >FIG-FLAG 
+: >FIG-FLAG  ( HOST-FLAG  --- 0-OR-[+1] )  IF  1 ELSE TRUE THEN ;
+.THEN
+
+.NEED >83-FLAG 
+: >83-FLAG  ( HOST-FLAG -- 0-OR-[-1]  ) ; IMMEDIATE 
+.THEN 
+
+\ if you use the 2 words above where you want to use a flag as a number
+\ then your code will run as long as the apropeite multistandard
+\ pachage is running on that implimentaion.
+
+ 
+' VARIABLE >NAME IS-JFORTH
+' VARIABLE >NAME IS-83
+' VARIABLE >NAME IS-79
+: VARIABLE  ( initial-value --- )  VARIABLE LATEST NAME> EXECUTE ! ;
+LATEST IS-FIG
+
+' USER >NAME IS-JFORTH
+' USER >NAME IS-83  ( actually not covered ) 
+: USER  CREATE  ( USER-POINTER-OFFSET --- ) ,
+        DOES> ( <BODY> --- USER-ADR )  @ UP@ + ;
+LATEST IS-79
+LATEST IS-FIG
+  
+: -FIND  ( --- pfa count-byte true | false )  BL WORD FIND   
+    IF    DUP  >NAME C@  TRUE
+    ELSE  DDROP FALSE
+    THEN  ;
+
+' FIND  >NAME IS-JFORTH
+' FIND  >NAME IS-83 
+( 79 ) : FIND  ( --- ADR | 0 )  BL WORD FIND NOT 
+      IF    DROP  FALSE
+      THEN  ;        
+LATEST IS-79
+ 
+' WORD >NAME IS-83
+' WORD >NAME IS-JFORTH
+' WORD >NAME IS-79
+: WORD  ( delimiter --- adr )  ( word -in- ) WORD DROP ;
+LATEST IS-FIG
+
+' NOT >NAME IS-FIG
+' NOT >NAME IS-JFORTH
+' NOT >NAME IS-79
+: NOT  ( delimiter --- adr )  ( word -in- ) COMP ;
+LATEST IS-83
+
+: BMOVE  MOVE ;
+LATEST IS-FIG
+LATEST IS-79
+' MOVE >NAME IS-83
+' MOVE >NAME IS-JFORTH
+
+: MOVE WMOVE ;
+LATEST IS-FIG
+LATEST IS-79
+
+: X  ( --- )  ( IP IP --- )  RDROP INLINE ; IMMEDIATE
+$ 00 LATEST 1+ C! 
+
+\ *********************** fig and '79 LOOP words **************************
+\ Impliments typical dumb loop for fig and '79
+
+\ loop words that should be code:
+
+' (DO) >NAME IS-83
+' (DO) >NAME IS-JFORTH
+: (DO)  [ BASE @ HEX 48E7 W, 600 W, 2A07 W, 4CDE W, C0 W, BASE ! ]  INLINE ;
+LATEST IS-79
+LATEST IS-FIG
+
+' (+LOOP) >NAME IS-83
+' (+LOOP) >NAME IS-JFORTH
+: (+LOOP)  [ BASE @ HEX DA87 W, 2E1E W, BA86 W, 6D00 W, 0 W, 
+        4CDF W, 60 W,  BASE ! ]  INLINE ;
+LATEST IS-79
+LATEST IS-FIG
+
+' (LOOP) >NAME IS-83
+' (LOOP) >NAME IS-JFORTH
+: (LOOP) [ BASE @ HEX 5285 W, BA86 W, 6D00 W, 0 W, 4CDF W, 60 W, BASE !  ]  
+     INLINE ; ( Absolutly Must be inline ) 
+LATEST IS-79
+LATEST IS-FIG
+
+' I >NAME IS-83
+' I >NAME IS-JFORTH
+: I   [ BASE @ HEX 2D07 W, 2E05 W, BASE ! ] INLINE ;
+LATEST IS-79
+LATEST IS-FIG
+
+' IK >NAME IS-83
+' IK >NAME IS-JFORTH
+: IK  [ BASE @ HEX 2D07 W, 2E2F W, 8 W, BASE ! ]  INLINE ;
+LATEST IS-79
+LATEST IS-FIG
+
+' J >NAME IS-83
+' J >NAME IS-JFORTH
+: J  [ BASE @ HEX 2D07 W, 2E17 W, BASE ! ]   INLINE ;
+LATEST IS-79
+LATEST IS-FIG
+
+' LEAVE >NAME IS-83
+' LEAVE >NAME IS-JFORTH
+: LEAVE  [ $ 2C05 W, ]   INLINE ;
+LATEST IS-79
+LATEST IS-FIG
+
+\ High level fig loop words 
+
+' -DO >NAME IS-83
+' -DO >NAME IS-JFORTH
+
+' DO >NAME IS-JFORTH
+: ?DO  [COMPILE] DO ; IMMEDIATE
+: DO   [COMPILE] -DO ; IMMEDIATE
+' DO >NAME IS-83   ( 83 DO is non checking ) 
+' ?DO >NAME IS-83 
+
+: DO  COMPILE (DO)  HERE >US   DO_FLAG >US OptimizeOFF  ; IMMEDIATE 
+LATEST IS-79
+LATEST IS-FIG
+
+' +LOOP >NAME IS-83
+' +LOOP >NAME IS-JFORTH
+: +LOOP  COMPILE (+LOOP) LOOP-BACK ; IMMEDIATE 
+LATEST IS-79
+LATEST IS-FIG
+
+' -LOOP >NAME IS-83
+' -LOOP >NAME IS-JFORTH
+: -LOOP  COMPILE NEGATE COMPILE (+LOOP) LOOP-BACK  ; IMMEDIATE 
+LATEST IS-79
+LATEST IS-FIG
+
+' LOOP >NAME IS-83
+' LOOP >NAME IS-JFORTH
+: LOOP  COMPILE (LOOP) LOOP-BACK  ; IMMEDIATE 
+LATEST IS-79
+LATEST IS-FIG
+
+' ?LEAVE >NAME IS-83
+' ?LEAVE >NAME IS-JFORTH
+: ?LEAVE  IF LEAVE THEN  INLINE ;
+LATEST IS-79
+LATEST IS-FIG
+
+' ?STAY >NAME IS-83
+' ?STAY >NAME IS-JFORTH
+: ?STAY  IF-NOT LEAVE THEN  INLINE ;
+LATEST IS-79
+LATEST IS-FIG
+
+\ ************************** 83 floored math ******************************
+
+.NEED S>D
+: S>D S->D ;
+.THEN
+
+\   names:           FIG    79        83       JFORTH
+\  d n -- r q        M/     M/MOD     M/MOD    M/MOD 
+\  n n -- d          M*     M*        *D ??    M*
+\  ud u -- ur udq    M/MOD  MU/MOD ?? MU/MOD   MU/MOD 
+\  ud u --- ur uq    U/     U/MOD     UM/MOD   UM/MOD    
+\  u  u --- ud       U*     U*        UM*      UM* 
+
+: M/  M/MOD ;
+LATEST  IS-FIG
+' M/MOD >NAME IS-79
+' M/MOD >NAME IS-JFORTH
+: M/MOD  ( N1 N2 --- REM QUO ) ?DUP 
+    IF  DUP >R 2DUP  XOR >R   >R  DABS R@ ABS UM/MOD
+        SWAP R> ?NEGATE  SWAP R> 0< 
+        IF   NEGATE  OVER 
+             IF   1- R@  ROT  - SWAP 
+             THEN
+        THEN  RDROP
+    THEN ;
+LATEST IS-83
+
+: *D M* ;  \ it's F83 but I don't know if it's in most 83 systems.
+
+: M/MOD  MU/MOD ;
+LATEST IS-FIG
+' MU/MOD >NAME IS-79
+' MU/MOD >NAME IS-JFORTH
+: MU/MOD ( D1 N2 --- REM D-QUOT ) >R 0 R@ UM/MOD R> SWAP >R UM/MOD R>  ; 
+LATEST IS-83
+
+' UM/MOD >NAME IS-JFORTH
+' UM/MOD >NAME IS-83
+: U/  UM/MOD ; 
+LATEST IS-FIG 
+: U/MOD UM/MOD ; 
+LATEST IS-79
+
+' UM* >NAME IS-JFORTH
+' UM* >NAME IS-JFORTH
+: U*  UM* ;
+LATEST IS-FIG
+LATEST IS-79
+
+' /MOD >NAME IS-FIG
+' /MOD >NAME IS-JFORTH
+' /MOD >NAME IS-79
+: /MOD ( N1 N2 --- REM QUO ) >R S>D R> M/MOD ; 
+LATEST IS-83
+
+' / >NAME IS-FIG
+' / >NAME IS-JFORTH
+' / >NAME IS-79
+: /  ( N1 N2 --- N1/N2 ) /MOD NIP ;
+LATEST IS-83
+
+' MOD >NAME IS-FIG
+' MOD >NAME IS-JFORTH
+' MOD >NAME IS-79
+: MOD ( N1 N2 --- REM ) /MOD DROP ; 
+LATEST IS-83
+
+' */MOD >NAME IS-FIG
+' */MOD >NAME IS-JFORTH
+' */MOD >NAME IS-79
+: */MOD  ( N1 N2 N3 ---{N1*N2}/N3  {N1*N2} N1/N2 ) >R M* R> M/MOD  ;
+LATEST IS-83
+
+' */ >NAME IS-FIG
+' */ >NAME IS-JFORTH
+' */ >NAME IS-79
+: */  ( N1 N2 N3 --- {N1*N2}/N3  )   */MOD NIP ;
+LATEST IS-83
+
+' 2/ >NAME IS-FIG
+' 2/ >NAME IS-JFORTH
+' 2/ >NAME IS-79
+: 2/  ( N1 --- N1/2  )  2 / ;
+LATEST IS-83
+
+' D2/ >NAME IS-FIG
+' D2/ >NAME IS-JFORTH
+' D2/ >NAME IS-79
+: D2/  ( D1 --- D1/2 )  DUP 1 AND >R 2/ SWAP U2/ R> 
+           IF  $ 8000,0000 OR 
+           THEN  SWAP ;
+LATEST IS-83
+
+     
+\ ******************* build the seperate standard reveal lists ************
+
+IS-79     CREATE-STANDARD <'79>
+IS-83     CREATE-STANDARD <'83>
+IS-FIG    CREATE-STANDARD <FIG>
+IS-JFORTH CREATE-STANDARD <JFORTH>
+
+SP@ START-STACK @  - ABS CELL/ XDROP
+
+\ ************************* VOC DIFFERENCES *******************************
+\ Note: we don't revert to fig or '79 tree structure.  We only change 
+\ immediacy.
+
+INCLUDE? WHEN-VOC-SCANNED JU:WORDS-LIKE
+: SCAN-VOC-LINKS ( --- )  VOC-LINK 
+   BEGIN  @ DUP
+   WHILE  DUP  WHEN-VOC-SCANNED ( DUP VLINK>VLATEST  SCAN-VOC )  
+   REPEAT  DROP   ;
+
+: MAKE-VOC-IMMEDIATE   ( VOC-LINK --- ) 
+      VLINK>' >NAME DUP C@ $ 40 OR SWAP C!  ; 
+
+: FIG-VOCS  ( --- ) [ ' MAKE-VOC-IMMEDIATE ] LITERAL IS WHEN-VOC-SCANNED 
+   SCAN-VOC-LINKS   ;
+
+: 79-VOCS FIG-VOCS ;
+
+: MAKE-VOC-NON-IMMEDIATE   ( VOC-LINK --- ) 
+      VLINK>' >NAME DUP C@ $ 40 COMP AND  SWAP C!  ; 
+
+: 83-VOCS  ( --- ) [ ' MAKE-VOC-NON-IMMEDIATE  ] LITERAL IS WHEN-VOC-SCANNED 
+   SCAN-VOC-LINKS  ;
+
+\ **************************************************************************
+
+: '83    ( --- )  83-VOCS  <'83>    ; IMMEDIATE 
+: JFORTH ( --- )  83-VOCS  <JFORTH> ; IMMEDIATE 
+: '79    ( --- )  79-VOCS  <'79>    ; IMMEDIATE
+: FIG    ( --- )  FIG-VOCS <FIG>    ; IMMEDIATE 
+
+jforth
+ 
+cr standard? cr
+
+decimal

@@ -1,0 +1,188 @@
+\ OBSOLETE - Use new Packing Code by Marty Kees
+\ This is provided for those who need the old system.
+\
+\ Packing Routines needed by IFF files
+\
+\ Packs Bitmap into Run-Length-Encoded data.
+\ Can be used to Pack IFF data in "cmpByteRun1" form.
+\
+\ Technique:
+\   Normal Data is stored as a positive count followed
+\      by N+1 bytes of data.
+\   Redundant data is stored as a negative count
+\      followed by the byte to be repeated 1-N times.
+\
+\ Translations from 'C' by Phil Burk
+\
+\ Original By Jerry Morrison and Steve Shaw, Electronic Arts.
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk
+\ All Rights reserved
+
+decimal
+exists? includes
+.IF  getmodule includes
+.ELSE include? bm_rows ji:graphics/gfx.j
+.THEN
+include? { ju:locals
+
+ANEW TASK-PACKING_OLD
+
+\ Use PAD for buffer.
+0 value iffp-dst
+0 value iffp-dst#
+
+: PUTDUMP  { numbytes -- error }
+	numbytes 1+ iffp-dst# >
+	IF true
+	ELSE  numbytes 1- iffp-dst c!
+		pad iffp-dst 1+ numbytes move
+		iffp-dst# numbytes 1+ - -> iffp-dst#
+		iffp-dst numbytes 1+ + -> iffp-dst
+		false
+	THEN
+
+;
+
+: PUTRUN { numbytes runchar -- error }
+	2 iffp-dst# >
+	IF true
+	ELSE  1 numbytes -  iffp-dst c!
+		runchar iffp-dst 1+ c!
+		iffp-dst# 2 - -> iffp-dst#
+		iffp-dst 2 + -> iffp-dst
+		false
+	THEN
+;
+
+\ Sorry this word is so cryptic. It was translated
+\ almost directly from 'C' and is quite tricky.
+: PACKROW ( src dst src# dst# -- dst' dst# error? )
+\ Define lots of local variables.
+	{ src dst src# dst# | added# lastc rstart mode nbuf thisc error? -- }
+	dst# -> iffp-dst#  dst -> iffp-dst
+	0 -> added#  ( save for later calc )
+	src c@ -> lastc   0 -> mode
+	lastc pad c!  1 -> nbuf 0 -> rstart
+	src# 1
+	DO  src i + c@ dup -> thisc  ( get char )
+		pad nbuf + c! nbuf 1+ -> nbuf
+	mode
+		CASE
+		0 OF  nbuf 128 >
+			IF  nbuf 1- putdump
+				IF iffp-dst iffp-dst# -1 return
+				THEN
+				thisc pad c!
+				1 -> nbuf 0 -> rstart
+			ELSE
+				thisc lastc =
+				IF  nbuf rstart - 2 >
+					IF  ( start a RUN )
+						rstart 0>
+						IF  rstart putdump
+					IF iffp-dst iffp-dst# -1 return
+					THEN
+						THEN 1 -> mode
+					ELSE
+\ At beginning of row?
+						rstart 0=
+						IF 1 -> mode
+						THEN
+					THEN
+				ELSE nbuf 1- -> rstart  ( first of run )
+				THEN
+			THEN
+			ENDOF
+\ Run length mode !!
+			1 OF
+			thisc lastc -  ( break run? )
+			nbuf rstart - 128 > OR
+			IF  nbuf 1- rstart -   lastc  putrun
+				IF iffp-dst iffp-dst# -1 return THEN
+			thisc pad c!  ( start next dump )
+			1 -> nbuf 0 -> rstart
+			0 -> mode
+		THEN
+		ENDOF
+	ENDCASE
+	thisc -> lastc
+	LOOP
+\
+\ Finish dumping buffer.
+	mode
+	CASE
+		0 OF nbuf putdump IF iffp-dst 0 -1 return THEN
+			ENDOF
+		1 OF nbuf rstart -  lastc  putrun
+			IF iffp-dst iffp-dst# -1 return THEN
+		ENDOF
+	ENDCASE
+	iffp-dst iffp-dst# 0
+;
+
+\ Pack BITMAPs ----------------------------------------
+: PCOPYROW { src dst src_many dst_many -- dst' dst_many' error? }
+	src_many dst_many <
+	IF  src_many true
+	ELSE  src dst dst_many move  ( just move bytes !! )
+		src_many dst_many -  ( src_many' )
+		false
+	THEN
+;
+
+\ Compression = 1 is Run length encoded.
+\ Compression = 0 is uncompressed.
+
+: BITMAP>BODY  { bmap bodyptr bsize compr | bresult -- bsize'|-1 }
+	compr 0= compr 1 = OR 0=
+	IF ." Illegal compression = " compr . 0 exit
+	THEN
+	bodyptr -> bresult
+	bmap ..@ bm_rows 0  ( for each row )
+	DO bmap ..@ bm_depth 0 ( for each plane )
+	DO
+\ next plane base
+		bmap .. bm_planes i cells + @ >rel ( src )
+\ offset to row
+		j bmap ..@ bm_bytesperrow * +
+\ place to put bytes
+			bodyptr  ( dst )
+		( -- current-row body )
+		bmap ..@ bm_bytesperrow
+		bsize
+			compr 0=
+			IF pcopyrow
+			ELSE packrow
+			THEN  ( -- dst' dst_many error? )
+		IF .s 2drop
+			-1 -> bresult
+			leave
+		THEN
+		-> bsize
+		-> bodyptr
+	LOOP
+	bresult 0= IF leave THEN
+	LOOP
+	bresult -1 -
+	IF bodyptr bresult -  ( calculate size )
+	ELSE -1
+	THEN
+;
+
+: CTABLE>CMAP { ctable cmap #entries -- , pack }
+\ Convert Color Table data (2 bytes/RGB) to colorMap.
+	#entries 0
+	DO  ( -- ct cm )
+		ctable w@    ( next ctable value )
+		2 ctable + -> ctable
+	3 0
+	DO  dup
+		$ 0F and
+	4 ashift cmap 2 i - + c!
+		-4 ashift
+	LOOP drop
+	3 cmap + -> cmap
+	LOOP
+;
+

@@ -1,0 +1,34 @@
+\ List out JForth memory allocations (via ALLOCBLOCK primitive)...
+\
+\ Mike Haas, 1988
+\
+\ mod: 29-apr-89 mdh moved 'SMBase @ base !' to end of word
+
+anew Task-ShowMem
+
+variable SMTotal   \ total bytes allocated counter
+variable SMBase    \ users original base
+
+: SHOWMEM  ( -- )
+  >newline          \ move to next line, unless there
+  base @ SMBase !   \ save user's base for restoral
+  SMTotal off       \ initialize counter
+  FreeAtBye @ ?dup  \ any memory allocated at all?
+  IF
+     dup FreeCell 0   \ get how many allocations as DO-LOOP indices
+     DO
+        dup @ dup SizeMem  ( -- &FreeAtBye Mem size )
+        dup SMTotal +!
+        decimal 9 .r  ."  (decimal) bytes at location "
+        hex     9 .r  ."  (hex)"
+        SMBase @ base !  ?pause cr  cell+
+     LOOP
+     drop
+  THEN
+  SMTotal @ dup
+  IF
+     ascii -  56   emit-to-column cr
+  THEN
+  decimal 9 .r  ."  (decimal) bytes allocated" cr
+  SMBase @ base !
+;

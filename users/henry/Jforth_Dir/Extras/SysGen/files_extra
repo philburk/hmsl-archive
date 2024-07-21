@@ -1,0 +1,173 @@
+\ additional file-oriented words to load in with 'sys'...
+
+\ mod: 00001 22-jul-89 mdh fixed READLINE, had problems if file didn't
+\                          end in EOL (returned wrong datalength)
+
+: fread?  ( file addr cnt -- actual , quit and close file if error on read )
+  fread ferror @
+  IF  cr ." Error on file read!"   quit
+  THEN  ;
+
+: fseek?  ( file mode offset -- prev-pos, QUITs if seek error )
+  fseek dup -1 =
+  IF   cr ." Error on file seek!" quit
+  THEN  ;
+
+: F@,? ( file -- n1 , fetch next word from file, fquit if error occurs )
+  >r   0 0  sp@ r> swap 4 fread? 2drop
+;
+
+: F@, ( file -- n1 , fetch next word from file, calling pgm should chk FERROR )
+  >r   0 0  sp@ r> swap 4 fread 0=  IF  true ferror !  then  drop
+;
+
+
+\ after >DOS has loaded it, use this to append another string to dos-buffer...
+: +DOS  ( adr cnt -- )
+  dup >r      ( save cnt -- )
+  dosstring 2+  ( adr cnt dos -- )
+  BEGIN  dup c@
+  WHILE  1+
+  REPEAT ( adr cnt dos+ -- )
+  swap 2dup + >r   ( save end addr )  ( fr to cnt -- )
+  move  0 r> c!   ( null-terminate it!)
+  dosstring 1+ dup c@ r> + swap c!   ( inc the text forth cnt )
+;
+
+\ read line-oriented words.................................................
+
+$ 0a constant eol
+variable line-start
+variable full-linelen
+variable over-start
+variable over-len
+
+\ linesfill ( file Vblkaddr cnt -- #filled ) with many chars (lines) as possible, 
+\ to a line boundary, return #chars filled...
+: linesfillv  ( file vblkaddr cnt -- #chars )
+  rot >r  ( -- buff cnt )  2dup over-len @
+  IF
+\ cr ." moving down: " over-start @ over-len @ dup .hex dump
+     ( -- buf cnt buf cnt )  over-start @  2 pick  over-len @ move
+     over-len @ -   swap  over-len @ + swap
+  THEN
+  ( -- buf cnt buf' cnt' )  r@ -rot fread   over-len @ +  dup -1 =
+  over-len off
+  IF   drop 0
+  THEN        ( vbaddr cnt #read -- )
+  dup  3 pick freebytea ! ( vbadr cnt #read -- ) -dup
+  IF   ( something was read in... )
+       over =  ( vbadr cnt flag -- )
+       IF   2dup + 1- c@  eol -  ( vbadr cnt flag -- )
+            IF   2dup + 0 swap  ( vbadr cnt 0 lastadr -- )
+                 3 pick  freebyte 0
+                 ( vbadr cnt   0  lastcharadr  #chars 0 -- )
+                 DO   1- dup c@  eol =  ?leave
+                      swap 1+ swap
+                 LOOP ( vbadr cnt #back eoladr -- )
+                 \
+                 \ no EOL at all?
+                 dup 4 pick =
+                 IF
+                    2drop
+                 ELSE
+                    1+ over-start !  dup over-len !
+                    ( vbadr cnt -#back -- )  negate 2 pick  freebytea +!
+                 THEN
+            THEN
+       THEN
+  THEN ( vbadr cnt -- )  drop  freebyte   rdrop
+;
+
+: readline  ( file var-adr addr maxlen -- addr actuallen / adr -1 if at eof )
+  >r >r     bufferadr dup
+  freebyte  dup 0=     ( file vbuff freebyte flag -- )  dup
+  IF
+     over-len off
+  THEN
+  swap  line-start @ <=  or    ( file vbuff flag -- )
+  IF   ( buffer is empty or has already been read )
+       line-start off    ( file vbuff -- )
+       2dup virtbuffsize  linesfillv over  freebytea !  ( file vbuff -- )
+  THEN r> r>
+  ( file vbuff adr max -- )  2 pick freebyte line-start @ - 0 max  -dup
+  IF   ( file vbuff addr maxlen #left -- )
+       \
+       >r  2 pick line-start @ + ( file vbuff addr maxlen 1stchar -- )
+       r@ 1- swap   r> 0
+       DO
+          ( file vbuff addr maxlen #ixlastchar 1stchar -- )
+          dup i + c@ EOL =  \ this char an EOL?
+          IF
+             i LEAVE
+          ELSE
+             \ 2 pick  i <=      \ this char at dest size limit?
+             \ 2 pick  i =  OR   \ is this the index of the last char?
+             over  i <=     \ is this the index of the last char?
+             IF
+                i 1+ LEAVE  \ return length, include this char
+             THEN
+          THEN
+       LOOP
+       dup full-linelen !
+       ( file vbuff addr maxlen #inbuff 1stchar #chars-parsed -- )
+       rot drop  dswap  ( file vbuff 1stchar #chars-parsed addr maxlen --) 
+       rot min    ( file vbuff lineadr adr len -- )
+       2dup +  4 pick virtbuffsize + =  3 pick 2 pick + c@ eol -  or 0=
+       over swap
+       IF
+          1+
+       THEN
+       line-start +!
+       2dup >r >r 1+ move r> r>   ( file vbuff addr actuallen -- )
+  ELSE drop -1
+  THEN dswap 2drop
+;
+
+turnkeying? NOT .IF
+\ this word tests the 'read line' function...
+: typefile   ( -- , eats name )
+  fopen -dup
+  if   dup markfclose  tempfile !    \ mark file for auto-close
+       tempbuff openFV ( adr -- )    \ allocate virtual buffer
+       markfreeblock   ( -- )        \ mark for auto free-ing by QUIT
+       MEMF_CLEAR 512 allocblock? dup >r
+       markfreeblock
+     \
+       BEGIN  tempfile @  tempbuff  r@ 512  readline dup 0< 0=
+       WHILE  2 x>r  ?pause  2 xr>  cr type
+       REPEAT 2drop
+     \
+       r> dup unmarkfreeblock freeblock
+       tempbuff @ unmarkfreeblock    \ don't auto-free, I will
+       tempbuff closefvread          \ unallocate the buffer
+       tempfile @ dup unmarkfclose   \ don't auto-close, I will
+       fclose
+  else cr ." Can't open "  dosstring 1+ count type  quit
+  then cr
+;
+.THEN
+
+$ 3ee constant MODE_NEWFILE        $ 3ed constant MODE_OLDFILE
+   -2 constant ACCESS_READ            -1 constant ACCESS_WRITE
+
+: old  mode_oldfile filemode !  ;
+
+USER FHOLDER  ( hold characters for I/O )
+
+: FTYPE  ( fileptr addr count -- , write to file )
+    fwrite 0< ?ABORT" FTYPE write error!"
+;
+
+: FEMIT  ( fileptr char -- , write character to file )
+    fholder c!
+    fholder 1 ftype
+;
+
+-1 constant EOF
+: FKEY  ( fileptr -- char , get character from file , EOF if at end)
+    fholder 1 fread 0=
+    IF EOF
+    ELSE fholder c@
+    THEN
+;

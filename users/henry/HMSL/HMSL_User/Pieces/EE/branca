@@ -1,0 +1,43 @@
+
+anew branca.spot
+\ use floating point...
+
+\ e.g. 1.0 branca
+
+: e.> ( NN Pts. ) FIX E!>
+;
+
+
+: branca {  Basis -- }
+Start-list
+Envir:Ding! Off
+\ I can go by 1's ?
+128 1 do
+I I FLoat basis F* fln log2 f/ fl4096 f* 0. fmax E.>
+loop
+end-list
+;
+
+\ to be used with the "EEF" system
+: fbranca {  Basis -- }
+Start-list
+Envir:Ding! Off
+\ I can go by 1's ?
+128 1 do
+I I FLoat basis F* fln log2 f/ fl4096 f* 0. FMAX E!>
+loop
+end-list
+;
+
+
+
+: Brancax { Basis -- }
+Start-list
+Envir:Ding! Off
+\ I can go by 1's ?
+97 36 do
+I I 35 -  FLoat basis F* fln log2 f/ fl4096 f* 0. fmax  E.>
+loop
+end-list
+;
+

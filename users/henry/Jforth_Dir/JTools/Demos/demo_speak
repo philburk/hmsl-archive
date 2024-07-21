@@ -1,0 +1,37 @@
+\ Demonstrate access to the Amiga Voice Synthesis
+\ Translator and Narrator Libraries.
+\
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research
+
+include? speak ju:speak
+
+ANEW TASK_DEMO_SPEAK
+\ Define characters.
+: GEORGE  ( -- , Define GEORGE voice. )
+	MALE speak.sex!
+	200 speak.rate!
+	80 speak.pitch!
+;
+
+: MARTHA ( -- , Define MARTHA voice. )
+	FEMALE speak.sex!
+	120 speak.rate!
+	200 speak.pitch!
+;
+
+: DEMO.SPEAK intuition?
+	speak.init  ( initialize speach system )
+\ Notice that you may have to spell things wrong to sound right!
+	" Welcome to the Jay Forth Speech demo." speak
+	GEORGE " What shall we do tonight?" speak
+	MARTHA " I want to do something stimulating!" speak
+	GEORGE " Tee Vee is definitely out then," speak
+		" and my favorite things are too dangerous," speak
+		" except for one, but my stereo is broken!" speak
+	MARTHA " I've got it! Let's program in Jay Forth!" speak
+	GEORGE " What a great idea!" speak
+	speak.term
+;
+
+cr ." Enter:  DEMO.SPEAK    to hear demo!" cr

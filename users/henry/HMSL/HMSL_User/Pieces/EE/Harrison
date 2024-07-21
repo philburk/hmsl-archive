@@ -1,0 +1,269 @@
+\ harrison askes for it... the dope!
+
+
+anew task-harr
+
+\ special harrison tuning "At the Tomb of Charles Ives"
+\ the specified intervals, not direct ratios!
+\ two schemes:
+\ since he accumulates intervals, the Ratio form is:
+\ A   Bb     C    D     Eb
+\ 1/1 21/20  6/5  27/20 36/25
+
+\ 5/3  7/4   1/1  9/8   6/5
+\ a, if c 523.2511305Hz is used as 1/1 , is 5/3 or 436.04Hz
+
+v: p'
+
+: H? ( num den  -- )
+float swap float  P' @ F* swap F/ dup p' ! fix  hz>Pts   dup ptname. 
+;
+
+: H> ( nn  num den  -- )
+H? E!>
+;
+
+: HarrA
+start-list
+zero-set
+
+110.  p' !
+3 \a	1   1 H>
+3 \Bb	21 20 H>
+4 \C	8   7 H>
+4 \D	9   8 H>
+4 \Eb	16 15 H>
+
+220.  p' !
+4 \a	1   1 H>
+4 \Bb	21 20 H>
+5 \C	8   7 H>
+5 \D	9   8 H>
+5 \Eb	16 15 H>
+
+440. p' !
+5 \a	1   1 H>
+5 \Bb	21 20 H>
+6 \C	8   7 H>
+6 \D	9   8 H>
+6 \Eb	16 15 H>
+
+880.  p' !
+6 \a	1   1 H>
+6 \Bb	21 20 H>
+7 \C	8   7 H>
+7 \D	9   8 H>
+7 \Eb	16 15 H>
+
+
+end-list
+;
+
+\ add psaltery tunings
+: HarrAPS
+start-list
+
+220.  p' !
+4 \g	9 10 H>
+4 \a	10 9 H>
+4 \Bb	21 20 H>
+4 \B	15 14 H>
+5 \C	16 15 H>
+5 \D	9   8 H>
+5 \Eb	16 15 H>
+5 \F	10 9  H>
+5 \Ab	6 5   H>
+5 \Bb	35 32 H>
+
+440.  p' !
+5 \g	9 10 H>
+5 \a	10 9 H>
+5 \Bb	21 20 H>
+5 \B	15 14 H>
+6 \C	16 15 H>
+6 \D	9   8 H>
+6 \Eb	16 15 H>
+6 \F	10 9  H>
+6 \Ab	6 5   H>
+6 \Bb	35 32 H>
+
+end-list
+;
+
+
+\ not using this one!
+
+: HarrC
+start-list
+zero-set
+
+109.01  p' !
+3 \a	1   1 H>
+3 \Bb	21 20 H>
+4 \C	8   7 H>
+4 \D	9   8 H>
+4 \Eb	16 15 H>
+
+218.02  p' !
+4 \a	1   1 H>
+4 \Bb	21 20 H>
+5 \C	8   7 H>
+5 \D	9   8 H>
+5 \Eb	16 15 H>
+
+436.04 p' !
+5 \a	1   1 H>
+5 \Bb	21 20 H>
+6 \C	8   7 H>
+6 \D	9   8 H>
+6 \Eb	16 15 H>
+
+872.08  p' !
+6 \a	1   1 H>
+6 \Bb	21 20 H>
+7 \C	8   7 H>
+7 \D	9   8 H>
+7 \Eb	16 15 H>
+
+
+end-list
+;
+
+: r*/ { hz num den -- }
+hz num den */ dup . dup hz>pts ptname. cr
+;
+
+
+
+\ floating vers of above 
+
+\ print  ratio of this freq, compared with A440
+FALSE .IF
+\ now in real EE
+V: fRatioBase
+( 27.5 ) \ for A, not C
+33. fRatioBase !
+: fRfromA?
+fRatioBase @   F/ \ stak is the uncooked decimal "ratio"
+\ turn into points so we can turn 'em back inside f~%
+fln log2 F/ fl4096 F* F~% rot ." (" . swap ." ) " . ."  /" .
+;
+.THEN
+
+\ floating, enhanced r*/  leaves "new" ratio on stak
+: fr*/  { fhz fnum fden -- }
+fhz fnum F* fden F/ 
+dup f. 			\ Raw Hz
+dup fRFromA?		\ ratio from "A440" or "C528"
+dup hz-pts F/ Fln log2 f/ fl4096 F* fl1/2 F+ Fix  ptname. \ name in points
+;
+
+: Harrt
+cr
+440.
+1. 1. fr*/
+21. 20. fr*/
+8. 7. fr*/
+9. 8. fr*/
+16. 15. fr*/
+cr
+drop
+;
+
+
+\ for the psalteries
+\ I is important
+
+\ Bob
+: HarrPSI
+cr
+440.
+9.  10. fR*/	\ G, down from A440
+10. 9. fr*/	\ A 440
+21. 20. fr*/	\ Bb
+15. 14. fr*/	\ B
+16. 15. fr*/	\ C
+9. 8. fr*/		\ D
+16. 15. fr*/	\ Eb
+10. 9. fr*/	\ F
+6. 5. fr*/		\ Ab
+35. 32. fR*/	\ Bb
+cr
+drop
+;
+
+\ David
+: HarrPSII
+cr
+264.
+1. 1. fR*/
+9.  8. fR*/
+16. 15. fr*/
+10. 9. fr*/
+5. 4.  fr*/
+6. 5. fr*/
+9. 8. fr*/
+32. 27. fr*/
+9. 8. fr*/
+cr
+drop
+;
+
+
+Variable BaseNote
+\
+\ Just AutoHarp tuning words
+\
+\
+\ make floating???
+floatee .if
+: %P
+{ Note Oct Num Den -- }
+Note  0 127 within?  If
+note oct num den %? BaseNote @ float f+ E!>
+else note  ." :>>bad" .
+then 
+Note 1+
+;
+.else
+: %P
+{ Note Oct Num Den -- }
+Note  0 127 within?  If
+note oct num den %? BaseNote @ + E!>
+else note  ." :>>bad" .
+then 
+Note 1+
+;
+.then
+
+\ a complete scale... c == 53.38 points
+
+: harrs
+53 BaseNote ! \ freq for C in points
+Start-list
+Zero-set
+0 \ start on f, sounds like E
+10 0 do
+I 1 1 %P \ c
+I 16 15 %p \ c#
+I 9 8 %p \ d
+I 6 5 %p  \ Eb
+I 5 4 %p  \ E
+I 4 3 %P \ F
+I 45 32 %p \ F#
+I 3 2 %P \ G
+I 8 5 %p \ Ab
+I 5 3 %P \ A
+I 7 4 %P \ Bb 
+I 15 8 %p \ B
+loop
+cr
+drop
+end-list
+;
+
+
+
+." harr will set SOME of the keys!" cr
+
+

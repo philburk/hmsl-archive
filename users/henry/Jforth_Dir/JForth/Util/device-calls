@@ -1,0 +1,42 @@
+\ BeginIO & AbortIO Support
+\
+\ Authors: Mike Haas, Phil Burk
+\ Copyright 1987 Delta Research
+\
+\   The following was developed with the reverse-polish assembler
+\ and 'DEF'd to the file.  Who needs to re-assemble the kernal?
+\
+\ BeginIO ...
+\
+\   MOVE.L  DSP,-(RP)                   2F0E
+\   ADD.L   ORG,TOS                     DE8C
+\   MOVE.L  TOS,A1                      2247
+\   MOVE.L  $14(A1),DSP                 2C69 0014
+\   JSR.L   $-1E(DSP)                   4EAE FFE2  !!
+\   MOVE.L  (RP)+,DSP                   2C5F
+\   MOVE.L  DO,TOS                      2E00
+\   RTS                                 4E75
+\
+\ AbortIO ...
+\
+\   MOVE.L  DSP,-(RP)                   2F0E
+\   ADD.L   ORG,TOS                     DE8C
+\   MOVE.L  TOS,A1                      2247
+\   MOVE.L  $14(A1),DSP                 2C69 0014
+\   JSR.L   $-24(DSP)                   4EAE FFDC  !!
+\   MOVE.L  (RP)+,DSP                   2C5F
+\   MOVE.L  DO,TOS                      2E00
+\   RTS                                 4E75
+hex
+
+: BEGINIO()  ( IOReqBlock -- result )
+  [ 2f0e w,   de8c w,  2247 w,   2c690014 ,
+    4eaeffe2 ,   2c5f w,
+    2e00 w, ] inline ;
+
+: ABORTIO()  ( IOReqBlock -- result , ignore the return value! )
+  [ 2f0e w,   de8c w,  2247 w,   2c690014 ,
+    4eaeffdc ,   2c5f w,
+    2e00 w, ] inline ;
+
+decimal

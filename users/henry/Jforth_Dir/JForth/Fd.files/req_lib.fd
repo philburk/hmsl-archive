@@ -1,0 +1,37 @@
+##base _ReqBase
+##bias 30
+##public
+Center(NewWindow,Xoffs,Yoffs)(A0,D0,D1)
+SetSize(MaxVal,ViewSize)(D0,D1)
+SetLocation(MaxVal,ViewSize,Value)(D0,D1,D2)
+ReadLocation(MaxVal,ViewSize,PotValue)(D0,D1,D2)
+Format(String,Control,Buffer)(A0,A1,A2)
+##private
+Dispatch()()
+Fake1()()
+Fake2()()
+Fake3()()
+##public
+FileRequester(FileRequester)(A0)
+ColorRequester(colour)(D0)
+DrawBox(RastPort,Minx,Miny,Maxx,Maxy)(A0,D0,D1,D2,D3)
+MakeButton(Buffer,Image,Image2,Width,Height,Depth)(A0,A1,A2,D0,D1,D2)
+MakeScrollBar(Buffer,Flags,Size,X,Y)(A0,D0,D1,D2,D3)
+PurgeFiles(Filerequester)(A0)
+##private
+GetFontHeightAndWidth()()
+##public
+MakeGadget(Buffer,String,X,Y)(A0,A1,D0,D1)
+MakeString(buffer,StringBuff,UndoBuff,MaxWidthBits,MaxNumChars,X,Y)(A0,A1,A2,D0,D1,D2,D3)
+MakeProp(Buffer,Width,Height,Flags)(A0,D0,D1,D2)
+LinkGadget(Buffer,String,NewWindow, X, Y)(A0,A1,A3,D0,D1)
+LinkStringGadget(Buffer,StringBuf,UndoBuf,NewWindow, WidthBits,NumChars, X, Y)(A0,A1,A2,A3,D0,D1,D2,D3)
+LinkPropGadget(Buffer,NewWindow, Width, Height, Flags, Leftedge, TopEdge)(A0,A3,D0,D1,D2,D3,D4)
+GetString(Buffer,Title,window,VisibleChars,MaxChars)(A0,A1,A2,D0,D1)
+RealTimeScroll(ScrollStruct)(A0)
+TextRequest(TextReq)(A0)
+GetLong(GetLongStruct)(A0)
+RawKeyToAscii(Code,Qualifier,Address)(D0,D1,A0)
+ExtendedColorRequester(ExtColorReq)(A0)
+NewGetString(GetStringStruct)(A0)
+##end

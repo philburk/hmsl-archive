@@ -1,0 +1,5 @@
+: Y/Q   ( --- ) 
+    Y/N  NOT
+    IF QUIT THEN ;
+
+ 

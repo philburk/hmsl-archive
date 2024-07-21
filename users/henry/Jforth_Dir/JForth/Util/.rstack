@@ -1,0 +1,27 @@
+\ Dump Return Stack
+\
+\ MOD: PLB 8/16/88 Put .NEED around RDEPTH since in BUILDSYS
+\      Changed "top->" to "Return Stack>"
+
+decimal
+.NEED RDEPTH
+: RDEPTH  ( -- #items )
+  rp@ r0 @ swap - cell/  ;
+.THEN
+
+: .RSTACK   ( -- , non-destructive stack print )
+  cr   rdepth dup 0<
+  IF   ." underflow!!!" quit
+  THEN
+  IF  ." Return Stack> " rdepth 2+   2
+       DO   rdepth i - 2+ rpick  u.  
+       LOOP 
+  ELSE ." empty "
+  THEN
+;
+
+: .RS   ( -- , non-destructive stack print )
+       ." Return Stack> " 6 0      
+       DO   6 i - 2+ rpick  u.  
+       LOOP 
+;

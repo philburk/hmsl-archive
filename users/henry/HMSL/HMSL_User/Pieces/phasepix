@@ -1,0 +1,162 @@
+\ Experiment with phasing of melodic and graphic shapes.
+\ This is designed with 4 320x200 pictures with
+\ 4 bands 50 pixels high.  Four people with different
+\ costumes will work well.
+\ The pictures should be called: PIC0 PIC1 PIC2 PIC3
+\
+\ Play piece by entering:
+\    PHASEPIX
+\    Then SLOWLY play notes in the two octaves above and below
+\    Middle C.  The notes will be added to one of the
+\    four shape/bands.
+\
+\ Composer: Phil Burk
+\ Copyright 1990
+\
+
+getmodule includes
+include? 'ILBM' jiff:iff.j
+include? PIC.BLIT jiff:pictures
+
+decimal
+ANEW TASK-PHASEPIX
+
+picture BACKG
+picture PIC0
+picture PIC1
+picture PIC2
+picture PIC3
+
+16 value PPIX_#REP
+24 value PPIX_DUR
+
+320 2/ value PPIX_WIDTH
+320 4/ value PPIX_XOFF
+200 4/ value PPIX_HEIGHT
+
+: LOAD.PIX  ( -- , load pictures using undocumented $PIC.LOAD )
+    " hp:pic0.ilbm" backg $pic.load
+    " hp:pic0.ilbm" pic0 $pic.load
+    ppix_width ppix_height pic0 pic.put.wh  ( set horizontal band )
+    " hp:pic1.ilbm" pic1 $pic.load
+    ppix_width ppix_height pic1 pic.put.wh  ( only copy middle )
+    " hp:pic2.ilbm" pic2 $pic.load
+    ppix_width ppix_height pic2 pic.put.wh
+    " hp:pic3.ilbm" pic3 $pic.load
+    ppix_width ppix_height pic3 pic.put.wh
+;
+
+: FREE.PIX  ( -- , free pictures, which closes screen, when done )    
+    backg pic.free
+    pic0 pic.free
+    pic1 pic.free
+    pic2 pic.free
+    pic3 pic.free
+;
+
+create PIX-ARRAY pic0 , pic1 , pic2 , pic3 ,
+
+: DRAW.PART { indx pic -- , draw part of pic }
+    gr-curwindow @
+    backg pic.drawto
+\ draw low notes at bottom
+    ppix_xoff   3 indx -  ppix_height *  ( x y ) 
+    2dup pic pic.put.xy     pic pic.blit
+    gr.set.curwindow
+;
+
+: INTERP.PHASEPIX  { elmnt# shape instr -- }
+    elmnt# shape instr interp.el.on
+    get.data: shape   ( indx )
+    elmnt# 3 and  cell* pix-array + @ ( -- indx pic )
+    draw.part
+;
+
+: PPIX.OBJ.INIT  { shape instr player -- , prepare these objects }
+\ Use custom Graphics Interpreter.
+    'c interp.phasepix put.on.function: instr
+\ Use actual MIDI values in Shape
+    0 put.offset: instr
+\ Connect shape/instrument/player
+    shape instr build: player
+    ppix_#rep  put.repeat: player     ( repeat 16 times )
+    player add: coll-p-1   ( add to parallel collection )
+;
+
+
+\ MIDI Parser function to add note to different shapes.
+: PPIX.ADD.NOTE  { note velo | shape# shape -- }
+    note 36 - 12 / 0 3 clipto
+    dup -> shape# ( calculate which shape )
+    get: coll-p-1 0 swap get: [] -> shape
+    PPIX_dur note velo add: shape
+;
+
+: PPIX.SH.INIT { shape octave | offset -- , fill with song data }
+    octave put.data: shape
+    octave 12 * 36 + -> offset
+    32 3 new: shape
+\ Duration - pitch - velocity
+    PPIX_DUR 0 offset + 100 add: shape
+    PPIX_DUR 7 offset + 100 add: shape
+;
+
+: PPIX.FILL  ( -- , fill all shapes with same data )
+    shape-1 0 PPIX.sh.init
+    shape-2 1 PPIX.sh.init
+    shape-3 2 PPIX.sh.init
+    shape-4 3 PPIX.sh.init
+;
+
+: PPIX.INIT ( -- , Initialize piece. )
+    load.pix
+    PPIX.fill
+    mp.reset
+    'c PPIX.add.note mp-on-vector !
+    midi.parser.on
+\
+    8 new: coll-p-1    ( make room for up to 8 players )
+    shape-1 ins-midi-1 player-1 PPIX.obj.init    
+    shape-2 ins-midi-2 player-2 PPIX.obj.init    
+    shape-3 ins-midi-3 player-3 PPIX.obj.init    
+    shape-4 ins-midi-4 player-4 PPIX.obj.init    
+\
+\ Play for a long time.
+    200 put.repeat: coll-p-1
+\
+\ Make shapes available to shape editor.
+    clear: shape-holder
+    shape-1 add: shape-holder
+    shape-2 add: shape-holder
+    shape-3 add: shape-holder
+    shape-4 add: shape-holder
+\
+    ." Each band is assigned an octave around Middle C." cr
+    ." Play a few notes in each octave to make phrases" cr
+    ." different lengths." cr
+    
+;
+
+: PPIX.PLAY   ( -- , execute piece )
+    coll-p-1 hmsl.play
+;
+
+: PPIX.TERM ( -- , free memory )
+    default.hierarchy: coll-p-1
+    free.hierarchy: coll-p-1
+    clear: shape-holder
+    free.pix
+    mp.reset
+;
+
+: PHASEPIX ( -- , Play complete piece. )
+    PPIX.init
+    PPIX.play
+    PPIX.term
+;
+
+if.forgotten PPIX.term
+cr
+." Enter PHASEPIX to start piece." cr
+." (Requires 4 MIDI channels.)" cr
+cr

@@ -1,0 +1,73 @@
+\ Demonstrate simple graphics editing based on event driven input.
+\ Clear screen if double click detected.
+\
+\ Author: Phil Burk
+\ Copyright 1986  Delta Research
+\
+\ MOD: PLB 8/6/88 Add double click detection.
+
+include? newwindow.setup ju:amiga_graph
+include? ev.getclass ju:amiga_events
+
+ANEW TASK-DEMO_PAINT
+
+NewWindow PaintWindow   ( Create a template for the new window. )
+
+: CYCLE.COLORS ( -- , change to next color )
+	gr.color@ 1+ 3 and dup 0=
+	IF drop 1 THEN   gr.color!
+;
+
+USER IF-DOWN  ( Keep track of whether mouse button is down. )
+
+: PROCESS.EVENT ( class -- done? , process events from IDCMP )
+	CASE
+		MOUSEBUTTONS OF   ( check for up or down )
+			ev-last-code @ SELECTDOWN =
+			IF  true if-down !
+				ev.getxy00 gr.move  ( MOVE graphics pen to down x,y )
+				ev.2click?    ( clear on double click )
+				IF gr.clear
+				THEN
+			ELSE false if-down !
+			THEN false
+		ENDOF
+
+		MOUSEMOVE OF if-down @
+			IF  ev.getxy00 gr.draw  cycle.colors
+			THEN  false
+		ENDOF  ( DRAW )
+
+		CLOSEWINDOW OF true ENDOF
+
+		warning" PAINT.LOOP -- Unrecognized event!"
+		false swap
+	ENDCASE
+;
+
+: PAINT.LOOP  ( -- , loop until done )
+	BEGIN
+		gr-curwindow @ ev.wait
+		gr-curwindow @ ev.getclass dup
+		IF process.event
+		THEN
+	UNTIL
+;
+
+: PAINT  ( -- , Demonstrate painting. )
+	gr.init
+	PaintWindow NewWindow.Setup      ( Set defaults for window )
+	0" Paint - JForth - DoubleClick to Clear Window!"
+		>abs  PaintWindow ..! nw_title
+	CLOSEWINDOW MOUSEBUTTONS | MOUSEMOVE |   ( add MOUSEMOVE )
+	PaintWindow ..! nw_idcmpflags
+\
+\ Create window from template and make it the current window.
+	PaintWindow gr.opencurw
+	IF  PAINT.LOOP
+		gr.closecurw
+	THEN
+	gr.term
+;
+
+cr ." Enter:   PAINT     for demo!" cr

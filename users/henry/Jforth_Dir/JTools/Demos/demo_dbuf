@@ -1,0 +1,200 @@
+\ Display IFF and other graphics using
+\ Single and Double Buffering
+\
+\ Note that with single buffering, you can see the picture being drawn.
+\
+\ Author: Phil Burk
+\ Copyright: Phil Burk 1991
+\
+\ 00001 PLB 1/28/92 Changed SAVE/BACKUP
+\ 00002 PLB 2/8/92 Changed 5 DDB_NUM_COLORS to 3 DDB_NUM_PLANES
+
+include? $pic.load jiff:load_pic
+include? dbuf.make0 jiff:double_buffer
+include? ?goto.error ju:goto_error
+
+ANEW TASK-DEMO_DBUF
+
+\ You may change these names to match IFF files you have created!
+: BACKG_FILENAME ( -- $name ) " jpics:mountains.pic" ;
+: BRUSH1_FILENAME (  -- $name ) " jpics:comet.br" ;
+: BRUSH2_FILENAME (  -- $name ) " jpics:ship.br" ;
+
+." Will Read BACKG   from: " BACKG_FILENAME count type cr
+." Will Read BRUSH1  from: " BRUSH1_FILENAME count type cr
+." Will Read BRUSH1  from: " BRUSH2_FILENAME count type cr
+
+\ You must change these values if your pictures have
+\ a different number of planes or a different size.
+3 constant DDB_NUM_PLANES \ 00002
+320 constant DDB_WIDTH
+200 constant DDB_HEIGHT
+
+\ used by random walk
+variable DDB-BX-1
+variable DDB-BY-1
+variable DDB-BX-2
+variable DDB-BY-2
+
+\ declare IFF picture structures
+picture ddb-backg
+picture ddb-brush1
+picture ddb-brush2
+
+\ Set flags for SCREEN>BACKWINDOW which is called by DBUF.MAKE0
+
+BACKDROP BORDERLESS | WINDOWCLOSE | REPORTMOUSE | -> S>B_FLAGS
+MOUSEBUTTONS CLOSEWINDOW | -> S>B_IDCMPFLAGS \ Cannot be zero
+	
+: DDB.INIT.SCREENS ( -- error? , open screen and window for 1st buffer)
+\ open a screen with a backdrop window
+	ddb_num_planes ddb_width ddb_height 0 dbuf.make0 0= \ 00002
+	IF
+\ The IFF code will open a new screen if SIFF-SCREEN is zero.
+\ This will force it to use the screen you opened.
+		dbuf-screen @ siff-screen !   \ don't open another screen!
+\
+\ Load the IFF pictures.
+		backg_filename ddb-backg $pic.load? ?goto.error
+		brush1_filename ddb-brush1 $pic.load? ?goto.error
+		brush2_filename ddb-brush2 $pic.load? ?goto.error
+\
+\ Make the screen use the picture's color map.
+		ddb-backg pic.use.colors
+\
+\ Show full backdrop window by hiding SIFF-SCREEN title.
+		siff.showit
+	THEN
+	FALSE exit
+\
+ERROR:
+	>newline ." Error loading pictures!" cr
+	TRUE
+;
+
+: D1B.INIT ( -- error )
+	ddb.init.screens ?goto.error
+	0 0 ddb-backg pic.blit  \ set background
+\
+\ allocate room for saving background
+	0 ddb-brush1 pic.alloc.backup? ?goto.error
+	0 ddb-brush2 pic.alloc.backup? ?goto.error
+	0 0 0 ddb-brush1 pic.backup.nth \ save initial background
+	0 0 0 ddb-brush2 pic.backup.nth \ save initial background
+	FALSE
+	exit
+\
+error:
+	TRUE
+;
+
+: DDB.TERM ( -- )
+	>newline ." DDB.TERM" cr
+	0 siff-screen !
+	ddb-backg pic.free
+	ddb-brush1 pic.free
+	ddb-brush2 pic.free
+	dbuf.unmake
+;
+
+if.forgotten ddb.term    \ in case we forget to
+
+: DDB.WALK.BRUSH { xvar yvar pict -- }
+\ Choose an X,Y that may cause brush to be clipped against
+\ left or top edge.
+	11 choose 5 - xvar @ + -20 max 200 min ( x )
+	dup xvar !
+	11 choose 5 - yvar @ + -20 max 100 min ( y )
+	dup yvar !
+\
+\ save before drawing
+	2dup
+	dbuf-cur-buf @ \ currently displayed buffer
+	pict pic.backup.nth
+\
+\ now draw it transparently
+	pict pic.trans.blit
+;
+
+: DDB.DRAW  ( -- , draw a new image )
+\ restore image from previous draw
+\ These MUST be drawn in the reverse order that they are drawn!
+	dbuf-cur-buf @ \ currently displayed buffer
+	ddb-brush2 pic.restore.nth \ 2 2 2 2 2 2 2 2 2 2 2 !
+\
+	dbuf-cur-buf @ \ currently displayed buffer
+	ddb-brush1 pic.restore.nth \ 1 1 1 1 1 1 1 1 1 1 1 !
+\
+	ddb-bx-1 ddb-by-1 ddb-brush1 ddb.walk.brush \ 1 1 1 !
+	ddb-bx-2 ddb-by-2 ddb-brush2 ddb.walk.brush \ 2 2 2 !
+;
+
+: D1B.DRAW.LOOP ( -- )
+	BEGIN
+		ddb.draw
+		WaitTOF()
+		?terminal
+		?closebox OR
+	UNTIL
+;
+
+: D2B.DRAW.LOOP ( -- )
+	BEGIN
+		ddb.draw
+		dbuf.switch    \ Switch draw and display buffers
+		WaitTOF()      \ wait for view to settle
+		?terminal
+		?closebox OR
+	UNTIL
+;
+
+: DEMO.1BUF
+	gr.init
+	d1b.init 0=
+	IF
+		d1b.draw.loop
+	THEN
+	ddb.term
+	gr.term
+;
+
+: D2B.INIT ( -- error? )
+	true
+	d1b.init 0=
+	IF
+\ make second buffer
+		ddb_num_planes ddb_width ddb_height dbuf.make1 0= \ 00002
+		IF
+			0 0 ddb-backg pic.blit  \ set background
+\ allocate room for saving background
+			1 ddb-brush1 pic.alloc.backup? 0= \ 00001
+			IF
+				1 ddb-brush2 pic.alloc.backup? 0= \ 00001
+				IF
+\ save initial backgrounds
+					0 0 1 ddb-brush1 pic.backup.nth \ 00001
+					0 0 1 ddb-brush2 pic.backup.nth
+					drop FALSE
+				THEN
+			THEN
+		THEN
+	ELSE
+		." D1B.INIT failed!" cr
+	THEN
+;
+
+: DEMO.2BUF
+	gr.init
+	d2b.init 0=
+	IF
+		d2b.draw.loop
+	THEN
+	ddb.term
+	gr.term
+;
+
+cr
+." Enter:   DEMO.1BUF to see SINGLE buffered display" cr
+." Enter:   DEMO.2BUF to see DOUBLE buffered display" cr
+
+

@@ -1,0 +1,79 @@
+\ BTD sept 30/86 changed the name of "SIZED" -> RECORD
+\ MOD: PLB 9/6/88 Changed EVEN-UP-DP to ALIGN
+\ 00001 plb 9/21/91 Put .NEED around WARRAY, moved to JF:CREATE_DOES
+\ 00002 PLB 1/24/92 Fixed 2ARRAY
+
+( 1 and 2 dimensional integer array definitions )
+( integer one dimensional array )
+FORTH DEFINITIONS
+
+.NEED ARRAY
+: ARRAY  ( size ARRAY )
+  CREATE 0 DO 0 , LOOP
+  DOES> SWAP CELLS + ;
+.THEN
+
+.NEED WARRAY
+: WARRAY    CREATE  ( SIZE-WORDS --- )  2* HERE OVER ALLOT
+           SWAP ERASE
+           DOES>  ( BIN# --- ADDRESS )  SWAP 2* + ;
+.THEN
+
+: YX-CARRAY ( x-dimension y-dimension YX-ARRAY )
+   CREATE  SWAP 2DUP  HERE  OVER 2*  +  ( Y X STADD--)
+            SWAP 0 DO OVER   I * OVER + , LOOP 2DROP
+            * 0 DO 0 C, LOOP
+   DOES> ROT ROT SWAP ROT SWAP 2* + @ + ;
+
+( integer two dimensional array )
+\ This original version allocates space for CELLs but generates
+\ addresses for 2 byte words!
+\ : 2ARRAY   
+\   CREATE ( XDIM YDIM --- ) 2DUP SWAP , , *   CELLS
+\         HERE OVER ALLOT SWAP ERASE
+\   DOES> ( X Y --- ADDR ) DUP @ ROT * DUP + + SWAP DUP + +
+\         4 CELLS  + ;
+: 2ARRAY \ 00002
+	CREATE ( xdim ydim -- )
+		over ,  \ save xdim
+		* cells here over allot
+		swap erase
+	DOES>  ( x y -- addr )
+		dup @ rot * cells +
+		swap cells + cell+
+;
+
+." Warning: RECORD-ARRAY will not clone!" cr \ 00002
+: RECORD-ARRAY 
+   CREATE  (  ITEMS BYTE/ITEM --- )
+       HERE >R OVER CELLS ALLOT
+       HERE >R DDUP * DUP ALLOT R SWAP ERASE ALIGN
+       ( ITEMS BYTES )  ( P-ADR A-ADR --R-- )  SWAP R> R> ROT 0
+       DO   ( BYTES ARRAY-ADR POINTER-ADR )
+           DDUP !    CELL+ >R OVER + R>
+       LOOP  3 XDROP
+   DOES>  ( ITEM <PFA> --- ADDR )  SWAP CELLS + @ ;
+
+: 2D-RECORD-ARRAY  
+  CREATE  ( XDIM YDIM BYTES --- )
+       3 XDUP  ROT , SWAP , ,   * *  HERE OVER ERASE ALLOT
+  DOES> ( X Y PFA --- ADDR )
+       >R  OVER R @ >  OVER R  CELL+ @ > OR  55 ?ERROR
+        R @ * R 2 CELLS + @ *   ( X Y' )
+       SWAP R 2 CELLS + @ * +  R> +  3 CELLS +   ( ADDR ) ;
+
+INCLUDE? $TABLE jf:$TABLE 
+
+DECIMAL
+
+0 .IF   .NEED USER-ARRAY
+: USER-ARRAY CREATE   ( SIZE --- )  ( NAME--- )
+               USER# @ ,     CELLS  USER# +!
+     DOES>  ( INDEX --- ADDR ) @ SWAP CELLS + UP@ + ;
+.THEN
+
+0 .IF   .Need USER-CARRAY
+: USER-CARRAY CREATE   ( SIZE --- )  ( NAME--- )
+               USER# @ ,       USER# +!
+     DOES>  ( INDEX --- ADDR ) @ +     UP@ + ;
+.THEN

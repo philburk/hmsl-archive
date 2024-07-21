@@ -1,0 +1,61 @@
+
+
+INCLUDE? CONDITION jf:CONDITION
+INCLUDE? @BITS jf:@BITS
+INCLUDE? SELECT jf:SELECT
+INCLUDE? $TABLE jf:$TABLE
+include? module jf:module
+
+
+.NEED disassem
+      module disassem
+.THEN
+
+
+' disassem M.LOADED @ .IF
+
+    detachmodule DISASSEM
+
+.THEN
+
+
+only FORTH definitions
+
+.need makedisass?
+    variable makedisass?   makedisass? on
+.THEN
+
+
+makedisass? @
+
+.IF
+
+    20 MakeModule DISASSEM
+
+    include jf:dism
+
+    cr ." Writing MOD:DISASSEM.MOD" cr cr
+
+    SealModule DISASSEM  detachmodule DISASSEM
+
+.THEN
+
+\
+\ Module installed, build interface to it...
+\
+
+
+WillGet DISASSEM DEF
+WillGet DISASSEM DISM
+WillGet DISASSEM RELDISM
+WillGet DISASSEM RISM
+WillGet DISASSEM ADISM
+WillGet DISASSEM DISM-DONE?
+WillGet DISASSEM DISM-WORD?
+WillGet DISASSEM INIT-DISM
+WillGet DISASSEM DISM-CYCLES
+WillGet DISASSEM DISM-NAMES
+WillGet DISASSEM DISM-ORIGIN
+WillGet DISASSEM .REGNAMES?
+WillGet DISASSEM SHOW-CYCLES
+

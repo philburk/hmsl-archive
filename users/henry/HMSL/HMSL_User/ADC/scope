@@ -1,0 +1,162 @@
+\ Simple digital scope.
+\
+\ Author: Phil Burk
+\ Copyright 1987
+\
+include? gr.init ju:amiga_graph
+include? par@ par_port
+
+ANEW TASK-SCOPE
+.NEED BARRAY
+: BARRAY  ( N -- )
+    CREATE allot
+    DOES> +
+;
+.THEN
+decimal
+256 constant SCOPE_#BYTES
+scope_#bytes BARRAY SCOPE-DATA
+
+VARIABLE SCOPE-DELAY
+VARIABLE SCOPE-TRIGGER-1
+VARIABLE SCOPE-TRIGGER-2
+
+: DISABLE() ( -- , disable interrupts )
+    call exec_lib disable drop
+;
+
+: ENABLE() ( -- , enable interrupts )
+    call exec_lib enable drop
+;
+
+: SCOPE.WAIT.ABOVE ( value -- , wait until level passes value )
+    1000 0 DO
+        par@ over >
+        IF leave THEN
+    LOOP drop
+;
+
+: SCOPE.WAIT.BELOW  ( value -- , wait until level passes value )
+    1000 0 DO
+        par@ over <
+        IF leave THEN
+    LOOP drop
+;
+
+: SCOPE.WAIT ( value1 value2 -- , wait for complete crossing )
+    2dup >
+    IF swap scope.wait.above scope.wait.below
+    ELSE swap scope.wait.below scope.wait.above
+    THEN
+;
+
+: SCOPE.ACQUIRE ( -- , get record of data )
+    scope-trigger-1 @ scope-trigger-2 @ scope.wait
+    scope-delay @ 200 <
+    IF disable()  ( prevent glitches )
+    THEN
+    par@ drop
+    0 scope-data
+    scope_#bytes 0
+    DO par@ over c! 1+
+       scope-delay @ 0 DO LOOP
+    LOOP drop
+    scope-delay @ 200 <
+    IF enable()
+    THEN
+;
+
+VARIABLE SCOPE-BOTTOM   ( y value at bottom )
+VARIABLE SCOPE-LEFT     ( x value of left )
+VARIABLE SCOPE-DELTAX   ( x between samples )
+VARIABLE SCOPE-SHIFT    ( ammount to shift data )
+VARIABLE SCOPE-XPOS
+
+: SCOPE.SCALE  ( byte -- y )
+    scope-shift @ ashift
+    scope-bottom @ swap -
+;
+
+scope_#bytes cell+ array SCOPE-POLY
+
+: GR.POLYDRAW  ( addr count -- )
+    >r >r gr-currport @
+    r> r> swap >abs
+    call graphics_lib polydraw
+    drop
+;
+
+: PACK.XY ( x y addr -- )
+    dup >r 2+ w!
+    r> w!
+;
+
+: SCOPE-RECT ( x1 y1 x2 y2 -- , return display rectangle )
+    scope-left @
+    scope-bottom @ 256 scope-shift @ ashift -
+    scope-left @ scope-deltax @ scope_#bytes * +
+    scope-bottom @
+;
+
+: SCOPE.RECT ( -- )
+    scope-rect
+    0 gr.color! gr.rect
+    scope-rect
+    2 gr.color! ug.box
+;
+
+: SCOPE.ANNOTATE ( -- , draw labels, etc. )
+    gr.clear
+    scope.rect
+    3 gr.color!
+    40 10 " Digital Scope  - © Phil Burk" gr.xytext
+;
+
+: SCOPE.SHOW  ( -- )
+    scope-left @ scope-xpos !
+    scope-left @   0 scope-data c@ scope.scale ( x y )
+    gr.move
+    scope_#bytes 0
+    DO scope-xpos @
+       i scope-data c@ scope.scale
+       i scope-poly pack.xy
+       scope-deltax @ scope-xpos +!
+    LOOP
+    scope.rect
+    1 gr.color!
+    0 scope-poly scope_#bytes  gr.polydraw
+;
+
+: SCOPE.KEY
+    BEGIN ." Hit key for next sample!" cr
+          key ascii q = 0=
+    WHILE scope.acquire
+          scope.show
+    REPEAT
+;
+
+: SCOPE.INIT
+    20 scope-left !
+    140 scope-bottom !
+    -1 scope-shift !
+    4 scope-delay !
+    2 scope-deltax !
+    110 scope-trigger-1 !
+    140 scope-trigger-2 !
+    par.input.mode
+;
+
+: SCOPE  ( -- , run digital scope )
+    scope.init
+    gr.opentest
+    scope.annotate    
+    BEGIN
+        scope.acquire
+        scope.show
+        ?terminal
+        ?closebox or
+    UNTIL
+    gr.closecurw
+;
+
+." Enter:   SCOPE        to see input." cr

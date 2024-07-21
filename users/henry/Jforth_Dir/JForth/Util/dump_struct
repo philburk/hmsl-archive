@@ -1,0 +1,97 @@
+\ Dump contents of structure showing values and member names.
+\
+\ Author: Phil Burk
+\ Copyright 1987 Phil Burk
+\ All Rights Reserved.
+\
+\ MOD: PLB 9/4/88 Print size too.
+\ MOD: PLB 9/9/88 Print U/S , add ADST
+\ MOD: PLB 2/12/91 c/literal/aliteral/
+
+include? task-member jf:member
+include? task-c_struct jf:c_struct
+
+ANEW TASK-DUMP_STRUCT
+
+VARIABLE SN-FENCE
+: STACK.NFAS  ( fence topnfa -- 0 nfa0 nfa1 ... )
+\ Fill stack with nfas of words until fence hit.
+    >r sn-fence !
+    0 r>  ( set terminator )
+    BEGIN ( -- 0 n0 n1 ... top )
+      dup sn-fence @ >
+    WHILE
+      dup n>link @
+    REPEAT
+    drop
+;
+
+: DUMP.MEMBER ( addr member-pfa -- , dump member of structure)
+    ob.stats  ( -- addr offset size )
+    >r + r> ( -- addr' size )
+    dup ABS 4 >  ( -- addr' size flag )
+    IF   cr 2dup swap . . ABS dump
+    ELSE tuck @bytes 10 .r ( -- size )
+        3 spaces dup 0>
+        IF ascii U
+        ELSE ascii S
+        THEN emit abs 1 .r
+    THEN
+;
+
+VARIABLE DS-ADDR
+: DUMP.STRUCT ( addr-data addr-structure -- )
+    >newline swap >r  ( -- as , save addr-data for dumping )
+    dup cell+ @ over + stack.nfas   ( fill stack with nfas of members )
+    BEGIN
+        dup
+    WHILE   ( continue until non-zero )
+        dup name> cfa->pfa r@ swap dump.member
+        bl 18 emit-to-column id. cr
+        ?pause
+    REPEAT drop rdrop
+;
+
+: DST ( addr <name> -- , dump contents of structure )
+    ob.findit
+    compiling?
+    IF [compile] aliteral compile dump.struct
+    ELSE dump.struct
+    THEN
+; immediate
+
+: ADST ( absolute_address -- , dump structure )
+    >rel [compile] dst
+; immediate
+
+\ For Testing Purposes
+false .IF
+:STRUCT GOO
+    LONG DATAPTR
+    SHORT GOO_WIDTH
+    USHORT GOO_HEIGHT
+;STRUCT
+
+:STRUCT FOO
+    LONG ALONG1
+    STRUCT GOO AGOO
+    SHORT ASHORT1
+    BYTE ABYTE
+    BYTE ABYTE2
+;STRUCT
+
+FOO AFOO
+: AFOO.INIT
+    $ 12345678 afoo ..! along1
+    $ -665 afoo ..! ashort1
+    $ 21 afoo ..! abyte
+    $ 43 afoo ..! abyte2
+    -234 afoo .. agoo ..! goo_height
+;
+afoo.init
+
+: TDS ( afoo -- )
+    dst foo
+;
+
+.THEN

@@ -1,0 +1,94 @@
+\ UFORCEd me into it!
+\ 
+include? _Uforce_data Uforce1
+anew task-Pup
+
+
+\ waken the uforce
+\ initialize 
+v: die
+
+: Pup.init
+gr.init  ( just to make sure )
+
+WindowTemplate  NewWindow.Setup
+200 WindowTemplate ..! nw_Height
+150 WindowTemplate ..! nw_Width
+WindowTemplate  gr.opencurw 0= abort" GR.OPENTEST aborted!"
+
+test.init
+;
+
+
+\ draw a puppet based on uforce parms
+:struct draw_data
+uint x0
+uint y0
+uint x'0
+uint y'0
+;struct
+
+v: numero
+v: addro
+: plerp { pct a'd --  }
+a'd addro !
+a'd @ numer0 !
+
+addro @ cell+ addro !
+n  0 do
+addro ..@ x'0
+loop 
+;
+
+
+\ this data is : n points, x0 y0 x'0 y'0 .. xn yn x'n y'n
+create d.mouth 4 ,
+20 , 40 ,  25 , 40 ,
+50 , 40 ,  45 , 40 ,
+35 , 41 ,  35 , 50 ,
+20 , 40 ,  25 , 40 ,   
+
+\ n controls lip interpolation
+: p.mouth ( n -- )
+
+
+;
+
+
+: pup.draw
+gr.clear
+1 gr.color!
+uf.bot p.mouth
+
+;
+
+
+: Pup.play
+die off
+begin
+ 16 msec
+gl_poll msg.do
+
+
+
+
+ uf.btn1 0= if die on then
+
+?terminal die @ or until
+;
+
+
+: Pup.term
+gr.closecurw
+test.term
+da.kill
+da.term
+;
+
+
+: pup
+Pup.init
+Pup.play
+Pup.term
+;
+." Pup is what you want!" cr

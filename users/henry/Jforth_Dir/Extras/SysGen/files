@@ -1,0 +1,161 @@
+\ this file provides a high-level interface to the Amiga file sys...
+\ It utilizes existing words in JKernal...FREAD, FSEEK, and FWRITE.
+\ It also defines a word f,.
+\ All file I/O is buffered through an area which is created once, the first
+\ time the file is accessed, and must be flushed before closing.
+
+\   An application desiring a virtual-file workarea should:
+\  1. define a variable or user var to store a pointer to the area.
+\     (all vars are '0'ed at define time, but if the application is
+\      re-using an existing var, it should make sure the var is clear
+\      before step 2).
+\  2. Pass the address of this var to BufferAdr...BufferAdr will allocate
+\     (if the var holds 0) a 1024 byte area and return the relative adr,
+\     after installing it in the variable.
+\        If the var is not zero, then BufferAdr will just fetch its value.
+\     (App code is smaller with this approach as an app can just clear the
+\      var at its startup, and blindly pass through BufferAdr to get its area
+\      ...an area will only be allocated the first time!).  Either way,
+\     the stack diagram for BufferAdr is:   ( var-adr -- buffer-adr )
+\  3. Subsequent calls to the virtual word, f, and other defined later
+\     in 'FILES_EXTRA' will also take the var-addr on the stack to specify
+\     which (many may exist) virtual-workarea is to be operated on.
+\
+\ NOTE: currently, only sequential file I/O is supported virtually...
+\       these words include:
+\            fv, - ( file var-adr cell -- )  send cell to next place in file.
+\      read-line - ( file var-adr adr cnt -- cnt )  read intil eol to adr cnt,
+\                  return actual cnt read in.
+\
+\ *************** THE VIRTUAL FILE WORDS...
+
+user tempfile
+user tempbuff
+
+decimal 1024 constant virtbuffsize
+
+: BufferAdr   ( var-adr -- addr , allocate 1k buffer for file access if necessary )
+  dup @ -dup 0=    ( var-adr true OR var-adr Buffadr false -- )
+  IF   memf_public virtbuffsize allocblock  -dup 0=
+       IF   .err ." Failed to allocate FileBuffer, fatal error."  quit
+       THEN        ( var-adr Buff-adr -- )   dup rot !   ( buff -- )
+  ELSE swap drop   ( buff -- )
+  THEN
+;
+
+: FFLUSH?   ( file var-adr -- , check if full, write to file if so )
+  \ NOTE that words using the file-virtual scheme should perform their
+  \      own check of FERROR after each use of  F,  for example...
+  bufferadr >r  ( file-- )   ( buff --r-- )
+  r freebyte   r sizemem   ( file #used #total --)  < 0=
+  IF   r r freebyte        ( file adr cnt -- )  fwrite drop
+       0 r freebytea !   ( clear the buffer )
+  ELSE drop
+  THEN r> drop   ;
+
+: F,  ( file var-adr n1 -- )  ferror @
+  IF  3 xdrop
+  ELSE over >r >r  ( file var -- )       ( n1 var --R-- )
+       fflush?  r> r> @ push
+  THEN   ;
+
+: tempf, ( n1 -- , user tempfile and tempbuff )
+  >r tempfile @  tempbuff r> f,  ;
+
+: OpenFV  ( var-adr -- bufferadr )
+  0 over !    BufferAdr   ;
+  
+: CloseFVRead   ( var-adr -- , deallocate the buffer )
+  dup @ -dup 
+  IF    freeblock  0 over !
+  THEN  drop  ;
+
+: CloseFVWrite  ( file var-adr -- , flush & deallocate the buffer )
+  >r   ( file -- )   ( var --R-- )
+  ferror @ 0=
+  IF  r @ -dup
+      IF    ( file buffadr -- )
+            dup freebyte ( file buffadr len -- )  -dup
+            IF   dup >r fwrite r> - ferror !  0   ( filler )
+            ELSE drop
+            THEN ( file OR 0 -- )
+      THEN  ( file -- )
+  THEN drop r> closefvread  ;
+
+-1 constant OFFSET_BEGINNING
+ 0 constant OFFSET_CURRENT
+ 1 constant OFFSET_END
+
+
+\ these words support an area which, if allocated, will be assumed by
+\ 'quit' to be a table of file-pointers or memory blocks to be closed / freed
+\ in case of error.  (QUIT)
+\ additional words to help with memory allocations
+
+: ALLOCBLOCK?   ( type size -- memory , errors out if error )
+  allocblock  -dup 0=
+  IF    .err ." Exec Library, AllocMem() failed"  quit
+  THEN  ;
+
+: -STACK  ( member user_var -- , remove member if on stack pointed to by var)
+ 
+\ the following is a general word which takes a data item and a var-addr..
+\ if the var is non-zero (holds an adr), search for the data in the blk,
+\ if found, remove from the stack.  If resulting stacksize is 0 (AND its not
+\ the 'FREEATBYE' stack, unallocate the stack memory block)
+ 
+  swap over @  ( var n1 <var> -- )  -dup
+  IF   ( var n1 blk -- )
+       dup freebyte   ( var n1 blk #used -- )
+       2dup + cell-   ( var n1 blk #used last-cell-adr -- )  over cell/ 0
+       DO   dup  @  4 pick =
+            IF   ( var n1 blk #used matchadr -- )
+                 dup  cell+ over   ( var n1 blk #used matchadr from to -- )
+                 2 pick  5 pick -  ( matchadr-blk )
+                 4 pick  cell- swap - move  ( var n1 blk #used match -- )
+                 over cell-  dup >r  3 pick freebytea !
+                 ( var n1 blk #used match -- )
+                 4 pick  freeatbye = 0=  ( NOT FREEATBYE var? )
+                 r> 0= and               ( and size went to zero? )
+                 IF   2 pick freeblock   ( unallocate the memory block )
+                      0 5 pick !
+                 THEN leave
+            ELSE cell-
+            THEN
+       LOOP drop 2drop
+  THEN 2drop  ;
+
+user NoTrack
+
+: +stack  ( cell var -- push to stk held in var, allocate one if necessary)
+  dup @ -dup 0=
+  IF   ( cell var -- )
+       memf_clear  1024  NoTrack @
+       IF    XAllocBlk   -dup 0= Abort" No Memory!"
+       ELSE  AllocBlock?  ( cell var adr -- )
+       THEN  2dup swap !
+  ELSE ( -- cell var area )  dup sizemem over freebyte - 4 <
+       IF   ( -- cell var area1 )
+            dup sizemem dup >r 1024 +     ( -- cell var are1 a1-size+1k )
+            memf_clear swap  NoTrack @
+            IF    XAllocBlk   -dup 0= Abort" No Memory!"
+            ELSE  AllocBlock?   ( -- cell var area1 area2 )
+            THEN  2dup r> move   ( -- cell var area1 area2 )
+            over freebyte over freebytea !
+            swap freeblock ( -- cell var area2 )   2dup swap !
+       THEN
+  THEN swap drop  push     NoTrack off   ;
+
+: markfreeblock   ( mem -- )
+  freeuplist +stack  ;
+
+: unmarkfreeblock    ( mem -- )
+  freeuplist -stack  ;
+
+: markfclose  ( file -- )
+  fcloselist +stack  ;
+
+: unmarkfclose  ( file -- )
+  fcloselist -stack  ;
+
+: DOS0 ( -- addr )   dosstring 2+  ;

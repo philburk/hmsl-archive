@@ -1,0 +1,4 @@
+assign fd: JForth:fd.files
+assign ju: JForth:util
+assign ji: JForth:include
+assign mod: jforth:modules

@@ -1,0 +1,56 @@
+\ Low Level testing for screens
+ANEW TASK-LL_SCREENS
+\ -----------------------------------------------------------
+\ IGNORE THE FOLLOWING CODE - FOR INTERNAL TESTING ONLY!!!!!!
+: HMSL.CHECK.EVENT ( -- done? , Process one event from event queue. )
+    false         ( default done flag )
+    ev.get.event  ( get one event )
+    CASE 
+         EV_NULL OF ENDOF
+
+         EV_MOUSE_DOWN OF cg-current-screen @ ?dup
+                 IF gr.getxy rot mouse.down: [] drop THEN
+             ENDOF
+
+         EV_MOUSE_UP OF cg-current-screen @ ?dup 
+                 IF gr.getxy rot mouse.up: [] THEN
+             ENDOF
+
+         EV_MOUSE_MOVE OF  cg-current-screen @ ?dup 
+                 IF gr.getxy rot mouse.move: [] THEN
+             ENDOF
+
+\         EV_REFRESH OF
+ \               hmsl.refresh
+  \       ENDOF
+
+\         EV_MENU_PICK OF
+ \               process.menus
+  \       ENDOF
+
+         EV_CLOSE_WINDOW OF drop true \ STOP HMSL !
+             ENDOF
+    ENDCASE
+;
+
+: LOOP.SCREEN
+    stack.mark
+    BEGIN
+        stack.check
+        hmsl.check.event
+    UNTIL
+;
+
+: TEST.MY-SCREEN
+    hmsl.open
+    MY-SCREEN.INIT
+    gr.check
+    draw: my-screen
+    loop.screen
+    MY-SCREEN.TERM
+    hmsl.close
+;
+
+cr cr
+\ ." Enter:  TEST.MY-SCREEN   for low level test!" CR
+

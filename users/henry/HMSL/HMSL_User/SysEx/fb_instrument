@@ -1,0 +1,59 @@
+\ HMSL Instrument for FB-01
+\
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk, Larry Polansky, David Rosenboom
+\ All Rights Reserved
+
+INCLUDE? TASK-FB-01 FB-01
+
+ANEW TASK-FB_INSTRUMENT
+
+:CLASS OB.FB.INSTRUMENT <SUPER OB.MIDI.INSTRUMENT
+
+:M INIT:
+    init: super
+\ MIDI Instruments are 1 byte wide for fast note handling.
+    2 set.width: self   ( set wider for cents )
+;M
+
+\ Use tuning that contains cents.
+:M TRANSLATE:  ( note_index -- cents )
+    translate: super
+    iv-ins-tuning ?dup
+    IF translate: []
+    THEN
+;M
+    
+\ These words were lifted from the MIDI_INSTRUMENT file
+\ and modified to use the FB-01 fractional tuning system.
+:M NOTE.OFF: ( note_index velocity -- , offset and play )
+    iv-ins-channel midi.channel!
+    drop translate: self dup
+\ convert cents to note & fraction
+    fb.cents->nf fb.fract.off
+    delete: self   ( remove note from list )
+;M
+
+:M LAST.NOTE.OFF: ( -- , turn off last note)
+    iv-ins-channel midi.channel!
+    many: self
+    IF  0 at.self
+        fb.cents->nf fb.fract.off
+        0 remove: self
+    THEN
+;M
+
+:M NOTE.ON: ( note_index velocity -- , offset and play )
+    dup 0>
+    IF  iv-ins-channel midi.channel!
+        >r translate: self ( -- note )
+        many: self iv-ins-#voices =  ( Turn one off if full. )
+        IF  last.note.off: self
+        THEN
+        dup  fb.cents->nf r> fb.fract.on
+        add: self
+    ELSE note.off: self
+    THEN
+;M
+
+;CLASS

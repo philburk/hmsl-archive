@@ -1,0 +1,217 @@
+\ Test MIDI Communications
+\
+\ This test reveals problems with missing bytes.
+\ Missing bytes can be due to:
+\	a) bad cables
+\	b) interference from other programs
+\	c) bugs in the operating system
+\	d) computer hardware timing problems
+\	e) ??????
+
+\ To run this test, connect two computers, OUT1->IN2, OUT2->IN1.
+\ Then enter:
+\	TEST.SLAVE   on one computer
+\ THEN enter:
+\	TEST.MASTER   on the other computer
+\
+\    Use NTEST.MASTER to send different packet lengths.
+\		10 NTEST.MASTER
+\
+\ Do NOT use a value > 127 ($7F) for N !!!
+\
+\ NOTE: If the program hangs, it has missed a END.SYSEX byte.
+\       Hit RETURN to escape.
+\
+\ Author: Phil Burk
+\ Frog Peak Music, (415) 461-1442
+\ This program runs on HMSL.
+
+ANEW TASK-TEST_MIDI
+
+variable BYTE-COUNT
+variable ERROR-COUNT
+
+: TM.REPORT  ( -- )
+    error-count @ . ." Errors in " byte-count @ . ." bytes!" cr cr
+    ." Error rate = 1 in "
+    byte-count @ error-count @ / . cr
+;
+
+: MIDI.KEY  ( -- byte , wait for the next byte or abort )
+    BEGIN midi.recv 0=
+    WHILE ?terminal
+    	IF tm.report 0sp abort
+    	THEN
+    REPEAT
+    1 byte-count +!
+;
+
+: MIDI.WAIT.BYTE ( byte -- , skip bytes until specific one received )
+    BEGIN midi.key
+        over =
+    UNTIL drop
+;
+
+: SEND.SYSEX.RAMP  ( N -- , send sysex packet of ascending bytes )
+    midi.start.sysex
+    0 DO i midi.xmit
+    LOOP
+    midi.end.sysex
+;
+
+: RECV.SYSEX.RAMP  ( -- N )
+    $ F0 midi.wait.byte
+    0
+    BEGIN midi.key dup>r
+        over =
+        IF 1+ false
+        ELSE r@ $ F7 -
+            IF  ." Bad byte = " r@ .hex
+            	." , Expected " dup .hex cr
+                1 error-count +!
+            THEN true
+        THEN
+        rdrop
+    UNTIL
+;
+
+: TEST.SLAVE  ( -- )
+    midi.init
+    byte-count off error-count off
+    midi.clear
+    BEGIN recv.sysex.ramp
+       dup ." N = " .hex cr
+       send.sysex.ramp
+       ?terminal
+    UNTIL drop
+    tm.report
+;
+
+: NTEST.MASTER  ( N -- )
+    midi.init
+    byte-count off error-count off
+    midi.clear
+    dup send.sysex.ramp
+    BEGIN recv.sysex.ramp
+       ." N = " .hex cr
+       dup send.sysex.ramp
+       ?terminal
+    UNTIL drop
+    tm.report
+;
+
+: TEST.MASTER  ( -- )
+    $ 20 ntest.master
+;
+
+cr ." Enter TEST" cr
+
+\ Automatic initialization and termination.
+: AUTO.TERM sys.term auto.term ;
+
+\ This code was pulled from HH:AJF_MIDI and was
+\ used for testing overruns.
+FALSE .IF
+." Test Server Compiled!!!!!!!" cr
+ASM RBF.STAMP.SERVER ( -- , called when character received , TEST )
+\ minimal server with delay loop.
+\ uses mio-control
+\ A0 = base of chip
+\ A1 = mio control structure
+\      cell 0 count bytes
+\      cell 1 count overruns
+\      cell 2 has #loops
+    addq.l   #1,(a1)       ( increment byte counter )
+    move.w   $18(A0),d0              \ get data and flags
+    move.w   #[intf_rbf],$9c(A0)
+    btst     #15,d0                  \ check overrun bit
+    beq      1$
+    addq.l   #1,[mioc_char_ptr](a1)     ( incr overrun counter )
+1$: move.l   [mioc_stamp_ptr](A1),d0
+2$: subq.l   #1,d0         ( kill time in a loop to test
+    bgt      2$
+    rts
+END-CODE
+
+\ $00 ->  0/20000
+\ $40 ->  0/20000
+\ $80 ->  1/10004
+\ $C0 ->  1/
+\ Sent as MIDI.NOTEONs from Mac+
+\ 2 = 2/39999 w/RTC.STOP
+\ 2 = 2/39999 w/RTC.STOP
+\ 2 = 5/39996 w/RTC.STOP
+\ 2 = 6/39995 w/RTC.START
+\ 2 = 4/39997 w/RTC.START
+\ 2 = 8/39991 w/RTC.START RATE = 500
+\ All RTC.STOP
+\ 10 = 1/40000
+\ 10 = 1/40000
+\ 20 = 0/40001
+\ 40 = 3/39998
+\ 60 = 1/39999
+\ 80 = 3/39997
+\ 100 = 4/39997
+\ 120 = 4/39995
+\ 140 = 9/39995
+\ 160 = 9/39991
+
+\ Sent as 32 data Sysex
+\ 2 = 1/33499
+\ 10 = 2
+\ 20 = 2
+\ 40 = 1
+\ 60 = 1
+\ 80 = 5
+\ 100 = 4
+\ 120 = 2
+\ 140 = 33
+\ 160 = 493
+
+\ for count=140, 10000 iterations take 4.3 seconds
+\ real server. 10000 took 0.77 seconds
+
+: SET.MIO-CONTROL  ( -- , setup shared structure)
+    0 mio-control ..! mioc_time_ptr
+    0 mio-control ..! mioc_char_ptr
+    2 mio-control ..! mioc_stamp_ptr
+;
+
+: REPORT.MIDI  ( -- )
+    mio-control @ dup . ." Bytes received, "
+    mio-control cell+ @ dup . ." Overruns." cr
+    ." Rate = 1 in " / . cr cr
+;
+
+: WATCH  ( N -- )
+    set.mio-control
+    1 max 1000 min mio-control ..! mioc_stamp_ptr
+    BEGIN  report.midi
+        forbid() 1,000,000 0 DO LOOP permit()
+\        2000 msec
+        ?terminal
+    UNTIL
+;
+
+ASM BENCH.SERVER  ( -- , setup registers for)
+    movem.l   a5-a6,-(a7)
+    callcfa   mio-control
+    move.l    org,a1
+    add.l     d7,a1
+    move.l    #$DFF000,a0
+    callcfa   rbf.stamp.server
+    movem.l   (a7)+,a5-a6
+END-CODE
+
+ASM BENCH.SERVER.DUMMY  ( -- )
+    movem.l   a5-a6,-(a7)
+    callcfa   mio-control
+    move.l    org,a1
+    add.l     d7,a1
+    move.l    (dsp)+,d7
+    move.l    #$DFF000,a0
+    movem.l   (a7)+,a5-a6
+END-CODE
+: BMS 0 DO bench.server LOOP ;
+: BMSD 0 DO bench.server.dummy LOOP ;
+.THEN

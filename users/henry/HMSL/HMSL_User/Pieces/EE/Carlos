@@ -1,0 +1,103 @@
+\ W. Carlos and her funky scales (recreated)
+
+\ these are ET scales based on empirically sougt "optimized"
+\ divisions (optimized for /2, 5/4, 6/5,7/4,11/8)
+
+\ alpha is 78.0 cents/step
+\ beta is 63.8 cents/step
+\ (note: 19tone ET is 63.15 cents/step)
+\ gamma = 35.1 cents/step
+
+anew carlos.spot
+
+: fcts>pts ( floating_cents -- Floating_points )
+fl4096 F* Fl1200  F/
+;
+
+: e.> ( NN Pts. ) FIX E!>
+;
+
+
+78.0 fcts>pts constant alpha
+63.8 fcts>pts constant beta
+35.1 fcts>pts constant gamma
+\ for comparison
+1200. 19. f/ fcts>pts constant ET19
+100. fcts>pts constant et12
+1200. 31. f/ fcts>pts constant ET31
+1200. 53. f/ fcts>pts constant ET53
+
+\ "prove" these scales
+v: testinterval
+: fit { ETdiv num den -- fit }
+num float den float f/ fln log2 f/ ETdiv f* dup fix float f-  fabs
+
+;
+
+v: mindev
+ 
+: derive { crit -- }
+\ set up test "notes/octave" loop and see how well it fits
+cr cr ." divisions	fit" cr
+400 100 do
+i float 10. f/ testinterval !
+
+\ testinterval @ 2 1 fit
+ testinterval @ 3 2 fit 
+ testinterval @ 5 4 fit f+
+ testinterval @ 6 5 fit f+
+ testinterval @ 7 8 fit f+
+ testinterval @ 11 8 fit f+
+
+ 5. f/
+
+100. f*
+dup crit F< if
+testinterval @ f. ." 		" f. cr
+else drop
+then
+
+loop
+
+;
+
+
+\ e.g.  "alpha carlos"
+
+: Carlos { Basis -- }
+cr basis f. ." points per step, aka "
+ fl4096 basis f/ f. ." steps per octave." cr
+
+Start-list
+Envir:Ding! Off
+97 36 do
+ i i float basis f*  E.>
+loop
+end-list
+;
+
+\ the same, an octave higher
+: Carlos1 { Basis -- }
+cr basis f. ." points per step, aka "
+ fl4096 basis f/ f. ." steps per octave." cr
+Start-list
+Envir:Ding! Off
+97 36 do
+ i i float basis f* fl4096 f+ E.>
+loop
+end-list
+;
+
+\ parametized version of previous guy
+\ "alpha 8192. carlosx
+: Carlosx { Basis xpose -- }
+cr basis f. ." points per step, aka "
+ fl4096 basis f/ f. ." steps per octave." cr
+Start-list
+Envir:Ding! Off
+97 36 do
+ i i float basis f* Xpose  f+ E.>
+loop
+end-list
+;
+ 

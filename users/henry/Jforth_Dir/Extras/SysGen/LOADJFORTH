@@ -1,0 +1,75 @@
+\ Include files to compile COM:JForth
+\ MOD: PLB 1/9/91 Use INCLUDE? for jf:HASHING
+\
+\ 00001 14-may-90 mdh LoadJForth files now in jf:
+
+verify-libs @   verify-libs off
+max-inline @    6 max-inline !  \ none of this needs to run fast!
+
+\ ----------------  Ask about the user preferences...
+
+.NEED IfLoadMods
+   variable IfLoadMods
+   variable IfLoadHash
+   variable IfLoadHistory
+.ELSE
+   IfLoadMods off
+   IfLoadHash off
+   IfLoadHistory off
+.THEN
+
+cr ." Do you wish to include MODULE support " y/n  cr
+.IF
+      IfLoadMods on
+.THEN
+
+   ." Do you wish to include HASHING support " y/n cr
+.IF
+      IfLoadHash on
+.THEN
+
+   ." Do you wish to include Command Line History " y/n cr
+.IF
+      IfLoadHistory on
+.THEN
+
+IfLoadMods @
+.IF
+      include jf:MakeModules  \ 00001
+.ELSE
+      : detachmodules ;
+.THEN
+
+IfLoadHash @
+.IF
+      include? task-hashing jf:Hashing  \ 00001
+      hash.on
+.THEN
+
+
+\ -----------------------------------------------------
+
+
+include? measure jf:measure  \ 00001
+\ include? words-from jf:Billk-words  \ 00001
+include? words-like jf:words-like  \ 00001
+include? auto.term jf:auto  \ 00001
+include? traps jf:traps  \ 00001
+include? doscommand jf:doscommands  \ 00001
+
+IfLoadHistory @
+.IF
+    include? history jf:History  \ 00001
+    history.off  ( so that SAVE-FORTH command isn't saved )
+.THEN
+
+.need dism
+include? dism jf:dism  \ 00001
+.then
+
+max-inline !
+verify-libs !
+
+decimal 155 #k !   ( gives about 60-70k workarea )
+
+cr ." Enter:    SAVE-FORTH COM:JForth" cr cr

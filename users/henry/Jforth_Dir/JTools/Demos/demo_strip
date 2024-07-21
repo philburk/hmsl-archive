@@ -1,0 +1,111 @@
+\ Strip Chart Demo - For data display applications.
+\
+\ Author: Phil Burk
+\ Copyright 1986  Delta Research
+
+include? gr.init ju:amiga_graph
+include? ev.getclass ju:amiga_events
+include? choose ju:random
+
+ANEW TASK-DEMO_STRIP
+
+\ Example of accessing AMIGA structure.
+: WINDOW_MAX_X ( -- w , access window structure for x limits )
+	gr-curwindow @ ..@ wd_width
+;
+
+: WINDOW_MAX_Y ( -- h , access window structure for y limits )
+	gr-curwindow @ ..@ wd_height
+;
+
+\ Variables for tracking curtain position.
+VARIABLE STRIP-MIN-X
+VARIABLE STRIP-MAX-X
+VARIABLE STRIP-MIN-Y
+VARIABLE STRIP-MAX-Y
+30 strip-min-y !
+90 strip-max-y !
+100 strip-min-x !
+
+VARIABLE ST-PREVIOUS-X
+VARIABLE ST-PREVIOUS-Y
+
+: STRIP.CLEAR.FRONT ( width xpos -- , clear pen area)
+	0 gr.color!
+	( 1+) dup rot +   strip-min-y @ swap  strip-max-y @  gr.rect
+	1 gr.color!
+;
+
+: STRIP.DRAW  ( y -- , draw a new data point )
+	st-previous-x @
+	16 over strip.clear.front   ( clear area around pen )
+	3 + dup strip-max-x @ >  ( wrap around? )
+	IF drop strip-min-x @ dup  st-previous-x !
+		swap gr.move
+	ELSE ( -- y x+2 )
+		1 gr.color!
+		dup st-previous-x !
+		swap 2dup gr.draw   ( draw trace )
+		over 16 + strip-min-y @ strip-max-y @ + 2/ gr.move
+		3 gr.color!         ( draw pen )
+		gr.draw
+	THEN
+;
+
+: BAR.DRAW ( y -- , draw simple bar chart )
+	>r 0 gr.color!
+	20 strip-min-y @ 50 r@ gr.rect  ( draw black portion )
+\
+	3 gr.color!
+	20 r> 50 strip-max-y @ gr.rect    ( draw data portion )
+;
+
+: MAKEUP.STRIP ( -- , draw one cycle of the strip chart )
+	st-previous-y @   7 choose 3 -  +  ( random walk to fake data )
+	strip-min-y @ max  strip-max-y @ min  ( clip to rect )
+	dup st-previous-y !
+	dup strip.draw
+	bar.draw
+;
+
+strip-min-x @ st-previous-x !
+strip-min-y @ st-previous-y !
+
+: DEMO.STRIP ( -- ,
+	2 gr.color! 0 0 window_max_x window_max_y
+	gr.rect
+	1 gr.color!
+	50 20 " JForth - Stripchart" gr.xytext
+	strip-min-x @ strip-min-y @ gr.move
+	BEGIN
+		20 0
+		DO  makeup.strip
+		LOOP
+		?closebox
+	UNTIL
+;
+
+NewWindow NewStrip   ( Create a template for the new window. )
+
+: STRIP.OPEN  ( -- window | NULL )
+	gr.init
+	NewStrip NewWindow.Setup   ( Set defaults for window )
+\
+\ The address of the title string must be converted to absolute
+\ addressing for use by the Amiga operating System.
+	0" Stripchart!" >abs NewStrip ..! nw_title ( change title )
+\
+\ Create window from template and make it the current window.
+	NewStrip gr.opencurw
+	window_max_x 60 - strip-max-x !
+;
+
+: STRIP  ( -- , Demonstrate stripchart. )
+	strip.open
+	IF  demo.strip
+		gr.closecurw
+	THEN
+	gr.term
+;
+
+cr ." Enter:   STRIP     for demo!" cr

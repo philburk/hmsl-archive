@@ -1,0 +1,286 @@
+\ JForth support for Amiga Graphics
+\ These words define a simple set of graphics commands.
+\ You must call GR.INIT before using this system.
+\
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research
+\
+\ MOD: PLB 11/6/86 Expanded window default size.
+\ MOD: PLB 1/16/87 Added INCLUDE?s
+\ MOD: PLB 2/9/87 Fixed GR.TYPE
+\ MOD: PLB 8/6/88 Add getmodule includes.
+\ MOD: PLB 9/9/88 Add if.forgotten call.
+\ MOD: PLB 12/14/88 Use CALL>ABS in GR.OPENWINDOW
+\ MOD: PLB 1/10/89 Add GR.FONT! , change GR.COLOR@ and GR.MODE@
+\      to read values in rastport.
+\ MOD: PLB 2/1/89 GR.CLOSEWINDOW checks GR-CURWINDOW
+\ MOD: PLB 4/15/90 Fix GR.FONT! for NULL
+\ MOD: PLB 8/18/90 Added new words from HMSL, GR.TEXTLEN, etc.
+\ MOD: PLB 9/20/91 Removed duplicate definitions of GR.FONT! and GR.CLEAR
+\ 00001 PLB 1/6/92 GR.TERM now closes graphics and intuition libraries.
+\			GR.WINDOW.RECT checks for GIMMEZEROZERO, improves GR.CLEAR
+\ 00002 PLB 5/13/92 Remove TTT test routine.
+
+\ Get the module instead of including the .j files.
+getmodule includes
+
+ANEW TASK-AMIGA_GRAPH
+
+decimal
+
+: NewWindow.Setup  ( NewWindow -- , initialize a NewWindow structure )
+    0 over ..! nw_leftedge
+   10 over ..! nw_TopEdge
+  640 over ..! nw_Width
+  160 over ..! nw_Height
+    0 over ..! nw_DetailPen
+    1 over ..! nw_BlockPen
+\
+  MOUSEBUTTONS CLOSEWINDOW | MENUPICK | over ..! nw_IDCMPFlags
+\
+  WINDOWDRAG WINDOWDEPTH | GIMMEZEROZERO | WINDOWCLOSE | REPORTMOUSE |
+  WINDOWSIZING |  over ..! nw_Flags
+    0" -=< JForth >=-" >abs   over ..! nw_Title
+    NULL over ..! nw_FirstGadget
+    NULL over ..! nw_CheckMark
+    NULL over ..! nw_Screen
+    NULL over ..! nw_BitMap
+  100 over ..! nw_MinWidth
+   25 over ..! nw_MinHeight
+  640 over ..! nw_MaxWidth
+  400 over ..! nw_MaxHeight
+  WBENCHSCREEN swap ..! nw_type
+;
+
+: OpenWindow()  ( newwindow -- window | NULL )
+    call>abs intuition_lib openwindow if>rel
+;
+: CloseWindow()  ( window -- )
+    callvoid>abs intuition_lib closewindow
+;
+
+\ Holds current window for drawing.
+USER GR-CURWINDOW
+USER GR-CURRPORT  ( hold absolute address of current rastport )
+
+\ This routine is considered obsolete. Use GR.OPENCURW instead then
+\ check the result yourself and handle error.
+: GR.OPENWINDOW ( new_window -- window , open a new window or abort)
+    openwindow() dup 0=
+    abort" GR.OPENWINDOW - Window could not be opened! (No RAM?)"
+;
+
+: GR.CLOSEWINDOW ( window -- , close the window )
+\ Reset GR-CURWINDOW if same as input.
+\ This simplifies use of multiple windows.
+    dup gr-curwindow @ =
+    IF  gr-curwindow off
+        gr-currport off
+    THEN
+    CloseWindow()
+;
+
+\ GRAPHICS OUTPUT PRIMITIVES -------------------------
+
+: GR.DRAW ( X Y -- DRAW IN CURRENT COLOR )
+     gr-currport @ -rot
+     callvoid graphics_lib draw
+;
+: GR.MOVE ( X Y -- , Move to new position. )
+     gr-currport @ -rot
+     callvoid graphics_lib move
+;
+
+: GR.TYPE ( addr count -- , draw characters )
+     >r >abs  ( convert address )
+     >r gr-currport @
+     r> r> 
+     callvoid graphics_lib text
+;
+
+: GR.TEXT ( string -- , Draw string at current position. )
+    count gr.type
+;
+
+: GR.XYTEXT  ( X Y S1 -- , Draw string at x,y )
+   -rot gr.move   ( Move to start, use graphics characters )
+   gr.text
+;
+
+: GR.NUMBER  ( value -- , Display number as text at CP )
+     n>text gr.type
+;
+
+: GR.RECT ( X1 Y1 X2 Y2 -- , Fill region with current FACI )
+    >r >r >r >r gr-currport @ r> r> r> r>
+    callvoid graphics_lib RectFill
+;
+
+\ GRAPHICS ATTRIBUTES -----------------------------------
+: GR.COLOR!   ( Color -- , set color )
+     gr-currport @ swap
+     callvoid graphics_lib SetApen
+;
+: GR.COLOR@ ( -- BCOLOR , Query BCOLOR )
+    gr-currport @ >rel
+    ..@ rp_fgpen
+;
+
+
+: GR.BCOLOR!   ( BColor -- )
+     gr-currport @ swap
+     callvoid graphics_lib SetBpen
+;
+: GR.BCOLOR@ ( -- BCOLOR , Query BCOLOR )
+    gr-currport @ >rel
+    ..@ rp_bgpen
+;
+
+: GR.MODE!  ( mode -- , Set drawing mode )
+    gr-currport @ swap
+    callvoid graphics_lib SetDrMd
+;
+: GR.MODE@ ( -- MODE , Query MODE )
+    gr-currport @ >rel
+    ..@ rp_drawmode
+;
+
+JAM2 constant GR_INSERT_MODE \ Use JAM2 so that text will block out old.
+2 constant GR_XOR_MODE
+
+
+: GR.FONT! ( font -- , set font for current rastport )
+    ?dup
+    IF  >abs   gr-currport @ swap
+        callvoid graphics_lib setfont
+    THEN
+;
+
+: GR.FONT@ ( -- font , get font from rastport )
+    gr-currport @ >rel
+    ..@ rp_font >rel
+;
+
+\ These do not map well onto Amiga text font controls.
+: GR.HEIGHT! ( height -- , Set character height. )
+    drop
+;
+: GR.HEIGHT@ ( -- height , Query height )
+    8
+;
+
+: GR.SET.CURWINDOW ( window -- , Set current window, rastport, and attributes. )
+    dup gr-curwindow !
+    ..@ wd_rport   gr-currport !
+;
+
+: GR.OPENCURW ( newwindow -- window | NULL , open and set )
+    openwindow() dup
+    IF dup gr.set.curwindow
+    ELSE >newline
+        ."  GR.OPENCURW - Window could not be opened! (No RAM?)" cr
+    THEN
+;
+
+: GR.CLOSECURW ( -- , Close current window )
+    gr-curwindow @ ?dup
+    IF gr.closewindow
+    THEN
+    0 gr-curwindow !
+    0 gr-currport !
+;
+
+\ Define device resolution, don't use these.
+  0 CONSTANT GR_XMIN
+620 CONSTANT GR_XMAX
+  0 CONSTANT GR_YMIN  ( Leave room at top for window bar. )
+190 CONSTANT GR_YMAX
+
+: GR.HIGHLIGHT ( X1 Y1 X2 Y2 -- , HIGHLIGHT region )
+    gr_xor_mode gr.mode!
+\     3 gr.color!  \ Not needed because of official bug in AMIGA !
+    gr.rect
+    gr_insert_mode gr.mode!
+;
+: GR.DEHIGHLIGHT ( X1 Y1 X2 Y2 -- , HIGHLIGHT region )
+    gr.highlight
+;
+
+\ GRAPHICS CONTROL -------------------------------------
+: GR.SETRAST ( color -- , set entire rastport of window )
+    gr-currport @ swap
+    callvoid graphics_lib SetRast
+;
+
+: GR.CHANGE.IDCMP  ( flags -- , change flags for current window )
+    gr-curwindow @ >abs swap
+    callvoid intuition_lib ModifyIDCMP
+;
+
+: GR.TRACK.MOUSE ( flag -- , turn on or off mouse tracking )
+    IF   CLOSEWINDOW MOUSEBUTTONS | MOUSEMOVE | GR.Change.IDCMP
+    ELSE CLOSEWINDOW MOUSEBUTTONS | GR.Change.IDCMP
+    THEN
+;
+
+: GR.INIT  ( -- , Initialize graphics system. )
+    graphics? intuition?  ( open libraries if not already open )
+    gr-currport @ IF
+        1 gr.color! ( Default color. )
+        0 gr.bcolor! ( Default color. )
+        9 gr.height!  ( Set default text character height )
+        gr_insert_mode gr.mode!
+    THEN
+;
+
+: GR.TERM ( -- , Terminate Graphics )
+    gr-curwindow @
+    IF ." GR.TERM - Window left open!" cr
+    THEN
+    -graphics -intuition
+;
+
+: GR.CHECK ( -- , abort if no window open )
+    gr-curwindow @ 0=
+    abort" GR.CHECK -  No open window!!"
+;
+
+\ Window for testing graphics.
+NewWindow WindowTemplate  ( Template can be reused. )
+: GR.OPENTEST ( -- , Open window to test graphics. )
+    gr.init  ( just to make sure )
+    WindowTemplate  NewWindow.Setup
+    WindowTemplate  gr.opencurw
+    0= abort" GR.OPENTEST aborted!"
+;
+
+\ Added from HMSL 8/18/90
+: GR.TEXTLEN  ( addr count -- xpixels , x size of string )
+    >r >abs
+    >r gr-currport @ r> r>
+    call graphics_lib TextLength
+;
+
+: GR.WINDOW.RECT  ( -- x1 y1 x2 y2 , get drawing area )
+    gr-curwindow @ >r
+    r@ s@ wd_flags gimmezerozero and
+    IF
+    	0 0
+    	r@ s@ wd_gzzwidth 1-
+    	r@ s@ wd_gzzheight 1-
+    ELSE
+    	r@ ..@ wd_borderLeft
+    	r@ ..@ wd_borderTop
+    	r@ ..@ wd_width r@ ..@ wd_borderRight - 2 pick -
+    	r@ ..@ wd_height  2 pick - 2-
+    THEN
+    rdrop
+;
+
+: GR.CLEAR  ( -- , clear drawing area of current window )
+    gr.color@  0 gr.color!
+    gr.window.rect  5 + gr.rect
+    gr.color!
+;
+
+if.forgotten gr.term

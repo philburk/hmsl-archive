@@ -1,0 +1,33 @@
+\
+\ These variables are used to control CLONE runtime behavior...
+
+
+EXISTS? clone
+.IF
+
+  Tracking off          \ do NOT automatically track memory allocations
+                        \ and file opening  (save memory, I already clean up)
+
+  NoConsole on          \ I do not open a CLI window, so do not waste memory
+                        \ on EMIT, KEY or ?TERMINAL
+
+  4096 StackSize !      \ runtime data stack size (to adj runtime, use
+                        \ WorkBench "INFO" menu choice.
+
+  256 DictionarySize !  \ 128 for HERE dict, rest for PAD. must be >= 192
+
+  Enable_Cancel off     \ useful only if 'NoConsole' (above) is FALSE or OFF
+                        \ set TRUE/ON to allow ^C,^D,^E or ^F cancels
+
+ \ The DEFERed words USERCLEANUP and ERRORCLEANUP must be initialized
+ \ in your program, at runtime.  Setting them here does not work.
+
+.ELSE
+
+  cr ." 'CLONEPREP' must be INCLUDE'd on top of an image that contains"
+  cr ."             CLONE.  It is usually kept in the working directory"
+  cr ."             of your current project, and INCLUDE'd just before"
+  cr ."             CLONING to set CLONE's run-time behavior."
+  cr cr
+
+.THEN

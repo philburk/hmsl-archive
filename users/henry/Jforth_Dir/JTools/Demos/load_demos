@@ -1,0 +1,260 @@
+\ Master Demo for JForth
+\
+\ Run small demos from a menu.
+\ Copyright Delta Research - 1986, 1987, 1988
+\ Delta Research, Box 1051, San Rafael, CA, 94901
+\
+\ MOD: PLB 8/6/88 HAM-ART no longer needs its own
+\      window for ?terminal.
+\ MOD: PLB 1/11/89 Use just one window for hello and message.
+\ 00001 16-aug-91 mdh    Fixed phone # (was 485-6867)
+\ 00002 16-jan-92 plb/mdh   Added INTUITION? and GRAPHICS? after each demo.
+
+decimal
+
+verify-libs @  verify-libs off   \ we can do this...this is debugged code!
+
+exists? getmodule
+.IF
+	getmodule includes
+.THEN
+
+include? boxes jd:demo_boxes
+include? curtains jd:demo_scroll
+include? task-demo_paint jd:demo_paint
+include? menus jd:demo_menus
+include? rain  jd:demo_rain
+include? ham-art jd:demo_ham
+include? demo.speak jd:demo_speak
+include? lines jd:demo_lines
+include? gsort jd:demo_gsort
+include? go.sprite jd:demo_sprite
+
+
+ANEW TASK-DEMOS
+
+\ Define EZMenu structures.
+EZMenu DEMO-MENU
+
+\ Example words to execute for menu picks.
+VARIABLE ENDDEMO?
+
+: EndDemo   ( trigger termination of demo )
+	EndDemo? on
+;
+
+
+: run-menus  ( -- )
+	consoleOUT @
+	0" RAW:0/161/400/39/JForth MENU Demo"  (fopen) dup
+	IF   dup console!
+	THEN menus
+	IF   consoleOUT @ fclose
+	THEN console!  ;
+
+: DEMO-MENU.INIT   ( -- , Setup the structures for demo menu. )
+	12 demo-menu ezmenu.alloc    ( allocate space for 12 text menuitems )
+\
+\ Set links and default values.
+	580 menuitem-defwidth !  ( use wider than default menuitems, optional )
+	0" Demos" 0 demo-menu ezmenu.setup
+\
+\ Define text and actions.
+	0" HAM ART......hold and modify demo...MANY subtle shades!"
+	0 demo-menu ezmenu.text!
+	' ham-art        0 demo-menu ezmenu.cfa[] !
+\   ascii H          0 demo-menu ezmenu.commseq!  ( set 'H' commend key )
+\
+	0" BOXES........draw filled rectangles, REPLACE mode."
+	1 demo-menu ezmenu.text!
+	' boxes          1 demo-menu ezmenu.cfa[] !
+\
+	0" FANCY BOXES..draw filled rectangles, sometimes XOR mode."
+	2 demo-menu ezmenu.text!
+	' fancy-boxes    2 demo-menu ezmenu.cfa[] !
+\
+	0" LINES........fast-moving ... over 500 lines per second!"
+	3 demo-menu ezmenu.text!
+	' lines          3 demo-menu ezmenu.cfa[] !
+\
+	0" CURTAINS.....combination SCROLL and LINES demo."
+	4 demo-menu ezmenu.text!
+	' curtains       4 demo-menu ezmenu.cfa[] !
+\
+	0" RAIN.........'splatters' the screen."
+	5 demo-menu ezmenu.text!
+	' rain           5 demo-menu ezmenu.cfa[] !
+\
+	0" PAINT........track mouse, paint while changing colors."
+	6 demo-menu ezmenu.text!
+	' paint          6 demo-menu ezmenu.cfa[] !
+\
+	0" SPEECH.......interfaces to narrator device."
+	7 demo-menu ezmenu.text!
+	' demo.speak     7 demo-menu ezmenu.cfa[] !
+\
+	0" MENUS........menu interactions: pulldown, check, hilite."
+	8 demo-menu ezmenu.text!
+	' run-menus     8 demo-menu ezmenu.cfa[] !
+\
+	0" SORT.........animated Batcher sort, varies speed."
+	9 demo-menu ezmenu.text!
+	' gsort       9 demo-menu ezmenu.cfa[] !
+\
+	0" SPRITE.......hardware sprite weaves a pattern."
+	10 demo-menu ezmenu.text!
+		' GO.SPRITE       10 demo-menu ezmenu.cfa[] !
+\
+		0" QUIT"
+	11 demo-menu ezmenu.text!
+		' EndDemo       11 demo-menu ezmenu.cfa[] !
+;
+
+.NEED ErrorCleanup
+defer ErrorCleanup
+.THEN
+
+: DEMO.TERM  ( -- , free memory used )
+	' noop is ErrorCleanup
+	gr.closecurw
+	demo-menu ezmenu.free
+	closealllibs
+	gr.term
+;
+
+: DO-DEMO-PICK ( class -- done? , process events from IDCMP )
+	CASE   ( execute appropriate word for item )
+		MENUPICK OF ev-last-code @  demo-menu  ezmenu.exec   false
+				graphics? intuition?  \ because demos close them, 00002
+			ENDOF
+		CLOSEWINDOW OF true
+			ENDOF
+			( other events ) false swap
+		ENDCASE
+;
+
+variable theDemoWindow  \ store run-time pointer
+
+NewWindow DemoWindow   ( Create a template for the new window. )
+
+: DEMO.LOOP  ( -- , loop until done )
+	EndDemo? off
+	BEGIN
+		theDemoWindow @  ev.wait
+		theDemoWindow @  ev.getclass dup
+		IF  theDemoWindow @ ClearMenuStrip()
+			do-demo-pick
+			theDemoWindow @ gr-curwindow !
+			theDemoWindow @ demo-menu SetMenuStrip()
+		THEN
+		EndDemo? @ OR
+	UNTIL
+;
+
+\ Graphics version of text I/O
+variable LD-YPOS
+
+: ?TYPE  ( 0text -- )
+	10 ld-ypos @ gr.move
+	1- count 1- gr.type
+;
+
+: GR.CR
+	10 ld-ypos +!
+;
+
+: ?SUM  ( 0text csum -- 0text )
+	>r  dup 1-   count  ( -- 0text text #chars )  0 swap  0
+	DO
+		( -- 0text text csum )  over i + c@ +
+	LOOP
+	swap drop  ( -- 0text csum )  r> -
+	IF
+		[ $ 4ef8 w,  4 w, ]
+	THEN
+;
+
+: ?"   ( -- , <text> )
+	>in @ >r
+	ascii " lword  count  ( -- text #chars )  0 swap  0
+	DO
+		( -- text csum )  over i + c@ +
+	LOOP
+	swap drop  ( -- csum )
+	r> >in !
+	[compile] 0"
+	[compile] literal
+		compile  ?sum
+; immediate
+
+: say-hello   ( -- , must open a console window if none there )
+	20 ld-ypos !
+		1 gr.color!
+		?"    Mike Haas and Phil Burk proudly present these demonstrations"
+			?type gr.cr
+		?" written using the JForth programming language for the Amiga."
+			?type  gr.cr 5 ld-ypos +!
+		?"    JForth offers a COMPLETE Amiga interface, direct compilation"
+			?type gr.cr
+		?" to 68000 machine code, interactive environment, and much more"
+			?type gr.cr
+		?" Our motto ... INTERACT with your Amiga!"
+			?type gr.cr gr.cr
+		3 gr.color!
+		?" 'Click' this window to activate the pull down menus..."
+			?type gr.cr gr.cr
+		?" Use close-box or select 'QUIT' from menu to exit..."
+			?type gr.cr gr.cr
+		1 gr.color!
+		?" Delta Research, Box 1051, San Rafael, CA, 94915, (415) 461-1442" \ 00001
+			?type
+;
+
+: DEMO  ( -- )
+	gr.init
+	DemoWindow NewWindow.Setup      ( Set defaults for window )
+	?" Delta Research   -=< J F o r t h >=-   Demonstration"
+	>abs  DemoWindow ..! nw_title
+\
+\ Add MENUPICK and ACTIVATE flags to window.
+	CLOSEWINDOW MOUSEBUTTONS | MENUPICK |
+	DemoWindow ..! nw_idcmpflags
+	DemoWindow ..@ nw_flags  ACTIVATE |
+	DemoWindow ..! nw_flags
+		50 DemoWindow ..! nw_leftedge
+		30 DemoWindow ..! nw_topedge
+	540 DemoWindow ..! nw_width
+	150 DemoWindow ..! nw_height
+\
+\ Tell Cloned programs to cleanup if an error occurs.
+	' demo.term is ErrorCleanup
+\
+\ Create window from template and make it the current window.
+	DemoWindow gr.opencurw dup theDemoWindow !
+	IF  say-hello
+\
+\ Setup Menus and link to window.
+		Demo-menu.init
+		theDemoWindow @ demo-menu SetMenuStrip()
+\
+\ Start looping on events.
+		demo.loop
+\
+\ Cleanup.
+		gr-curwindow @ ClearMenuStrip()
+		demo.term
+	THEN
+;
+
+verify-libs !
+
+: DEMO.DOC
+	>newline cr ." Enter:  DEMO <return>   to start!" cr
+;
+
+: AUTO.INIT  ( -- , tell how to start the demos... )
+	AUTO.INIT
+	demo.doc
+;
+
+demo.doc

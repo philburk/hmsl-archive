@@ -1,0 +1,48 @@
+\ Examine contents of file.
+\
+\ Example use:
+\      FOPEN filaname
+\      100 40  FDUMP  ( dump 40 characters from 100 up )
+\      30 50   FDUMP
+\      FCLOSE
+\
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research
+
+ANEW TASK-FDUMP
+
+.NEED SAFE.EMIT
+: SAFE.EMIT ( char -- , print printable char )
+    dup BL 127 within?
+    IF emit
+    ELSE drop ." ."
+    THEN
+;
+.THEN
+
+: DUMP16 ( addr -- , dump line of bytes at addr )
+    base @ hex 
+    swap dup 16 0
+    DO dup c@ 3 .r 1+
+    LOOP drop
+    4 spaces 16 0 
+    DO dup c@ safe.emit 1+
+    LOOP drop
+    base !
+;
+
+: FDUMP ( fileptr offset #bytes -- fileptr , dump file from offset )
+    2 pick 2 pick offset_beginning fseek 0<
+    IF ." Past end of file!"  cr
+    ELSE  swap
+        BEGIN ( fileptr #bytes offset -- )
+            pad 16 4 pick -rot fread >r ( fp #b of )
+            dup cr 8 .r ." :"
+            pad dump16  ?pause
+            16 +    ( #b of+16 )
+            swap 16 - swap over 0 <=
+            r> 16 < OR
+        UNTIL
+    THEN
+    2drop
+;

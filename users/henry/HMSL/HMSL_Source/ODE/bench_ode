@@ -1,0 +1,115 @@
+\ Benchmarks for ODE
+\
+\ Records of results:
+\
+\ LATE BINDING
+\  Original form 9/8/87
+\    100,000 of BENCH.LATE took 12.06 seconds
+\    100,000 of BENCH.LATE took 22.64 seconds with OB-IF-CHECK-BIND ON
+\  tried preshifting method index
+\    100,000 of BENCH.LATE took  9.88 seconds
+\  tried setting MAX-INLINE high for OB.BIND.RUN
+\    100,000 of BENCH.LATE took  8.72 seconds
+
+\ 7/26/88
+\ LATE BINDING
+\    100,000 BENCH.LATE took 12.76 sec.
+\    100,000 BENCH.LATE took 32.14 sec. with OB-IF-CHECK-BIND ON
+\    100,000 BENCH.LATE took 12.18 sec. with new OS.COPY and OS.PUSH
+\    "" took 9.22 sec. plus new OB.BIND.RUN
+\    "" took 9.22 sec. plus new OB.BIND.RUN + OB-IF-CHECK-BIND ON
+\    "" took 7.88 sec. with ALITERAL in OBJECT DOES>
+\	""
+
+\
+\ IVARS
+\    100,000 BENCH.IVARS took 14.24 sec. and 14.04 sec.
+\    100,000 BENCH.IVARS took 14.02 sec. with OB-IF-CHECK-BIND ON
+\    100,000 BENCH.IVARS took  8.56 sec. new OS.COPY
+\
+\ SELF
+\    100,000 BENCH.SELF took 14.58 sec.
+\    100,000 BENCH.SELF took  9.10 sec. with new os.copy
+
+\ ADD
+\     10,000 BENCH.ADD took 64.25 sec. with range checking.
+\     10,000 BENCH.ADD took 48.50 sec. withOUT range checking.
+\     10,000 BENCH.ADD took 36.14 sec. w/OUT checking, new os.copy
+\     10,000 BENCH.ADD took 34.82 sec. "" + ALITERAL in DOES>
+
+
+ANEW TASK-BENCH_ODE
+
+METHOD NOOP:  ( for benchmarking binding )
+METHOD TIVARS:
+METHOD TSELF:
+
+:CLASS TESTER <SUPER OBJECT
+	IV.LONG   IV-LONG1
+	IV.SHORT  IV-SHORT1
+	IV.USHORT IV-USHORT1
+
+:M INIT:
+	init: super
+	237 iv=> iv-long1
+	-73 iv=> iv-short1
+;M
+
+:M TIVARS: ( -- )
+	iv-short1 iv=> iv-ushort1
+;M
+
+:M NOOP:
+;M
+
+:M TSELF:
+	tivars: self
+;M
+
+:M PRINT:
+	cr ." LONG1 = " IV-LONG1 . cr
+	." SHORT1 = " IV-SHORT1 . cr
+	." USHORT1 = " IV-USHORT1 . cr
+;M
+
+;CLASS
+
+TESTER TESTER-1
+
+: TDO 0 DO LOOP ;
+: BENCH.LATE
+	0 DO tester-1 noop: []
+	LOOP
+;
+
+: BENCH.IVARS
+	0 DO tivars: tester-1
+	LOOP
+;
+
+: BENCH.SELF
+	0 DO tself: tester-1
+	LOOP
+;
+
+OB.ELMNTS ELM-1
+
+: ELM.INIT
+	32 3 new: elm-1
+;
+
+: ELM.TERM
+	free: elm-1
+;
+
+if.forgotten elm.term
+
+: BENCH.ADD ( N -- )
+	0 DO
+		empty: elm-1
+		8 0 DO
+			11 22 33 add: elm-1
+		LOOP
+	LOOP
+;
+

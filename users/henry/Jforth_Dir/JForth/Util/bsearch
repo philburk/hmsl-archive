@@ -1,0 +1,74 @@
+\ Perform Binary Search on an arbitrary set of items.
+\ Use a deferred COMPARE to provide generality.
+\ You can write a word that conforms to the stack diagram
+\ below.  This will be called by the BSEARCH word using
+\ the deferred word BSEARCH-COMPARE.  See the test code
+\ at the bottom of the file for an example.
+\
+\ Author Phil Burk
+\ Copyright 1987 Delta Research
+
+include? value ju:value
+
+ANEW TASK-BSEARCH
+
+\ Vectored comparison, supplied by user.
+\ +1 means value(s) < V(index) , 0 means =
+DEFER BSEARCH-COMPARE   ( value[s] index -- values[s] +1|0|-1 )
+
+: BSEARCH-ERROR ( -- )
+    true abort" You must set BSEARCH-COMPARE to your word!"
+;
+' BSEARCH-ERROR IS BSEARCH-COMPARE
+
+0 VALUE BSEARCH-LO
+0 VALUE BSEARCH-MID
+0 VALUE BSEARCH-HI
+
+: BSEARCH  ( value[s] #items -- value[s] index flag )
+    1- -> bsearch-hi     ( initialize loop parameters )
+    0 -> bsearch-lo
+    BEGIN
+        bsearch-hi bsearch-lo < not
+    WHILE
+        bsearch-hi bsearch-lo + 2/ ( calc mid-point )
+	dup -> bsearch-mid
+        bsearch-compare  ( call user word for compare )
+        dup 0=
+        IF drop bsearch-mid true RETURN
+        ELSE 0<   ( adjust pointers )
+            IF bsearch-mid 1+ -> bsearch-lo
+            ELSE bsearch-mid 1- -> bsearch-hi
+            THEN
+        THEN
+    REPEAT
+    bsearch-mid 0
+;
+
+false .IF
+\ Test BSEARCH
+
+CREATE BST-DATA 1 , 5 , 12 , 19 , 23 , 24 , 31 , 42 ,
+
+true -1 = 0= abort" ERROR! - NCOMPARE assumes true = -1"
+: NCOMPARE ( a b -- +1|0|-1 , +1 if a < b  , like COMPARE )
+    2dup <
+    IF 2drop 1
+    ELSE >
+    THEN
+;
+
+: BST-COMPARE ( value index -- value +1|0|-1 )
+    ." I = " dup . CR
+    ." LO, MID, HI = " bsearch-lo . bsearch-mid . bsearch-hi . CR
+\
+    over swap cell* bst-data + @ ." V = " dup . ncompare
+\
+    ." Result = " dup . CR CR
+;
+
+: BST ( value -- value index flag , test BSEARCH )
+    ' bst-compare is bsearch-compare  ( set compare vector )
+    9 bsearch   ( perform search )
+;
+.THEN

@@ -1,0 +1,74 @@
+Notes on include files. Version 2.0
+
+Please note that executable colon definitions, eg. to
+replace macros, should not be defined in .j files.
+They would not work in MODULES.
+All constants, and structure references generate inline
+code so the original .j code is not needed after compilation
+is complete.
+
+Most of the files were translated directly from the ".h"
+file.  Where the ".j" files had special treatment is 
+described below.
+
+One of the biggest differences between JForth version 1.2
+and version 2.0 is that the include files now support
+signed members, ie. USHORT and SHORT are now different.
+There are also some newly defined constants and structures.
+There are also some bug fixes.
+
+JI:DEVICES --------------------------------------
+
+NARRATOR.J - I added a "ndi_" prefix to the narrator_rb
+members, and a "mrb" prefix to the mouth_rb members,
+like in the .i files.
+
+JI:EXEC ----------------------------
+
+LISTS.J - The Amiga .h include file had l_pad instead of lh_pad
+like in the manual.  I UNIONed them together so you can use
+either one.
+
+PORTS.J - Fixed MP_SOFTINT
+
+TASKS.J - Note that TASK is named EXEC_TASK to avoid a naming
+conflict.  You can : TASK EXEC_TASK ; if you want.
+
+TYPES.J - is not relevant to Forth, it is here just so
+that an include won't bomb.
+
+JI:GRAPHICS -------------------------------------
+
+COPPER.J - CopIns has nested UNIONs. Check it out!
+
+RASTPORT.J - Warning GelsInfo has to be quadword aligned!
+This doesn't happen automatically, see JU:FILE-TOOLS for
+QUAD-ALIGN.
+
+GRAPHINT.J - I put is_ prefixes on the structure members.
+
+JI:INTUITION -----------------------------------
+
+INTUITION.J - The Preferences structure in JForth 1.2 had
+some missing members. This has been fixed.
+
+INT_SMALL.J - This is a small version of INTUITION.J that
+can be used if you don't need everything INTUITION.J has.
+
+INTUITIONBASE.J - Avoid using this File.  It is provided
+by Amiga for education but it is full of danger.
+It ALL may change between versions!
+
+JI:LIBRARIES -----------------------------------
+
+CONFIGREGS.J and CONFIGVARS.J had macros which could not
+be put in the .J file.
+
+MATHFFP.H was full of floating point constants and 
+function declarations that aren't needed in JForth.
+
+EXPANSION.J had actual data structures declared which would
+not be disposable! Therefore, it was not included.
+
+DOS.J now has correct definitions for ID_UNREADABLE_DISK
+and ID_DOS_DISK .

@@ -1,0 +1,890 @@
+\ High Level Interface to IFF files.
+\
+\ Load IFF files as pictures or brushes.
+\ Brushes will support the necessary structures to
+\ transparently draw a bitmap.
+\
+\ Author: Phil Burk
+\ Copyright: Phil Burk 1988
+\
+\ MOD: PLB 10/20/90 c/dup/pict/ in PIC.TRANS.BLIT for new locals
+\ MOD: PLB 11/27/90 PIC-CUR-DISPLAYED OFF in PIC.FREE
+\       Reported by Marty Kees
+\ MOD: PLB 6/2/91 Added PIC.MAKE by Martin Kees
+\ MOD: PLB 6/3/91 Make PIC.DUPLICATE copy bitmaps, see next mod!
+\ MOD: PLB 7/2/91 Make PIC.DUPLICATE NOT copy bitmaps
+\ MOD: PLB 9/21/91 PIC.TRANS.BLIT now uses BltMaskBitMapRastPort()
+\ 00001 PLB 9/23/91 Free color table on error in $PIC.LOAD
+\ 00002 PLB 9/25/91 Use Window Rastport for Clipping
+\ 00003 PLB 11/12/91 Add save background
+\ 00004 PLB 11/13/91 Do not use first pictures RastPort
+\       Add $PIC.LOAD? and PIC.OPEN? for proper error handling.
+\ 00005 PLB 11/13/91 Remove PIC.?BREAK call cuz it messed up Input
+\ 00006 PLB 11/27/91 Support non-zero transparent color, fix PIC.LOAD
+\ 00007 PLB 1/7/92 Changed PIC.MAKE to PIC.MAKE?, reversed flag
+\ 00008 PLB 1/28/92 Check BITMAPS= in PIC.USE.BITMAP for PIC.DISPLAY
+
+\ This loads everything needed.
+getmodule includes
+include? siff-screen jiff:show_iff
+include? task-ilbm_maker jiff:ilbm_maker
+decimal
+ANEW TASK-PICTURES
+
+\ Define special structure for manipulating IFF based pictures.
+\ Pointers are relative pointers.
+:STRUCT PICTURE
+	LONG  PIC_KEY
+	RPTR  PIC_BITMAP
+	RPTR  PIC_VIEW
+	RPTR  PIC_CTABLE
+	RPTR  PIC_RASTPORT
+	RPTR  PIC_SHADOW
+	RPTR  PIC_BACKUP_0
+	SHORT PIC_BACKUP_0_X
+	SHORT PIC_BACKUP_0_Y
+	RPTR  PIC_BACKUP_1
+	SHORT PIC_BACKUP_1_X
+	SHORT PIC_BACKUP_1_Y
+	USHORT PIC_TransparentColor \ 00006
+	SHORT PIC_NUM_COLORS
+	SHORT PIC_DST_X
+	SHORT PIC_DST_Y
+	SHORT PIC_DST_XOFF  ( these offsets will be added to x,y )
+	SHORT PIC_DST_YOFF
+	SHORT PIC_SRC_X
+	SHORT PIC_SRC_Y
+	SHORT PIC_SRC_W
+	SHORT PIC_SRC_H
+\ Parameters for special effects.
+	BYTE  PIC_IF_DISP   ( true if currently displayed )
+	BYTE  PIC_DIRECTION
+	SHORT PIC_WIPE_XOFF
+	SHORT PIC_WIPE_YOFF
+	SHORT PIC_WIPE_W
+	SHORT PIC_WIPE_H
+	LONG  PIC_COUNT
+;STRUCT
+
+$ 19a5ef27 constant PIC_VALID_KEY
+variable PIC-CUR-DISPLAYED  ( variable pointing to displayed picture )
+variable PIC-CLIPPING
+true pic-clipping !
+variable PIC-CUR-MINTERM
+variable PIC-CUR-MASK
+variable PIC-USE-GRABXY  ( if true, set dst_x/yoff in picture )
+
+$ 0C0 pic-cur-minterm !
+$ 0FF pic-cur-mask !
+
+\ Call a deferred word if closebox hit.
+defer PIC.CLOSEBOX
+' noop is pic.closebox
+
+: PIC.?BREAK  ( -- , test for user break )
+	?closebox ?terminal OR
+	IF pic.closebox
+	THEN
+;
+
+: PIC.CHECK ( picture -- , abort if bad )
+	s@ pic_key
+	pic_valid_key -
+	abort" Invalid or Empty Picture!"
+\	pic.?break \ 00005
+;
+
+: PIC.PUT.XY ( x y picture -- , set source x and y )
+	dup pic.check
+	tuck s! pic_src_y
+	s! pic_src_x
+;
+
+: PIC.GET.XY ( picture -- x y , fetch source x and y )
+	dup s@ pic_src_x
+	swap s@ pic_src_y
+;
+
+: PIC.PUT.XYOFF ( x y picture -- , set x,y offsets )
+	dup pic.check
+	tuck s! pic_dst_yoff
+	s! pic_dst_xoff
+;
+: PIC.GET.XYOFF ( picture -- x y , fetch x,y offsets )
+	dup s@ pic_dst_xoff
+	swap s@ pic_dst_yoff
+;
+
+: PIC.PUT.WH ( width height picture -- , set source width and height )
+	dup pic.check
+	tuck s! pic_src_h
+	s! pic_src_w
+;
+
+: PIC.GET.WH ( picture -- w h , fetch source w and h )
+	dup s@ pic_src_w
+	swap s@ pic_src_h
+;
+
+: PIC.FREE  ( picture -- , free all parts of picture )
+	dup s@ pic_key
+	pic_valid_key =
+	IF  >r  ( save on RS )
+\ Check to see if displayed, close screen if so.
+		r@ s@ pic_if_disp
+		IF siff.close  0 r@ s! pic_if_disp
+			pic-cur-displayed off  \ M901127-0
+		THEN
+\
+\ Free various parts.
+		r@ s@ pic_bitmap ?dup
+		IF free.bitmap
+			0 r@ s! pic_bitmap
+		THEN
+\
+		r@ s@ pic_view ?dup
+		IF
+			free.view
+			0 r@ s! pic_view
+		THEN
+\
+		r@ .. pic_ctable freevar
+		r@ .. pic_rastport freevar
+		r@ s@ pic_shadow ?dup
+		IF free.shadow
+			0 r@ s! pic_shadow
+		THEN
+		r@ s@ pic_backup_0 ?dup
+		IF free.bitmap
+			0 r@ s! pic_backup_0
+		THEN
+		r@ s@ pic_backup_1 ?dup
+		IF free.bitmap
+			0 r@ s! pic_backup_1
+		THEN
+		r@ sizeof() picture erase  ( clear whole thing including key )
+		rdrop
+	ELSE drop
+	THEN
+;
+
+: PIC.GET.DEPTH ( picture -- depth )
+	s@ pic_bitmap s@ bm_depth
+;
+
+: CLIP.1D.2RECT
+{ src smany ssize dst dsize -- src' dst' smany' }
+\ Check trivial rejections
+	src smany + 0< IF 0 0 0 return THEN
+	src ssize 1- > IF 0 0 0 return THEN
+	dst dsize 1- > IF 0 0 0 return THEN
+	src 0<
+	IF  smany src + -> smany
+		dst src - -> dst
+		0 -> src
+	ELSE
+		src ssize 1- >
+		IF return
+		THEN
+	THEN
+	dst smany + 0< IF 0 0 0 return THEN
+	dst 0<
+	IF  smany dst + -> smany
+		src dst - -> src
+		0 -> dst
+	THEN
+	src smany + ssize >
+	IF  ssize src - -> smany
+	THEN
+	dst smany + dsize >
+	IF dsize dst - -> smany
+	THEN
+	src dst smany
+;
+
+: CLIP.BLIT.PARAMS \ clip parameters
+{ s??? sbmap srcx srcy d??? dbmap dstx dsty srcw srch --  SEE_NEXT_LINE }
+( -- s??? srcx srcy d??? dstx dsty srcw srch true | 0 )
+	FALSE \ default return
+\
+\ clip parameters to edges of bitmaps
+\ First check x dimension
+	srcx  srcw
+	sbmap s@ bm_bytesperrow 3 ashift  ( src_size )
+	dstx
+	dbmap s@ bm_bytesperrow 3 ashift ( dst_size )
+	clip.1d.2rect  -> srcw -> dstx -> srcx
+\
+\ Now check y dimension
+	srcw 0>
+	IF
+		srcy
+		srch
+		sbmap s@ bm_rows
+		dsty
+		dbmap s@ bm_rows
+		clip.1d.2rect -> srch -> dsty -> srcy
+\
+\ return all parameters modified
+		srch 0>
+		IF
+			drop \ get rid of FALSE flag
+			s??? srcx srcy d??? dstx dsty srcw srch TRUE
+		THEN
+	THEN
+;
+
+: (PIC.CLIP.BLIT) { dstx dsty pict -- , blit to x,y }
+\ Blit rastport of a picture.
+	pict s@ pic_rastport
+	dup s@ rp_bitmap
+	pict s@ pic_src_x
+	pict s@ pic_src_y
+	gr-currport @ >rel
+	dup s@ rp_bitmap
+\ Add offsets from handles.
+	dstx pict s@ pic_dst_xoff +
+	dsty pict s@ pic_dst_yoff +
+	pict s@ pic_src_w
+	pict s@ pic_src_h
+\
+	clip.blit.params
+	IF
+		pic-cur-minterm @
+		ClipBlit()
+	THEN
+;
+
+: (PIC.BLIT) { dstx dsty pict  -- , blit to x,y }
+	pict s@ pic_rastport
+	pict s@ pic_src_x
+	pict s@ pic_src_y
+	gr-currport @ >rel
+\ Add offsets from handles.
+	dstx pict s@ pic_dst_xoff +
+	dsty pict s@ pic_dst_yoff +
+	pict s@ pic_src_w
+	pict s@ pic_src_h
+	pic-cur-minterm @
+	ClipBlit()
+;
+
+: PIC.BLIT ( dstx dsty pict  -- , blit to x,y )
+\ Blit rastport of a picture.
+	dup pic.check
+	dup s@ pic_rastport
+	IF
+\ clip if desired
+		PIC-CLIPPING @
+		IF
+			(pic.clip.blit)
+		ELSE
+			(pic.blit)
+		THEN
+	ELSE ." PIC.BLIT - No Source RastPort!" cr
+	THEN
+;
+
+
+: PIC.ALLOC.SHADOW? ( picture -- error? , allocate a shadow bitmap )
+	dup>r pic.check
+	r@ s@ pic_shadow
+	IF \ already got one
+		FALSE
+	ELSE
+		r@ pic.get.depth
+		r@ s@ pic_bitmap bitmap>wh
+		alloc.shadow ?dup
+		IF r@ s! pic_shadow FALSE
+		ELSE ." Couldn't allocate Shadow Bitmap!" cr TRUE
+		THEN
+	THEN
+	rdrop
+;
+
+: PIC.ALLOC.SHADOW  ( picture -- , allocate a shadow bitmap )
+	pic.alloc.shadow? drop  \ historically we did not abort
+\ check shadow field after this call
+;
+
+: PIC.GET.NTH.BACKUP ( n picture -- bitmap )
+	swap
+	IF
+		s@ pic_backup_1
+	ELSE
+		s@ pic_backup_0
+	THEN
+;
+
+: PIC.PUT.NTH.BACKUP ( bitmap n picture -- )
+	swap
+	IF
+		s! pic_backup_1
+	ELSE
+		s! pic_backup_0
+	THEN
+;
+
+: PIC.ALLOC.BACKUP?  { backup# pict | bmap -- error? , allocate a backup bitmap }
+	pict pic.check
+	backup# pict pic.get.nth.backup -> bmap \ do we already have one?
+	bmap 0=
+	IF
+		pict pic.get.depth
+		pict s@ pic_bitmap bitmap>wh
+		alloc.bitmap ?dup
+		IF
+			dup -> bmap
+			backup# pict pic.put.nth.backup
+		THEN
+	THEN
+	bmap 0=
+;
+
+: COPY.BITMAP  { srcmap dstmap -- , copy same sized bitmaps }
+	srcmap  0 0
+	dstmap  0 0
+	srcmap bitmap>wh
+	pic-cur-minterm @
+	pic-cur-mask @
+	0 ( use TEMPA = 0 since not overlapping )
+	BltBitMap()
+;
+
+\ Calculation of MINTERM for OR of inverse transparent color planes
+\ 0 0 0 = 0
+\ 0 0 1 = 0
+\ 0 1 0 = 0
+\ 0 1 1 = 0
+\ 1 0 0 = 1  \ on if source is zero, must be one to match trans color
+\ 1 0 1 = 1
+\ 1 1 0 = 0
+\ 1 1 1 = 1  \ on to preserve bits from before
+\ MinTerm = $B0
+
+: PIC.CAST.SHADOW { pict | shadow -- , cast bitmap into shadow }
+	pict pic.check
+	pict s@ pic_shadow dup -> shadow
+	IF
+\ clear that bitplane in case not already clear
+		0 shadow bmplane[] @ >rel
+		shadow @ word-swap 3 BltClear()
+\
+		pic-cur-minterm @ >r 
+\ check transparent color 00006
+		pict s@ pic_TransparentColor 0=
+		IF
+\ copy bitmap to cast shadow for color zero
+			$ 0E0 pic-cur-minterm !  \ OR source
+			pict s@ pic_bitmap
+			shadow
+			copy.bitmap
+		ELSE
+\ for color other then zero we must do two blits.
+\ First the normal blit for the zero planes
+			pict s@ pic_transparentColor $ 0FF XOR
+			pic-cur-mask !
+			$ 0E0 pic-cur-minterm ! \ OR Source
+			pict s@ pic_bitmap
+			shadow
+			copy.bitmap
+\ now the inverse blit for the one planes 00006
+			pict s@ pic_transparentColor
+			pic-cur-mask !
+			$ 0B0 pic-cur-minterm ! \ OR Source
+			pict s@ pic_bitmap
+			shadow
+			copy.bitmap
+			$ 0FF pic-cur-mask !
+		THEN
+		r> pic-cur-minterm !
+	ELSE ." No Shadow Allocated!" cr
+	THEN
+;
+
+: PIC.BACKUP.NTH { dstx dsty backup# pict | dbmap -- }
+\ Warning - Do not set x,y,w,h so that you go past
+\ the picture bounds.
+	backup# pict pic.get.nth.backup -> dbmap
+	dbmap
+	IF
+		gr-currport @ ?dup
+		IF
+			>rel s@ rp_bitmap
+			dup
+\ Add offsets from handles.
+			dstx pict s@ pic_dst_xoff + dup -> dstx
+			dsty pict s@ pic_dst_yoff + dup -> dsty
+			dbmap
+			dup
+\ use current x,y,w,h from picture to avoid moving too much
+			pict s@ pic_src_x
+			pict s@ pic_src_y
+			pict s@ pic_src_w
+			pict s@ pic_src_h
+\
+\ force clip because no protection for bitmaps
+			clip.blit.params
+			IF
+				pic-cur-minterm @
+				pic-cur-mask @
+				0 ( use TEMPA = 0 since not overlapping )
+				BltBitMap()
+			THEN
+\
+\ set saved x,y for restore
+			backup#
+			IF
+				dstx pict s! pic_backup_1_x
+				dsty pict s! pic_backup_1_y
+			ELSE
+				dstx pict s! pic_backup_0_x
+				dsty pict s! pic_backup_0_y
+			THEN
+		ELSE
+			." PIC.BACKUP.NTH - No Source Rastport!" cr
+		THEN
+	ELSE
+		." PIC.BACKUP.NTH - No Save Bitmap!" cr
+	THEN
+;
+
+: PIC.RESTORE.NTH { backup# pict | bmap rport -- }
+\ always does pic-clipping
+	backup# pict pic.get.nth.backup -> bmap
+	bmap
+	IF
+		gr-currport @ ?dup
+		IF
+			>rel -> rport
+\ load parameters
+			bmap
+			dup 
+			pict s@ pic_src_x
+			pict s@ pic_src_y
+			rport
+			dup s@ rp_bitmap
+\ get saved x,y
+			backup#
+			IF
+				pict s@ pic_backup_1_x
+				pict s@ pic_backup_1_y
+			ELSE
+				pict s@ pic_backup_0_x
+				pict s@ pic_backup_0_y
+			THEN
+			pict s@ pic_src_w
+			pict s@ pic_src_h
+			clip.blit.params
+			IF
+				pic-cur-minterm @
+\
+				BltBitMapRastPort()
+			THEN
+		ELSE
+			." PIC.RESTORE.NTH - No Target Rastport!" cr
+		THEN
+	ELSE
+		." PIC.RESTORE.NTH - No Saved Bitmap!" cr
+	THEN
+;
+
+: CLIP.BLIT.MASKBIT { bmap srcx srcy dstx dsty srcw srch mterm bmask -- }
+\ Clip and see if anything left.
+	pic-clipping @
+\ First check x dimension
+	IF
+		srcx  srcw
+		bmap s@ bm_bytesperrow 3 ashift  ( srcsize )
+\
+		dstx
+		gr-currport @ >rel s@ rp_bitmap
+		s@ bm_bytesperrow 3 ashift ( dsize )
+		clip.1d.2rect  -> srcw -> dstx -> srcx
+	THEN
+\
+\ Now check y dimension
+	srcw 0>
+	IF
+		pic-clipping @
+		IF
+			srcy
+			srch
+			bmap s@ bm_rows
+			dsty
+			gr-currport @ >rel s@ rp_bitmap s@ bm_rows
+			clip.1d.2rect -> srch -> dsty -> srcy
+		THEN
+\
+		srch 0>
+		IF  bmap
+			srcx srcy
+			gr-currport @ >rel
+			dstx dsty
+			srcw srch
+			mterm
+			bmask
+			BltMaskBitMapRastPort()
+		THEN
+	THEN
+;
+
+
+: PIC.TRANS.BLIT { dstx dsty pict -- , blit transparently }
+	pict pic.check
+	pict s@ pic_shadow 0=
+	IF  pict pic.alloc.shadow
+		pict pic.cast.shadow
+	THEN
+\
+	pict s@ pic_shadow
+	IF
+		pict s@ pic_bitmap
+		pict s@ pic_src_x
+		pict s@ pic_src_y
+\ Add offsets from handles.
+		dstx pict s@ pic_dst_xoff +
+		dsty pict s@ pic_dst_yoff +
+		pict s@ pic_src_w
+		pict s@ pic_src_h
+		$ E0
+		0 pict s@ pic_shadow bmplane[] @ >rel
+		clip.blit.MaskBit
+	ELSE ." PIC.TRANS.BLIT - No Shadow!"
+	THEN
+;
+
+: PIC.MAKE.RASTPORT? ( picture -- error? , create RastPort from current Bitmap )
+	dup pic.check
+	>r alloc.rastport ?dup
+	IF  dup r@ s! pic_rastport ( -- rp )
+		r@ s@ pic_bitmap  ( -- rp bm )
+		swap link.bm>rp
+		FALSE
+	ELSE ." Could not allocate RastPort!" cr TRUE
+	THEN
+	rdrop
+;
+
+: PIC.MAKE.RASTPORT ( picture -- , create RastPort from current Bitmap )
+	pic.make.rastport? abort" PIC.MAKE.RASTPORT - failed!"
+;
+
+: PIC.DRAWTO ( picture -- , make this the destination )
+	dup pic.check  ( -- pic )
+	dup s@ pic_rastport 0= ( -- pic flag )
+	IF ( -- pic )
+		dup pic.make.rastport? abort"  No Rastport!"
+	THEN ( -- pic )
+	s@ pic_rastport	>abs gr-currport !
+;
+
+: PIC.COPY { srcpic dstpic -- , copy bitmaps and color table }
+\ You must make sure these are the same size!
+\ Use PIC.DUPLICATE
+	srcpic s@ pic_bitmap
+	dstpic s@ pic_bitmap
+	copy.bitmap
+	srcpic s@ pic_ctable ?dup
+	IF  dstpic s@ pic_ctable ?dup
+		IF srcpic s@ pic_num_colors 2* cmove
+		ELSE drop
+		THEN
+	THEN
+;
+
+: PIC.DUPLICATE?  { srcpic dstpic -- error? , make copy of picture }
+	srcpic pic.check
+	dstpic pic.free
+\
+\ Make same size bitmap.
+	srcpic pic.get.depth
+	srcpic pic.get.wh
+	alloc.bitmap ?dup
+	IF  dstpic s! pic_bitmap
+		pic_valid_key dstpic s! pic_key
+	ELSE
+		goto.error
+	THEN
+\
+\ Copy window values
+	srcpic pic.get.wh dstpic pic.put.wh
+	srcpic pic.get.xy dstpic pic.put.xy
+\
+\ Copy color table
+	memf_clear srcpic s@ pic_num_colors 2* allocblock ?dup
+	IF  dup dstpic s! pic_ctable
+		srcpic s@ pic_ctable swap
+		srcpic s@ pic_num_colors 2* cmove
+		srcpic s@ pic_num_colors dstpic s! pic_num_colors
+	ELSE
+		goto.error
+	THEN
+	dstpic pic.make.rastport? ?goto.error
+	false
+	exit
+\
+ERROR:
+	dstpic pic.free
+	true
+;
+
+: PIC.DUPLICATE  ( srcpic dstpic -- , make copy of picture )
+	pic.duplicate?
+	IF
+		." PIC.DUPLICATE failed!" cr
+	THEN
+;
+
+: PIC.USE.COLORS ( picture -- , apply colors to screen )
+	dup pic.check
+	dup>r s@ pic_ctable
+	IF  r@ s@ pic_ctable  r@ s@ pic_num_colors
+		siff.use.ctable
+	THEN
+	rdrop
+;
+
+variable PIC-START-BLACK
+
+: PIC.OPEN? { pict -- screen | 0 , open screen based on picture }
+\ Use viewmodes from CAMG chunk. 00004
+	pict s@ pic_bitmap ilbm-camg @ bitmap>screen ?dup
+	IF
+		dup siff-screen !
+		screen>backwindow ?dup
+		IF
+			siff-window !
+\ Set to proper color map.
+			pic-start-black @
+			IF  siff.blackout
+			ELSE pict pic.use.colors
+			THEN pic-start-black off
+\ (00002) siff-screen @ .. sc_rastport >abs gr-currport ! 
+			siff.showit
+		ELSE
+			siff.close
+		THEN
+	ELSE drop
+	THEN
+	siff-screen @
+;
+
+: PIC.OPEN ( picture -- , abort if can't open screen )
+	pic.open? 0= abort" PIC.OPEN - Could not open screen!"
+;
+
+: PIC.WHOLE ( picture -- , reset bounds to use whole picture)
+	dup>r pic.check
+	r@ s@ pic_bitmap bitmap>wh
+	r@ pic.put.wh
+	0 0 r@ pic.put.xy
+	rdrop
+;
+
+: PIC.MARK.DISPLAYED  ( picture -- , mark as displayed picture )
+	pic-cur-displayed @ ?dup
+	IF  0 swap s! pic_if_disp   ( flag old one NOT displayed )
+	THEN
+	dup pic-cur-displayed !
+	true swap s! pic_if_disp
+;
+
+: PIC.BUILD  ( bitmap picture -- , make picture from bitmap )
+	dup>r pic.free
+	r@ s! pic_bitmap
+	pic_valid_key r@ s! pic_key
+	r@ pic.make.rastport
+	r@ pic.whole
+	rdrop
+;
+
+: $PIC.LOAD? { $iff-filename pict | bmap -- error? , load iff picture }
+	depth 0< abort" $PIC.LOAD - Missing Parameters!"
+\
+	graphics_lib @ 0=
+	IF
+		>newline
+		." GR.INIT should be called before $PIC.LOAD?" cr
+		gr.init
+	THEN
+\
+	pict pic.free
+	$iff-filename $ilbm.parse.file? ?GOTO.ERROR
+\
+\ set transparent color
+	ilbm-header s@ bmh_transparentColor
+	pict s! pic_TransparentColor
+\
+\ Color Table
+	ilbm.make.ctable  pict s! pic_num_colors
+	pict s! pic_ctable
+\
+\ create appropriately sized bitmap
+	ilbm.alloc.bitmap dup -> bmap pict s! pic_bitmap
+	bmap 0= ?GOTO.ERROR
+\
+	pic_valid_key pict s! pic_key
+	pict pic.make.rastport
+	siff-screen @ 0=
+	IF
+		pict s@ pic_rastport 0 SetRast()  ( start clear )
+		pict pic.open? 0= ?goto.error
+		pict pic.mark.displayed
+\ 00004			pict pic.drawto    ( use it's rastport )
+	THEN
+\
+\ fill bitmap now that we have a screen
+	bmap ilbm.fill.bitmap 0= ?GOTO.ERROR
+	pict pic.whole
+\
+\ set handles
+	pic-use-grabxy @
+	IF ilbm-grabxy w@ w->s negate
+		ilbm-grabxy 2+ w@ w->s negate
+		pict pic.put.xyoff
+	THEN
+	ilbm.cleanup
+	FALSE
+	exit
+\
+ERROR:
+	ilbm.cleanup
+	pict pic.free
+	TRUE
+;
+
+: $PIC.LOAD (  $iff-filename picture -- , load iff picture )
+	$pic.load?
+	IF
+		." $PIC.LOAD - Could not load picture!" cr
+	THEN
+;
+
+: PIC.LOAD? ( picture <filename> -- error? , load IFF picture )
+	fileword swap $pic.load?
+;
+
+: PIC.LOAD ( picture <filename> -- , load IFF picture )
+	fileword swap $pic.load
+;
+
+: PIC.USE.BITMAP ( picture -- )
+	dup>r pic.check
+	r@ s@ pic_bitmap
+	siff-screen @ .. sc_bitmap
+	2dup bitmaps= \ 00008
+	IF
+		copy.planes
+\
+		siff-screen @ remake.screen
+\
+\ Keep track of who is displayed.
+		r@ pic.mark.displayed
+	ELSE
+		2drop
+		." PIC.USE.BITMAP - bitmaps not equal in size!" cr
+	THEN
+	rdrop
+;
+
+: PIC.DISPLAY ( picture -- , display picture by copying bitmaps )
+	pic-start-black @
+	IF siff.blackout
+	ELSE dup pic.use.colors
+	THEN pic-start-black off
+	pic.use.bitmap
+;
+
+: PIC.ALLOC.VIEW? { pict -- error? }
+	pict s@ pic_view 0=
+	IF
+		pict pic.display
+		siff-screen @ screen>view
+		dup pict s! pic_view
+		0=
+	ELSE
+		FALSE
+	THEN
+;
+
+: PIC.VIEW ( picture -- , display a pictures view )
+	dup pic.alloc.view? 0= \ just in case
+	IF
+		s@ pic_view LoadView()
+	ELSE
+		drop ." PIC.VIEW - could not make view!" cr
+	THEN
+;
+
+\ Save a modified picture.
+: $PIC.SAVE? { $filename pict -- error? , save picture to IFF file }
+	pict pic.check
+	pict s@ pic_if_disp
+	IF siff-screen @ $filename $screen>iff?
+	ELSE
+		new $filename $iff.open?
+		IF
+			pict s@ pic_bitmap
+			pict s@ pic_ctable 
+			pict s@ pic_num_colors
+			ilbm.write.ilbm?
+			iff.close
+		ELSE
+			TRUE
+		THEN
+	THEN
+;
+
+: PIC.SAVE? ( picture <filename> -- error? )
+	fileword swap $pic.save?
+;
+
+
+: $PIC.SAVE ( $filename picture -- , save picture to IFF file )
+	$pic.save?
+	IF
+		." $PIC.SAVE failed!" cr
+	THEN
+;
+
+: PIC.SAVE ( picture <filename> -- )
+	pic.save?
+	IF
+		." PIC.SAVE failed!" cr
+	THEN
+;
+
+\ Make a picture from scratch.  Martin Kees, 00007
+: PIC.MAKE?  { colrtab #colors deep wide high pict -- error? , true if error }
+	pict pic.free
+	deep wide high alloc.bitmap ?dup
+	IF
+		pict s! pic_bitmap
+		pic_valid_key pict s! pic_key
+		pict pic.make.rastport
+		wide high pict pic.put.wh
+		0 0 pict  pic.put.xy
+		colrtab
+		IF
+			memf_clear #colors 2* allocblock ?dup
+			IF
+				dup pict s! pic_ctable
+				colrtab swap #colors 2* cmove
+				#colors pict s! pic_num_colors
+			ELSE
+				true exit
+			THEN
+		THEN
+		false \ all OK
+	ELSE
+		true \ there was an error
+	THEN
+;
+
+
+: PIC.CLONE ( src dest --- , copy image of src to dest )
+	pic.drawto
+	0 0 rot pic.blit
+;
+

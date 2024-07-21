@@ -1,0 +1,240 @@
+\ Jforth autoharp tuning, 11-limit scrambled tunings pythagorean tuning
+\
+include?  ee.spot ee
+\
+anew j1.spot
+\ e=1365
+Variable BaseNote
+\
+\ Just AutoHarp tuning words
+\
+\
+\ make floating???
+floatee .if
+: %P
+{ Note Oct Num Den -- }
+Note  0 127 within?  If
+note oct num den %? BaseNote @ float f+ E!>
+else note  ." :>>bad" .
+then 
+Note 1+
+;
+.else
+: %P
+{ Note Oct Num Den -- }
+Note  0 127 within?  If
+note oct num den %? BaseNote @ + E!>
+else note  ." :>>bad" .
+then 
+Note 1+
+;
+.then
+
+: Nork
+1365 BaseNote ! \ freq for E in points
+Start-list
+Zero-set
+5 \ start on f, sounds like E
+10 0 do
+I 1 1 %P \ F
+I 9 8 %p \ F#
+I 10 9 %p \ G
+I 6 5 %p  \ Ab
+I 5 4 %p  \ A
+I 27 20 %P \ Bb
+I 4 3 %p \ B
+I 3 2 %P \ C
+I 5 3 %p \ Db
+I 8 5 %P \ D
+I 15 8 %P \ E 
+I 9 5 %p \ Eb
+loop
+cr
+.
+end-list
+;
+\ tuned correctly....
+: NorkF
+4096  5 * 12 /  BaseNote ! \ freq for F in points
+Start-list
+Zero-Set
+5 \ start on f, sounds like F
+10 0 do
+I 1 1 %P \ F
+I 9 8 %p \ F#
+I 10 9 %p \ G
+I 6 5 %p  \ Ab
+I 5 4 %p  \ A
+I 27 20 %P \ Bb
+I 4 3 %p \ B
+I 3 2 %P \ C
+I 5 3 %p \ Db
+I 8 5 %P \ D
+I 15 8 %P \ E 
+I 9 5 %p \ Eb
+loop
+cr
+.
+end-list
+;
+
+\ the infamous 11-limit thing
+
+create IHarm
+ 4 , 9 , 5 , 11 , 6 , 7 , 
+Create Jharm 
+ 4 , 9 , 5 , 11 , 6 , 7 ,
+
+: pork
+{ | KK ii -- }
+Start-list
+0 \ start at real low c
+7 4 do \ Octave....
+I -> KK
+5 0 do \ Denominator
+5 i - -> ii
+cr jharm ii 4* + @ . ." + " 
+   6 0 do \ numerator
+     KK iHarm i 4* + @  jHarm ii 4* + @  %% \ send this ratio...
+   Loop
+Loop
+loop
+cr
+.
+end-list
+;
+
+\ one o' my favories...
+
+\ 11-limit do-decads xposed by 3/2 * 3/4
+create ICarm
+\ W   B    W   B    W   W
+\  6 , 10 , 7 , 11 , 8 , 9 , 
+   4 , 9 , 5 , 11 , 6 , 7 , 8 , 18 , 10 , 22 , 12 , 14 ,
+create jCarm
+\ B    W   B   W    B   W  
+\  6 , 9 , 7 , 10 , 8 , 11 , 
+   4 , 9 , 5 , 11 , 6 , 7 , 8 , 18 , 10 , 22 , 12 , 14 ,
+Variable Numo
+Variable Deno
+
+ : Cork
+1 Deno !
+1  Numo !
+Start-list
+
+0 \ start at real low c
+
+
+5 0 do \ sexions
+ cr numo @ . ." /" deno @ . ." ::"
+
+\ Forward...
+
+   12 0 do
+1  \ octave starts about here?
+iCarm i 4* + @ Numo @ *
+               Deno @   %% \ send this ratio...
+   Loop
+3 numo @ * numo !
+2 Deno @ * Deno !
+ cr numo @ . ." /" deno @ . ." ::"
+
+\ Back...
+
+   12 0 do
+1  \ octave starts about here?
+jCarm i 4* + @ Numo @ *
+               Deno @   %% \ send this ratio...
+   Loop
+ numo @ 3 /  9 * numo !
+ Deno @ 2 / 8 * Deno !
+
+
+loop
+cr
+.
+end-list
+;
+\ terry Riley's tuning from K'bord mag aug 88
+
+: rork
+4096 10 * 12 / basenote ! \ this tuning is in 'Bb'
+Start-list
+Zero-Set
+10 \ start on Bb
+9 0 do
+I 1 1 %P \ bb
+I 25 24 %p \ b
+I 9 8 %p \ c
+I 7 6 %p  \ db
+I 5 4 %p  \ d
+I 4 3 %P \ eb
+I 45 32 %p \ e
+I 3 2 %P \ f
+I 25 16 %p \ f#
+I 5 3 %P \ g
+I 7 4 %P \ Ab 
+I 44 24 %p \ A
+
+loop
+cr
+.
+end-list
+;
+
+\ pure pythagorean
+
+: Zork
+Start-list
+0 \ start on c
+10 0 do
+I 1 1 %% \ C
+I 256 243 %% \ Db
+I 9 8  %% \ D
+I 32 27 %% \ Eb
+I 81 64 %% \ E 
+I 4 3 %% \ F
+I 729 512 %% \ F#
+I 3 2 %% \ G
+I 128 81 %%  \ Ab
+I 27 16 %%  \ A
+I 16 9 %% \ Bb
+I 243 128 %% \ B
+loop
+cr
+.
+end-list
+;
+
+
+\ variant of one o' my favories...
+
+\ 11-limit do-decads xposed by 9/8
+
+ : Fork
+1 Deno !
+1  Numo !
+Start-list
+
+0 \ start at real low c
+
+
+9 0 do \ 9 12-note double hexads
+	cr numo @ . ." /" deno @ . ." ::"
+
+	12 0 do
+		2  \ octave starts about here?
+		iCarm i cells + @ Numo @ *
+		Deno @   %% \ send this ratio...
+	Loop
+
+	9 numo @ * numo !
+	8 Deno @ * Deno !
+loop
+cr
+drop
+end-list
+;
+
+." ... nork norkf pork zork and Fork " cr

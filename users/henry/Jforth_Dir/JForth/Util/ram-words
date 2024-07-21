@@ -1,0 +1,69 @@
+
+\ these words come in handy if you have lots of ram...
+
+\ convienient editing out of ram...
+
+\   1. Compile this utility.
+\   1. Copy file to be edited to somewhere in ram:, tell JForth where
+\      it is by:       SET-SOURCE pathname
+\   4. 'cd' to the directory that has the original. (This is where you
+\      want to save the original.)
+\   5. type:
+\
+\              DOSAVES filename
+\
+\      ...just give it the base filename, no path.
+\   6. system will ask if you want it to save the file...
+\      if you answer yes, it will copy from ram:wherever to the disk
+\         then ask you again.
+\      if you say no, it will stop asking, going back to 'ok'
+\
+\   This is particularly helpful for big files...big files can be saved
+\ in seconds to ram:, and a single keystroke later, JForth is saving
+\ your file safely to disk.   Even if it takes a long time to save,
+\ you can go back to your editor, and just keep on hackin'!
+
+\    NOTE:  currently, this does not parse for filenames with spaces!
+\ Author: Mike Haas
+
+\ MOD: PLB 9/6/88 Changed CONSOLE to CONSOLEOUT
+
+variable SOURCE-PATH  64 allot   ( make this bigger if you like big names!)
+
+: SET-SOURCE  ( -- , put string in SOURCE PATH )
+  bl lword SOURCE-PATH $move   ;
+
+SET-SOURCE ram:
+
+: dodos  ( -- , execute whatever is in dos0 )
+  dos0 >abs  0  consoleout @  call dos_lib execute  drop ;
+
+: ASKIF  ( -- flag )
+  cr dos0 1- count type y/n  
+  IF    dodos
+  ELSE  quit
+  THEN  ;
+
+: PutBack ( -- , eats filename, if in ram:, copies to current dir ) cr
+  $" copy "          count >dos   ( move to dos buffer )
+  source-path        count +dos   ( add the source pathname )
+  bl lword           count +dos   ( add the filename )
+  $"  TO "           count +dos   ( a separator )
+  here               count +dos   ( and the same for destination filename )
+  ASKIF  ;
+
+: GoGet   ( -- , eats filename, if in curr dir, copies to ram: )
+  $" copy "          count >dos   ( move to dos buffer )
+  bl lword           count +dos   ( add the filename )
+  $"  TO "           count +dos   ( a separator )
+  source-path        count +dos   ( add the pathname )
+  here               count +dos   ( and, of course, the filename )
+  ASKIF  ;
+
+\ used to loop on asking to save the file...
+\ if yes, file is copied from ram: to current directory...
+\ otherwise it stops
+
+: DOSAVES  ( -- , prompts for filename )
+  BEGIN >in @ >r  putback  r> >in !
+  AGAIN ;

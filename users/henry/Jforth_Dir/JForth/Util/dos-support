@@ -1,0 +1,74 @@
+
+\ ************************  Useful DOS functions  ************************
+
+\ note1: in calls to DOS_LIB, you cannot use the CALL compiler's CALL>ABS
+\        modifier, as the DOS library expects addresses in DATA (?!?) regs.
+\
+\ note2: when getting a Lock (via Lock() or otherwise) it is NOT converted
+\        to relative before returning, since it should never be used
+\        for anything but an argument to a call destined for an Amiga
+\        library.  Handle it like a normal "file pointer".
+
+\ 00001 13-jan-92 mdh     Changed UnLock() to check for cliLOCK
+
+exists? getmodule .IF
+  getmodule includes
+.THEN
+
+ANEW Task-DOS-SUPPORT
+
+verify-libs @   verify-libs off   ( DOS always open )
+
+.need Lock()   \ these are normally loaded in the JForth system...
+: LOCK()   ( 0name accessmode -- lock OR 0 if fail )
+  swap  >abs  swap    call dos_lib Lock
+;
+
+: $LOCK()  ( &forth-string access-mode -- lock or 0 , NOT converted via >rel )
+  swap count >dos dos0 swap Lock()
+;
+
+: MyDir  ( -- lock on current directory )
+  TASKBASE @ >rel ..@ pr_CurrentDir  ( -- lock )
+;
+
+: UNLOCK()  ( lock -- , always handled in ABS form, just as received )
+  dup MyDir -
+  IF
+     \ now UnLock the prev one IF:
+     \ 1. it is not equal to the original CLI lock      OR:
+     \ 2. it is not equal to the original WB lock....
+     dup WBMESSAGE @  \ 00001
+     IF
+        wbLOCK
+     ELSE
+        cliLOCK
+     THEN
+     @ -
+     IF
+        call dos_lib UnLock
+     THEN
+  THEN
+  drop
+;
+
+: CURRENTDIR()  ( lock -- prevlock )
+  call dos_lib CurrentDir
+;
+
+.then
+
+: EXAMINE()  ( lock fib -- flag , zero if fail )
+  >abs call dos_lib Examine
+;
+
+: EXNEXT()   ( lock fib -- flag , zero if end of dir )
+  >abs call dos_lib ExNext
+;
+
+: PARENTDIR()   ( lock -- parent-lock )
+  call dos_lib ParentDir
+;
+
+
+verify-libs !

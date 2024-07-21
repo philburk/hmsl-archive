@@ -1,0 +1,64 @@
+\
+anew seq.spot
+\
+\
+\
+\
+variable T_Phase
+Create Major_P
+0 w, 2 w, 4 w, 5 w, 7 w, 9 w, 11 w,
+
+: Major { Num  -- }
+num T_Phase @ + 7 mod  2* Major_P + W@  num t_phase @ +  7 / 12 * +
+;
+
+: <:> ( 7 -- )
+ dup <N <*>:Speed @ !! N>
+;
+ : M_I { Note -- }
+Note 0 major + <N Note 2 major + <N Note 4 major + <N <*>:Speed @ !!
+Note 0 major + N> Note 2 major + N> Note 4 major + N>
+;
+
+: M_II { Note -- }
+Note 1 major + <N Note 3 major + <N Note 5 major + <N <*>:Speed @ !!
+Note 1 major + N> Note 3 major + N> Note 5 major + N>
+;
+
+: M_III { Note -- }
+Note 2 major + <N Note 4 major + <N Note 6 major + <N <*>:Speed @ !!
+Note 2 major + N> Note 4 major + N> Note 6 major + N>
+;
+: M_IV { Note -- }
+Note 3 major + <N Note 5 major + <N Note 7 major + <N <*>:Speed @ !!
+Note 3 major + N> Note 5 major + N> Note 7 major + N>
+;
+: M_V  { Note -- }
+Note 4 major + <N Note 6 major + <N Note 8 major + <N <*>:Speed @ !!
+Note 4 major + N> Note 6 major + N> Note 8 major + N>
+;
+: M_Vi { Note -- }
+Note 5 major + <N Note 7 major + <N Note 9 major + <N <*>:Speed @ !!
+Note 5 major + N> Note 7 major + N> Note 9 major + N>
+;
+: M_Vii { NOte -- }
+Note 6 major + <N Note 8 major + <N Note 10 major + <N <*>:Speed @ !!
+Note 6 major + N> Note 8 major + N> Note 10 major + N>
+;
+
+: Seq
+start-list { | Note -- }
+60 -> Note
+Note 0 major + <:>
+Note 1 major + <:>
+Note 2 major + <:>
+Note 3 major + <:>
+Note 4 major + <:>
+Note 5 major + <:>
+Note 6 major + <:>
+note M_I note M_II note M_III note M_IV note m_V
+note M_VI note M_VII
+
+end-list
+;
+

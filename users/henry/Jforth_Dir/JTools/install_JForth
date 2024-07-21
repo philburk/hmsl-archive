@@ -1,0 +1,39 @@
+.key jpath
+.def jpath "WORK:JForth_Dir"
+.bra {
+.ket }
+
+; Install JForth on a hard disk
+
+echo " Creating a directory for JForth called {jpath}"
+MAKEDIR {jpath}
+ASSIGN  JFHD: {jpath}
+
+echo "Copying JTools disk to JFHD:"
+copy JTools: JFHD:JTools all clone quiet
+
+echo "Creating icons."
+copy JTools:DevTools.info {jpath}.info
+copy JTools:DevTools.info JFHD:JForth.info
+copy JTools:DevTools.info JFHD:Extras.info
+copy JTools:DevTools.info JFHD:JTools.info
+
+echo "Copying JForth disk to JFHD:"
+copy JForth: JFHD:JForth all clone quiet
+
+echo "Copying Extras disk to JFHD:"
+copy Extras: JFHD:Extras all clone quiet
+
+ask "Remove all disks from floppy drives then hit <RETURN>"
+execute JFHD:Extras/HD-ASSIGNS
+
+echo "JForth installation complete."
+echo " "
+echo "We recommend that you add the following 2 lines to your"
+echo "S:USER-STARTUP file (or S:STARTUP-SEQUENCE file if under"
+echo "Workbench 1.3 or earlier):"
+echo " "
+echo "    assign JFHD: {jpath}"
+echo "    execute JFHD:Extras/HD-ASSIGNS"
+echo " "
+

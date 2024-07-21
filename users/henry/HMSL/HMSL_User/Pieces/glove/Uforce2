@@ -1,0 +1,108 @@
+\ test RM certitude
+
+include? msg.do test_messages
+anew task_uforce2
+
+NO-COMMAS
+
+\ when switches are dn dn dn dn , the  bottom and top
+\ sensors are on instead of blr and tur.
+
+.NEED _Uforce_data
+\ with game switches in position : dn dn dn up
+\
+\   tul    tur     top
+\   tll    tlr
+\ ------------
+\   bul    bur     base
+\   bll    blr      sensors
+
+:struct _Uforce_data
+	ubyte	uf_btn \ bit0 = 0- one button hit, bt1 = other
+	ubyte	uf_bll \ 
+	ubyte	uf_blr
+	ubyte	uf_bur
+	ubyte	uf_bul
+	ubyte	uf_tll
+	ubyte	uf_tlr
+	ubyte	uf_tul
+	ubyte	uf_tur
+	ubyte	uf_dum9
+	ubyte	uf_dumA
+	ubyte	uf_dumB
+;struct
+.THEN
+
+
+
+\ number is an inverse distance
+: dis. ( in -- out )
+case
+0 of ." 0 " endof
+1 of ." 1 " endof
+3 of ." 2 " endof
+7 of ." 3 " endof
+15 of ." 4 " endof
+31 of ." 5 " endof
+47 of ." 6 " endof
+55 of ." 7 " endof
+63 of ." 8 " endof
+
+95 of ." 9 " endof
+111 of ." A " endof
+119 of ." B " endof
+127 of ." C " endof
+191 of ." D " endof
+175 of ." E " endof
+215 of ." F " endof
+223 of ." G " endof
+239 of ." H " endof
+247 of ." I " endof
+251 of ." J " endof
+dup .
+endcase
+
+;
+
+\
+: btn.
+dup
+ 2 and 0= if ." Sl " else ." -- " then
+ 1 and 0= if ." St " else ." -- " then
+
+;
+
+: ufw
+test.init
+
+gl_reset msg.do
+
+gl_start msg.do
+
+
+begin
+\ gl_poll msg.do
+
+  glmsg .. gl_data  ..@ uf_btn btn.
+  glmsg .. gl_data  ..@ uf_bll dis.
+  glmsg .. gl_data  ..@ uf_blr dis.
+  glmsg .. gl_data  ..@ uf_bur dis.
+  glmsg .. gl_data  ..@ uf_bul dis.
+ ."   "
+  glmsg .. gl_data  ..@ uf_tll dis.
+  glmsg .. gl_data  ..@ uf_tlr dis.
+  glmsg .. gl_data  ..@ uf_tul dis.
+  glmsg .. gl_data  ..@ uf_tur dis.
+\  glmsg .. gl_data  ..@ uf_dum9 dis.
+\  glmsg .. gl_data  ..@ uf_dumA dis.
+\  glmsg .. gl_data  ..@ uf_dumB dis.
+cr
+
+?terminal until
+gl_stop msg.do
+
+test.term
+;
+
+
+." ufw is the word.. "

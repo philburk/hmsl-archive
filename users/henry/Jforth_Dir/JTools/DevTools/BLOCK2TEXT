@@ -1,0 +1,84 @@
+\ BLOCK2TEXT
+\
+\ Convert a Forth style BLOCK file to a normal text file.
+\
+\ Author: Phil Burk
+\ Copyright 1991 Phil Burk
+
+ANEW TASK-BLOCK2TEXT
+
+\ hold file pointers
+VARIABLE B2T-INFILE
+VARIABLE B2T-OUTFILE
+
+: B2T.NEXT  ( -- 0 | 1 | -1 , process next line in file )
+	b2t-infile @ pad 64 fread 64 =
+	IF
+		b2t-outfile @
+		pad 64 -trailing  \ remove trailing blanks
+		dup>r
+		fwrite
+		r> =
+		IF
+			EOL pad c!  \ write line terminator
+			b2t-outfile @
+			pad 1
+			fwrite
+			1 = not
+		ELSE
+			true
+		THEN
+		\ -1 if error
+	ELSE
+		1 \ done
+	THEN
+;
+
+: B2T.LOOP ( -- , loop through file )
+	BEGIN
+		b2t.next
+		dup 0<
+		IF
+			." B2T - Error writing file!" cr
+		THEN
+	UNTIL
+;
+
+: B2T.CLOSE ( -- , close both files )
+	b2t-infile @ ?dup
+	IF fclose b2t-infile off
+	THEN
+	b2t-outfile @ ?dup
+	IF fclose b2t-outfile off
+	THEN
+;
+
+: B2T.ERROR ( -- )
+	." Usage:  BLOCK2TEXT infile outfile" cr
+	."   INFILE  = file of Forth blocks" cr
+	."   OUTFILE = normal text file" cr
+	b2t.close
+;
+
+: BLOCK2TEXT ( <infile> <outfile> -- )
+	>newline
+	." Block2Text  by Phil Burk, written in JForth" cr
+	fopen ?dup
+	IF
+		b2t-infile !
+		new fopen ?dup
+		IF
+			b2t-outfile !
+			b2t.loop
+			." File conversion complete." cr
+		ELSE
+			." Could not open OUTPUT file!" cr
+			b2t.error
+		THEN
+	ELSE
+		." Could not open INPUT file!" cr
+		b2t.error
+	THEN
+	b2t.close
+;
+

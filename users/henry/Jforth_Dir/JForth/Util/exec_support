@@ -1,0 +1,213 @@
+\ These routines are to support the EXEC library.
+\
+\ For BEGINIO() and ABORTIO() see ju:device-calls
+\
+\ Authored & Translated by: Phil Burk
+\ Copyright 1986 Delta Research and Commodore Amiga
+\
+\ MOD: PLB 5/26/89 Fixed FindPort()
+\ 00002 29-jul-91 mdh     Added Forbid() & Permit()
+\ 00003 PLB 1/28/92 Added Disable() and Enable()
+\ 00004 PLB 4/22/92 Added B->S to WaitIO() because it is defined BYTE
+
+exists? includes
+.IF getmodule includes
+.ELSE
+include? exec_nodes_h ji:exec/nodes.j
+include? exec_lists_h ji:exec/lists.j
+\ include? exec_memory_h ji:exec/memory.j
+include? exec_interrupts_h ji:exec/interrupts.j
+include? exec_ports_h ji:exec/ports.j
+include? exec_libraries_h ji:exec/libraries.j
+include? exec_tasks_h ji:exec/tasks.j
+include? exec_io_h ji:exec/io.j
+include? exec_execbase_h ji:exec/execbase.j
+.THEN
+
+ANEW TASK-EXEC_SUPPORT
+
+
+verify-libs @  verify-libs off   ( Exec always open )
+
+
+\ Some assorted common EXEC calls.
+
+: FORBID() ( -- )   \ 00002
+  callvoid exec_lib forbid
+;
+
+: PERMIT() ( -- )   \ 00002
+  callvoid exec_lib permit
+;
+
+.need Disable()
+: Disable() ( -- )   \ 00003
+  callvoid exec_lib Disable
+;
+.THEN
+
+.need Enable()
+: Enable() ( -- )   \ 00003
+  callvoid exec_lib Enable
+;
+.THEN
+
+: ADDPORT() ( rel_port -- )
+    callvoid>abs exec_lib AddPort
+;
+
+: ALLOCSIGNAL() ( requested_signal# -- allocated_signal# )
+    call exec_lib AllocSignal
+;
+
+: CLOSEDEVICE() ( IORequest -- )
+    callvoid>abs exec_lib CloseDevice
+;
+
+: DOIO() ( rel_iorb -- error , Do I/O )
+    call>abs exec_lib DoIO
+;
+
+: FINDTASK() ( 0$taskname -- rel_task )
+    if>abs call exec_lib FindTask if>rel
+;
+
+: FINDPORT() ( 0$portname -- rel_task )
+\    if>abs call exec_lib FindTask if>rel   ( OOPS!!)
+    if>abs call exec_lib FindPort if>rel
+;
+
+: FREESIGNAL() ( signal# -- , Free previously allocated signal. )
+    callvoid exec_lib FreeSignal
+;
+
+: GETMSG() ( rel_port -- rel_message , Get message. )
+    if>abs call exec_lib getmsg if>rel
+;
+
+: PUTMSG() ( rel_port rel_message -- , Put message. )
+    callvoid>abs exec_lib putmsg
+;
+
+: OPENDEVICE() ( 0$devicename unit# IORequest flags -- error )
+    call>abs exec_lib OpenDevice
+;
+
+: REMPORT() ( rel_port -- )
+    callvoid>abs exec_lib RemPort
+;
+
+.NEED ReplyMsg()  \ Also Defined in AMIGA_EVENTS
+: ReplyMsg() ( message -- )
+    callvoid>abs exec_lib ReplyMsg
+;
+.THEN
+
+.NEED WaitPort()  \ Also Defined in AMIGA_EVENTS
+: WAITPORT() ( rel_port -- rel_message )
+    call>abs exec_lib WaitPort if>rel
+;
+.THEN
+
+\ These definitions are constructed from examples in the
+\ ROM Kernal Manual volume 1 and the MACROS in the .i files.
+: NEWLIST() ( rel_list -- , Initialize list header.)
+    dup .. lh_Tail >abs over ..! lh_Head
+    dup .. lh_Head >abs over ..! lh_TailPred
+    NULL swap ..! lh_Tail
+;
+
+: PORT.SETUP ( 0$name priority signal rel_msgport -- , Set values.)
+    tuck ..! mp_SigBit
+    tuck .. mp_Node ..! ln_Pri
+    swap if>abs over .. mp_Node ..! ln_Name
+    NT_MSGPORT over .. mp_Node ..! ln_Type
+    PA_SIGNAL  over ..! mp_Flags
+    0 FindTask() >abs swap ..! mp_SigTask
+;
+
+\ Create a message port.
+VARIABLE ZZZZNAME
+: CREATEPORT()  ( 0$name priority -- rel_msgport )
+    over zzzzname !
+\
+\ Allocate SIGNAL for intertask communication.
+    -1 allocsignal() dup -1 =
+    IF  warning" CREATEPORT() -- No available signal!"
+        drop 2drop NULL
+    ELSE ( -- 0$n pri sb )
+\
+\ Allocate memory for MsgPort
+        MEMF_CLEAR MEMF_PUBLIC | sizeof() MsgPort allocblock
+        ?dup
+        IF ( -- 0$name priority signal rel_port )
+            dup >r port.setup r> dup
+            zzzzname @
+            IF AddPort()
+            ELSE .. mp_MsgList  NewList()
+            THEN
+        ELSE
+            FreeSignal()
+            . count type cr
+            warning" CREATEPORT() -- Insufficient RAM"
+            NULL
+        THEN
+    THEN
+;
+
+: DELETEPORT() ( port -- , Delete message port. )
+    dup .. mp_node ..@ ln_Name
+    IF dup RemPort()
+    THEN
+    $ FF over .. mp_Node ..! ln_Type
+    -1 over .. mp_MsgList ..! lh_Head
+    dup ..@ mp_SigBit  FreeSignal()
+    freeblock
+;
+
+\ Added in V1.2            
+
+: SENDIO()  ( IOREQBLK -- error , ignore ERROR, should be VOID)
+    call>abs exec_lib sendio
+;
+: CHECKIO()  ( IOREQBLK -- 0 | IOREQBLK )
+    call>abs exec_lib checkio if>rel
+;
+: WAITIO()  ( IOREQBLK -- error )
+    call>abs exec_lib waitio B->S  ( 00004 )
+;
+
+\ CreateExtIO()
+\ This is based on 'C' code in the Appendix, ROM Kernal Manual.
+\ It generates an Extended IO request Block that
+\ will use an existing IOReplyPOrt.
+: CREATEEXTIO() ( ioreplyport size -- ioreq )
+    over ( check replyport )
+    IF  MEMF_CLEAR MEMF_PUBLIC |  ( memory type )
+        swap allocblock  ?dup ( allocate memory )
+        IF  NT_MESSAGE over .. io_message .. mn_node ..! ln_type
+            0 over .. io_message .. mn_node ..! ln_pri
+            swap >abs over .. io_message ..! mn_replyport
+        ELSE drop 0
+        THEN
+    ELSE 2drop 0
+    THEN
+;
+
+: DELETEEXTIO() ( ioext size -- )
+    drop  ( don't need size )
+    $ FF over .. io_message .. mn_node ..! ln_type
+    -1 over ..! io_device
+    -1 over ..! io_unit
+    freeblock
+;
+
+: CREATESTDIO() ( ioreplyport -- ioreq | 0 )
+    sizeof() IOStdReq CreateExtIO()
+;
+
+: DELETESTDIO() ( ioreplyport -- )
+    sizeof() IOStdReq DeleteExtIO()
+;
+
+verify-libs !

@@ -1,0 +1,65 @@
+\ UNFINISHED!
+\ Rudimentary FB-01 Patch Editor
+\
+\ Menu grid:
+\	Fetch Patch
+\	Test
+\
+\ Options:
+\	Send update on each edit
+\   Test on each update
+\
+\ Author: Phil Burk
+\ Copyright 1990
+
+decimal
+ANEW TASK-FB_EDITOR
+
+OB.MENU.GRID  FB-MENU
+variable FBE-INSTR#  ( instrument to fetch )
+1 fbe-instr# !
+
+: FBE.TEST  ( -- , test sound )
+    4 0
+	DO i 12 * 36 + 64 midi.noteon
+	    200 msec midi.lastoff
+		100 msec midi.lastoff
+	LOOP
+;
+
+: FBE.MENU.FUNC ( value part -- )
+    nip
+	CASE
+		0 OF fbe-instr# @ fb.get.dump.iv ENDOF
+		1 OF fbe.test ENDOF
+		2 OF midi.clear ENDOF
+	ENDCASE
+;
+
+: FBME.INIT  ( -- )
+    2 2 new: fb-menu
+	300 400 put.wh: fb-menu
+	'c fbe.menu.func put.down.function: fb-menu
+	stuff{ " Fetch" " Test" " Clear" " --" }stuff.text: fb-menu
+;
+\ -------------------------------
+OB.NUMERIC.GRID FB-
+
+: FB.
+;
+OB.SCREEN FB-SCREEN
+
+: FBE.INIT  ( -- )
+	0 scg.selnt
+	fbme.init
+	4 3 new: fb-screen
+	fb-menu 200 400 add: fb-screen
+	" FB-01 Editor" put.title: fb-screen
+;
+
+: FBE.TERM ( -- )
+    freeall: fb-screen
+	free: fb-screen
+;
+
+if.forgotten fbe.term

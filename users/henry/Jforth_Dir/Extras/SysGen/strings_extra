@@ -1,0 +1,115 @@
+\  9/15/86 mdh -- included phils " and 0" ... " works like $" in compile mode
+\                 but also useful in interpret mode as it leaves the string
+\                 at pad, and is not wrecked by subsequent INTERPRET's...
+\                 0" is much the same, but builds a null-terminated string,
+\                 which is what the DOS requires (1st text addr).
+\
+\ MOD: PLB 7/29/88 Added 0STRING to support include files.
+\      Added $>0 0>HERE etc.
+\ MOD: PLB 1/19/89 Fixed $>0
+\ 00001 PLB 10/1/91 Added $ROM TEXTROM 
+
+: " ( <word> -- addr , generate string )
+      ascii " STATE @
+      IF    COMPILE ($")  $,  ( Put string into dictionary. )
+      ELSE  lword   pad $move
+( Copy string to pad, safer than HERE. )
+            pad
+      THEN
+; IMMEDIATE
+
+
+.NEED +null
+ \ +NULL simply adds a null to the end.  (Make sure there is room!)
+: +NULL  ( $adr -- )
+    count + 0 swap c!
+;
+.THEN
+
+: 0" ( <word> -- addr , generate null terminated string for 'C')
+\ !!!!!!!!!!   RETURNS ADDRESS OF TEXT CHAR...COUNT IS 1-   !!!!!!!!!!!!!!
+\ mdh ... this is the way dos always wants it.
+      ascii " STATE @
+      IF    COMPILE ($")  here >r    $,  ( Put string into dictionary. )
+            r@ count +   0 over c! ( NUL terminate. ) 
+            1 and 0=    ( fix DP, is either perfect or 1 too low )
+            IF 2 allot  ( but can't allot just 1! )
+            THEN r@ c@ 1+ r> c!      ( Account for NUL )
+            compile 1+
+      ELSE  lword   pad 1- $move
+( Copy string to pad, safer than HERE. )
+            0  pad 1- count +  c!
+            pad
+      THEN
+; IMMEDIATE
+
+: $APPEND ( sourceadr srccnt destcntadr -- , append ADDR CNT to $ADDR )
+  dup >r dup c@ >r      ( sadr scnt dcadr -- )  \ save orig cnt and addr
+  2dup swap r + swap c! ( sadr scnt dcadr -- )  \ install new cnt
+  1+ r> +  swap move    ( -- )
+  bl  r> dup c@ 1+ + c!
+;
+
+
+: 0COUNT ( 0$string -- addr count , COUNT NUL Terminated string )
+    dup 1- 
+    BEGIN 1+ dup c@ 0=
+    UNTIL
+    over -
+;
+
+: $>0  ( $string -- 0string , convert in place , don't do twice!)
+    dup>r
+    dup count ( -- a a+1 c )
+    >r swap r@ ( -- a+1 a c ) ( -r- a c )
+    cmove  ( move characters down )
+    0 r> r> + c!
+;
+
+: 0>HERE  ( 0string -- , move string to here for compiling )
+    0count 1+ ( -- a c . include NUL in count )
+    here 1+ swap ( -- a h+1 c )
+    dup>r move
+    r> dup here c!
+    1+ allot align
+;
+
+: 0COMPILE ( 0string -- , compile a 'C' string into dict )
+    state @
+    IF  compile ($") 0>here compile 1+
+    THEN
+;
+
+\ This can be used in include files or other throw away segments.
+: 0STRING  ( 0string <name> -- , inline string constant )
+    CREATE  ( 0string -- )
+        0>here immediate
+    DOES> 1+ 0compile
+;
+
+
+\ Text Array Utilities
+: ($ROM)  ( index address -- $string )
+    ( -- index address )
+    swap 0
+    DO dup c@ 1+ + even-up
+    LOOP
+;
+
+: $ROM ( packed array of strings, unalterable )
+    CREATE ( <name> -- )
+    DOES> ( index -- $string )  ($rom)
+;
+
+: TEXTROM ( packed array of strings, unalterable )
+    CREATE ( <name> -- )
+    DOES> ( index -- address count )  ($rom) count
+;
+
+0 .IF
+\ Here is an example of defining a $ROM
+$ROM MY-STRINGS ," Open" ," Close" ," Save" ," Create Thing"
+2 MY-STRINGS COUNT TYPE  ( would print "Save")
+\ Don't over index!
+.THEN
+

@@ -1,0 +1,20 @@
+\ fix sample
+ANEW TASK-FIXSAMP
+
+
+: $FIXIT ( $name -- )
+    dup load: s1
+    get.#oneshot: s1
+    dup 1 and
+    IF  ( -- name #one )
+        ." Sample had " dup . cr
+        1- set.many: s1
+        update: s1
+        save: s1
+    ELSE 2drop
+    THEN
+;
+
+: FIXIT ( <name> -- )
+    32 word $fixit
+;

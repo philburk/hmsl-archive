@@ -1,0 +1,10 @@
+\ Hierarchy Editor
+\
+\ Author: Phil Burk
+\
+\ Copyright 1986
+ANEW TASK-HIER_EDITOR
+
+OB.SCREEN HIER-EDITOR
+
+

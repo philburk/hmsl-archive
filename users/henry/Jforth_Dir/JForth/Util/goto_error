@@ -1,0 +1,184 @@
+\ There is only one good use for a GOTO and that is
+\ when an error is encountered and you want to jump to the
+\ end of the routine for some common error handling.
+\
+\ Any GOTO.ERROR will jump to the label ERROR:
+\
+\ Author: Phil Burk
+\ Copyright 1991 Phil Burk
+\ All Rights Reserved
+\
+\ 00001 PLB 1/26/92 Changed ABORT to 0 ERROR
+
+decimal
+
+ANEW TASK-GOTO_ERROR
+
+variable LAST-GOTO-ERROR
+
+: : ( <name> -- )
+	:
+	last-goto-error off
+;
+
+: (GOTO.ERROR) ( -- , link addresses )
+	HERE 2- >r   \ R@ points to BRANCH offset
+	last-goto-error @ 0=
+	IF
+		0 R@ w!  \ store 0 into first goto
+	ELSE
+		last-goto-error @
+		R@ -
+		R@ W!
+	THEN
+	R@ last-goto-error !
+	rdrop
+;
+
+.NEED 0<>BRANCH
+ASM 0<>BRANCH    \ faster than NOT0BRANCH
+	tst.l     tos
+	movem.l   (dsp)+,tos
+	bne.l     1$
+	forth{ INLINE }FORTH
+1$: rts
+END-CODE
+.THEN
+
+: <ESCAPE.DO.LOOP>  ( N-CELLS --LOOP-- )  ( N --INLINE-- )
+\ clear off all DO LOOPs
+	INLINE@ @ ( -- ncells )
+	r> swap  ( -- return_address nc )
+	XRDROP LOOP-DROP
+	>r
+;
+
+: ?GOTO.ERROR  ( -- , branch to ERROR: )
+	?comp
+	do-loop-nest ?dup
+	IF
+		>r \ save nesting
+		[compile] IF       \ IF stuff on data stack )
+		compile <escape.do.loop>
+		r> 2- ,            \ pass as INLINE data
+		compile BRANCH
+		(goto.error)
+		[compile] THEN
+	ELSE
+		compile 0<>BRANCH
+		(goto.error)
+	THEN
+; immediate
+
+: GOTO.ERROR  ( -- , branch to ERROR: )
+	?comp
+	do-loop-nest ?dup
+	IF
+		compile <escape.do.loop> 2- ,
+	THEN
+	compile BRANCH
+	(goto.error)
+; immediate
+
+: ERROR:  ( -- , destination for GOTO.ERROR )
+\
+\ Resolve linked list of GOTO.ERRORs
+	last-goto-error @ ?dup
+	IF \ we got at least one GOTO.ERROR
+		BEGIN ( -- addr_offset )
+			dup w@ w->s >r \ -- addr , save offset to next
+			HERE over -  \ -- addr offset calculate branch offset
+			over w!   \ set branch
+			r> dup 0<
+		WHILE ( -- addr_offset offset_to_next )
+			+ \ calc next offset address
+		REPEAT
+		2drop
+		last-goto-error off
+	ELSE
+		>newline ." ERROR: but no GOTO.ERROR in "
+		latest id. cr
+	THEN
+; immediate
+
+: ; ( -- , check for unresolved GOTOs )
+	last-goto-error @
+	IF
+		>newline ." Unresolved GOTO.ERROR in "
+		latest id. cr 0 error
+	THEN
+\
+	[compile] ;
+; immediate
+
+
+\ Tests for GOTO.ERROR
+false .IF
+include? { ju:locals
+: FOO { aa bb -- error? , big example }
+	aa 0= ?goto.error
+\
+	bb 0=
+	IF
+		goto.error
+	THEN
+\
+	false exit
+\
+error:
+	." Uh Oh" cr
+	true
+;
+
+: TEST.DO ( -- , error out of do loop )
+	4 0
+	DO
+		i . cr
+		i 1 =
+		IF
+			goto.error
+		THEN
+	LOOP
+	exit
+error:
+	." Bad news!" cr
+;
+
+: TEST.DO? ( -- , error out of do loop )
+	10 0
+	DO
+		4 0
+		DO
+			i . cr
+			i 1 = ?goto.error
+		LOOP
+	LOOP
+	exit
+error:
+	." Bad news!" cr
+;
+
+: LOO
+	swap
+error:
+	dup
+;
+
+: KOO
+	swap
+;
+
+: SIMP
+	goto.error
+	1+
+error:
+	1-
+;
+
+: MOO
+	goto.error
+	swap
+;
+.THEN
+
+

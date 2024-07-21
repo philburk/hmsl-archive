@@ -1,0 +1,103 @@
+\ Messages
+
+\ Author: rnm 12/2/91 from ju:demo_msg (Phil Burk)
+\ Copyright (©) Robert Marsanyi 1991
+\ this bit insures there's the includes module for message
+' INCLUDES m.loaded @ not .IF
+getmodule INCLUDES
+.THEN
+include? exec_libraries_h ji:exec/libraries.j
+include? CreatePort() ju:exec_support
+anew task-message_support
+
+: FINDPORT()  ( name -- port )
+  if>abs call exec_lib findport if>rel
+;
+
+: SetSignal() ( newsignals signalset -- signals )
+	call exec_lib SetSignal
+;
+
+\ Custom message structure.
+
+.NEED _glove_data
+:struct _glove_data
+	ubyte	gd_dum0
+	byte	gd_x
+	byte	gd_y
+	byte	gd_z
+	ubyte	gd_rot
+	ubyte	gd_fingers
+	ubyte	gd_keys
+	ubyte	gd_dum7
+	ubyte	gd_dum8
+	ubyte	gd_dum9
+	ubyte	gd_dumA
+	ubyte	gd_dumB
+;struct
+.THEN
+
+:STRUCT GloveMessage
+    struct Message gl_msg
+    long gl_opcode
+	struct _glove_data gl_data
+;STRUCT
+
+v: port-made
+v: port-found
+
+: MSG.MAKE ( 0name -- , Create a port to, straight from demo_msg )
+    0 CreatePort()   ( -- rel_reply_port )
+    dup port-made !
+    0= abort" MSG.MAKE - Couldn't open port!"
+;
+
+\ Initialize message structure.
+: MSG.INIT { message -- , set message fields }
+	NT_MESSAGE message .. Gl_Msg .. mn_node ..! ln_type
+    NULL  message .. Gl_Msg ..! mn_ReplyPort
+;
+
+: MSG.FINDPORT ( 0name -- )
+    findport() ?dup
+    IF port-found !
+    ELSE ." MSG.FINDPORT couldn't find port!" cr abort
+    THEN
+;
+
+: MSG.SEND ( msg -- , Send message to other task )
+    port-found @ swap putmsg()
+;
+
+: MSG.RECV ( -- msg ) 
+    port-made @ WaitPort() drop
+    port-made @ GetMsg()
+;
+
+: MSG.CHECK ( -- msg | false , return message if there's one there )
+	0 0 SetSignal()
+	port-made @ ..@ mp_SigBit bit-set? IF
+		port-made @ GetMsg()
+	ELSE
+		false
+	THEN
+;
+
+: MSG.TERM ( -- , cleanup )
+    port-made @
+    IF  port-made @ DeletePort()
+        port-made off
+    THEN
+;
+
+\ Message IDs
+0 constant GL_START
+1 constant GL_STOP
+2 constant GL_KILL
+3 constant GL_POLL
+4 constant GL_RESET
+
+: MSG.SHOW ( msg -- , display opcode )
+	." Got " ..@ gl_opcode . cr
+;
+

@@ -1,0 +1,31 @@
+\ Sample JForth Program for Amiga, from Delta Research.
+\ Similar to "DOTS" program from Commodore.
+\
+\ Compile some toolboxes if not already compiled.
+include? gr.init     ju:amiga_graph
+include? ?closebox   ju:amiga_events
+include? choose      ju:random
+
+: RANDOM.DOTS ( -- , Draw randomly colored dots. )
+	BEGIN
+\ Pick random color and use it.
+		4 choose   gr.color!
+\ Use pointer to current RastPort.
+		gr-currport @
+\ Get size of Window by accessing window structure.
+\ Then choose random numbers within that range.
+\ In 'C' this would be   x = choose(gr_curwindow->width);
+		gr-curwindow @  ..@ wd_width   choose
+		gr-curwindow @  ..@ wd_height  choose
+\ Call Amiga Library routine, Stack has -- rp x y
+		call graphics_lib WritePixel drop  ( Easy huh? )
+\ Has close box been hit?
+		?closebox
+	UNTIL
+;
+
+: DOTS   ( -- , Perform DOTS demo )
+	gr.init   gr.opentest   \ Open a simple window.
+	random.dots             \ Do graphics.
+	gr.closecurw  gr.term   \ Close current window.
+;

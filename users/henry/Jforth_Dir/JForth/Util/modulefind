@@ -1,0 +1,80 @@
+\ When FIND fails, this will automatically do a GETMODULE INCLUDES
+\ and retrys FIND.  Avvoids having to do GETMODULE INCLUDES all over
+\ your code.
+
+\ 00001 18-aug-91  mdh     Incorporated XBLK
+
+include? Pullstring ju:Strings.f
+
+anew task-modulefind
+
+getmodule includes
+hidemodule includes
+
+: INCLUDES$  ( -- , put it at HERE leave SKIP-WORD? enabled )
+  " INCLUDES" here $move   skip-word? on
+;
+
+
+: FORGET  ( -- )
+  forget  here [ here ] literal <
+  IF
+       ' voc-find is find
+  THEN
+;
+
+
+: MODULEFIND  ( $adr -- $adr 0  ... not found )
+              (   "  -- cfa  -1 ... found, not immediate )
+              (   "  -- cfa  1  ... found, immediate )
+  Voc-Find ?dup 0=
+  IF
+       \ not there ...
+       \ here   sp@ 128 - dup >r  $move   pad r@ 256 - $move
+       >r
+       pad PushString   here PushString
+       INCLUDES$ getmodule
+       here PullString  pad  pullstring
+       pad  PushString  here PushString
+       r> Voc-Find  2 x>r
+       INCLUDES$ hidemodule
+       here PullString  Pad PullString   2 xr>
+  THEN
+;
+
+
+variable OldFind   variable OldQuit    variable OldInterp
+
+: FixFind
+  OldQuit @ is quit
+  OldFind @ is find
+  OldInterp @ is Interpret
+;
+
+: ModuleQuit
+  FixFind
+  OldQuit @execute
+;
+
+: ModuleINTERPRET
+  FBLK @  BLK @ or    XBLK @ or ( 00001 )   0=
+  IF FixFind
+  THEN
+  OldInterp @execute
+;
+
+: INCLUDE
+  what's find  ' ModuleFind -
+  IF
+     what's find  OldFind !         ' ModuleFind is find
+     what's quit  OldQuit !         ' ModuleQuit is quit
+     what's interpret oldinterp !   ' ModuleInterpret is Interpret
+  THEN
+  Include
+;
+
+: INCLUDE?   ( --- )  ( <file-name> <WORD> --in-- )
+  exists?
+  IF-NOT   [] include 
+  ELSE     bl word drop 
+  THEN  ;

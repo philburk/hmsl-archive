@@ -1,0 +1,51 @@
+\ FASTIO ... provide buffered output for faster throughput, mdh
+
+\ 02-jan-87  mdh  altered so that KEY does not echo.
+
+decimal
+
+variable outbuf    128 allot
+variable #chars    variable fastio?   fastio? off
+
+: Wtype  ( addr cnt -- )
+  ferror @ >r
+  ConsoleOut @ -dup
+  IF   -rot fwrite drop
+  ELSE 2drop
+  THEN
+  r> ferror !
+;
+
+: <fastemit>  ( char -- , add to buffer, send line if buffer full or cr )
+  ( char -- )  +out  ( char' -- )
+  dup  #chars @  outbuf + c!  1 #chars +!
+  $ 0a =   #chars @ 127 >  or
+  IF     outbuf  #chars @ wtype   0 #chars !
+  THEN
+;
+
+: <flushemit>  ( -- , send chars to console, if appropriate )
+  fastio? @
+  IF   #chars @
+       IF    outbuf  #chars @ wtype   0 #chars !
+       THEN
+  THEN
+;
+
+: fast   ( -- , install fastio )
+  ' <fastemit>  is emit   fastio? on
+  ' <flushemit> is flushemit
+  0 #chars !
+;
+
+: slow   ( -- , back to original )
+  flushemit
+  ' (emit)  is emit       fastio? off
+  ' noop    is flushemit
+  \ outbuf   #chars @  0
+  \ do   dup i + c@  (emit)
+  \ loop drop
+  0 #chars !
+;
+
+

@@ -1,0 +1,28 @@
+
+include? plain jf:ansi
+
+anew task-ColorDump
+
+: CDUMP   ( adr cnt -- , dump using fancy colors )
+  plain f:1 b:0
+  base @ >r   hex
+  over #digits >r   2dup + #digits r> max dumpcol !  \ calc offset for header..
+  over + swap dup rot rot
+  DO  dup i -  $ 17 mod  0=
+      IF  dup   f:3  dumphdr
+      THEN    f:1  >r  ?pause  cr r>
+      inverse
+      i dumpcol @ .r  space
+      plain b:2
+      i $ 10 +  i 2dup
+      DO   i c@ space  dup 2/ 2/ 2/ 2/ .hx  $ 0f and .hx
+      LOOP
+      plain  b:0  2 spaces
+      DO   i c@ dup $ 20 <  over $ 7e > or
+           IF   drop $ 2e
+           THEN emit
+      LOOP   $ 10
+  +LOOP   cr  drop   r> base !
+;
+
+>newline ." Enter ( addr len -- ) CDUMP for new dump utility." cr

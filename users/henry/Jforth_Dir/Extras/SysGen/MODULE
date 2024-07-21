@@ -1,0 +1,631 @@
+\  Mike Haas...(c) 1987 Mikes Software
+\
+\   The idea here is to load the includes and link them in early in the
+\ system generation so that a binary form of the includes may be preserved
+\ without always being present (and slowing up dictionary searches).
+\
+\   A 'module header' is created and used for management of a module, once it
+\ has been compiled and saved in module form.
+\
+\
+\ To create a module:
+\ 1. Declare it via:     MODULE MyIncludes  (create the initialized mod hdr).
+\ 2. Shift compilation to a split area with:
+\                        60 ( #k ) MAKEMODULE MyIncludes
+\    ( subsequent compiling goes to split area )
+\ 3. When done:          SEALMODULE MyIncludes
+\    This creates a file that you may, when it is not resident, get and link
+\    the module with     GETMODULE MyIncludes
+\    NOTE:  'GetModule' leaves the split area in thevocab search...you can
+\    'unhook' it till you need it (faster compiles) with:
+\                        HIDEMODULE MyIncludes
+\    and later 'rehook' it in with:
+\                        GETMODULE MyIncludes
+\ Note that a loaded module may be cpompletely detached (and freed) with:
+\                        DETACHMODULE MyIncludes
+
+\ 06-07-88 mdh Added 'Hash-Damaged on' to appropriate places
+\ 00002 11-oct-91 mdh     Added CacheClearU() to GETMODULE
+\ 00003 1/22/92 mdh/plb  MODON needed HASH-DAMAGED after >LINK !
+\            Added HASH-DAMAGED ON to (UN)LinkModVoc
+
+max-inline @   6 max-inline !  \ this NEVER has to be fast.
+
+include? MODULE_BIT jf:sfa_bits
+include? :struct jf:c_struct
+include? Strip-Pathname jf:Strip-Pathname
+
+ANEW TASK-MODULE
+
+
+decimal
+
+
+.NEED nfacount
+   : NFACOUNT  dup 1+ swap c@ $ 1f and ;
+.THEN
+
+
+variable UnSplitTo    variable UnSplitLatest    variable ModNameSet
+
+
+\ offsets to reference Module Header fields...
+
+: M.LOADED    ( cfa -- addr ) [  0 do-does-size + ] literal  +   ;
+: M.ADDR      ( cfa -- addr ) [  4 do-does-size + ] literal  +   ;
+: M.VERSION   ( cfa -- addr ) [  8 do-does-size + ] literal  +   ;
+
+( 0, 4, 8, 12, 16 )
+
+: M.VOCLINK   ( cfa -- addr ) [ 16 do-does-size + ] literal  +   ;
+
+: M.SIZE      ( cfa -- addr ) [ 20 do-does-size + ] literal  +   ;
+: M.LATEST    ( cfa -- addr ) [ 24 do-does-size + ] literal  +   ;
+: M.PREVNFA   ( cfa -- addr ) [ 28 do-does-size + ] literal  +   ;
+: M.HIDDEN    ( cfa -- addr ) [ 32 do-does-size + ] literal  +   ;
+
+
+: MODULE  ( -- )  ( input: name )
+  create
+    0 ,                 ( module loaded flag )
+    0 ,                 ( current address )
+    0 ,  0 ,            ( 1 used as verification of compatibility )
+    0 ,                 ( mod-relative addr...voc-link for 1 <max> voc )
+    0 ,                 ( this modules #BYTES )
+    0 ,                 ( mod-relative addr...last nfa )
+    latest n>link @ ,   ( save my original lfa contents )
+    0 ,                 ( hidden flag )
+    last-sfa  ( -- sfa diff-to-here )  drop  dup @ MODULE_BIT or swap !
+;
+
+
+: N>MODULE?  ( nfa -- flag )
+  name> 4 - @ MODULE_BIT and
+;
+
+
+: ?MODULE  ( cfa -- cfa , quit if not )
+  dup >name n>Module? 0=
+  IF
+     ModNameSet off
+     >newline  ." ERROR:  " >name id.  ."  is NOT a MODULE!!!"  quit
+  THEN
+;
+
+
+: pad100  pad 100 +
+;
+
+
+: ModuleLatest  ( cfa -- adr-of-latest-nfa )
+  dup  M.ADDR @   swap M.LATEST @ +
+;
+
+
+: GETVERSION  ( -- version# , add all addresses of NFAs )
+  0   [ ' :struct >name ] literal
+  BEGIN   n>link  @  ?dup
+  WHILE   ( -- sum nfa )   tuck + swap
+  REPEAT
+;
+
+
+: MAKEMODULE  ( #k -- alloc & split, reflect in:  input: ModuleName )
+  ?exec  [compile] '  ?module    ( -- cfa )  >r
+  \
+  \ [ latest ] literal  0  r@   true  ( quit if in use )  MLOADED?
+  \
+  r@ M.LOADED @  ?ABORT" Can't MAKEMODULE; object in use."
+  1024 *
+  MEMF_CLEAR over allocblock?    ( -- size memadr )
+  dup  r@ M.ADDR !       ( -- size memadr )
+  here UnSplitTo !  latest UnSplitLatest !
+  dup  dp !  + dplimit !
+  r> drop
+;
+
+: GetModPath?   ( -- flag )
+  bl word  pad $move
+  here count Strip-Pathname  ( -- adr cnt )  here >$
+  here c@  pad c@  =   ( -- flag , 0=path specified )
+  skip-word? on
+;
+
+\ the data arrangement of the 1st cells in the file...
+\ cell 0,1   = version#
+\ cell 2     = possible rel-pointer to a voc's voc-link
+\ cell 3     = size in bytes of DATA AREA  (compiled code)
+\ cell 4     = module-relative address of last NFA
+
+: SEALMODULE  ( -- , unsplit, update header & create file )
+              ( input: modulename )
+  ?exec
+\
+  GetModPath? ( -- flag )
+\
+  [compile] '
+  ?module   ( -- cfa )  >r
+\
+\ since SEAL only works after MAKE...
+\
+  r@ M.LOADED @    r@ M.ADDR @ 0=  or
+  IF
+     >newline [ latest ] literal id. ."  ERROR: need to MAKEMODULE first." quit
+  THEN
+  ( -- flag )
+  IF
+     \
+     \ create the file & update the module header...
+     \ create the file in 'mod:'...use NAME with .MOD appended...
+     \
+     " MOD:"  pad $move
+     r@ >name  dup 1+ swap c@ $ 1f and  pad  $append
+  THEN
+  " .MOD" count pad $append
+  pad new $fopen -dup 0=  ?ABORT" Can't open .MOD file for writing!"
+  ( -- file-pointer )  dup tempfile !  markfclose
+\
+\ open a file-virtual buffer...
+\
+  tempbuff OpenFV drop   ( addr stored in tempbuff... )
+\
+\ set the version...
+\
+  getversion  r@ M.VERSION !
+\
+\ size of code area...
+\
+  here  r@ M.ADDR @ -  ( -- #bytes )
+  r@ M.SIZE !
+\
+\ calc module-relative address of last NFA...
+\
+  latest  r@ M.ADDR @ -
+  r@ M.LATEST !
+\
+\ Do I contain a voc?
+\
+  VOC-LINK @  dup here <  swap r@ M.ADDR @ > and
+  IF
+     VOC-LINK @  r@ M.ADDR @ -
+  ELSE
+     0
+  THEN  r@ M.VOCLINK !
+\
+\ now save these 5 contigous cells to the file...
+\
+  r@ M.VERSION     5 0
+  DO
+     dup @ tempf,  cell+
+  LOOP
+  drop  ( -- )
+\
+\ now, UNRELOCATE the link-field contents in the area...
+\
+  r@ M.ADDR @ >r  \ save beginning address...
+  latest  ( -- nfa )  ( -r- modulecfa base-address )
+  BEGIN
+     dup r@ - 12 >
+  WHILE
+     n>link dup @  ( -- lfa nextnfa )  dup r@ -  ( -- lfa nxtnfa relnfa )
+     rot !
+  REPEAT  ( -- bottomnfa-in-mod ) n>link off
+  ( -- )  ( -r- modulecfa base-address )
+\
+\ If theres a VOC, UNrelocate its link-fields...
+\
+  1 rpick M.VOCLINK @
+  IF
+     VOC-LINK @ cell+   ( holds vocs latest )
+     BEGIN
+        ( -- lfa )  dup @ -dup
+     WHILE
+        ( -- lfa nfa )  dup r@ -  rot !  n>link
+     REPEAT  drop
+  THEN
+\
+\ save the data area to the file...
+\
+  r@
+  BEGIN
+     dup here <
+  WHILE
+     dup @ tempf,  cell+
+  REPEAT
+  drop    ( -- )  ( -r- modulecfa base-address )
+\
+\ and RE-RELOCATE the link-fields
+\
+  latest
+  BEGIN
+     dup r@ - 12 >
+  WHILE
+     n>link dup @  r@ +  ( -- lfa nextnfa )  dup rot !
+  REPEAT  ( lastnfa )
+\
+\ ... and any VOC lfas
+\
+  1 rpick M.VOCLINK @
+  IF
+     VOC-LINK @ cell+
+     BEGIN
+        ( -- lfa )  dup @ -dup
+     WHILE
+        ( -- lfa relnfa )  r@ +  dup rot !  n>link
+     REPEAT  drop
+  THEN
+  r> drop  ( -- last-nfa )
+  ( -r- modulecfa )  n>link  r@ >link dup @ rot !
+  ( -- modlfa )  latest swap !
+  UnSplitLatest @  current @ !
+\
+\ file is written, now close it...
+\
+  tempfile @  dup  tempbuff  closeFVWrite  dup unmarkfclose  fclose
+\
+\ mark it as loaded...
+\
+  true r@ M.LOADED !  r@ M.HIDDEN off
+\
+\ and unsplit the dictionary...
+\
+  UnSplitTo @ dp !
+  s0 @  dplimit !  
+\
+  rdrop
+;
+
+variable LMVfrm   variable LMVcnt
+
+: LinkModVOC  ( MOD-CFA -- ) >r r@ M.VOCLINK @ -dup
+  IF
+     r@ M.ADDR @ +  
+     \
+     \ ( -- &voclink , link in to the VOCLINK chain & set up cold)
+     \
+     \ find the 1st voc in ColdVOCNFAs that is smaller...
+     #vocs @ cells 2*  LMVcnt !
+     ColdVOCNFAs       LMVfrm !
+     BEGIN
+        LMVfrm @ @   r@ <   LMVcnt @ 0= 0= and
+     WHILE
+        [ 2 cells ] literal  LMVfrm +!
+        [ 2 cells negate ] literal LMVcnt +!
+     REPEAT
+     LMVcnt @ 0=
+     IF
+        VOC-LINK @  over  ( -- mvl <VOC-LINK> mvl )  !
+        dup  VOC-LINK     ( -- mvl mvl VOC-LINK )  !
+        cell+ dup @ swap  ( -- <mvl+4> mvl+4 )
+        #vocs @ cells 2* ColdVOCNFAs +
+        swap over         ( -- <mvl+4> table mvl+4 table ) !
+        cell+             ( -- <mvl+4> table+4 )  !
+     ELSE
+        LMVfrm @  dup [ 2 cells ] literal +  LMVcnt @  move
+        LMVfrm @ @ cell- dup @ >r         ( save current <vl> )
+        over swap !   r> over !     ( -- mvl )
+        cell+ dup LMVfrm @ !
+        @ LMVfrm @ cell+ !
+     THEN
+     1 #vocs +!
+     hash-damaged on \ 00003
+  THEN rdrop
+;
+
+: UNLinkModVOC  ( mod-cfa -- )  >r  r@ M.VOCLINK @ -dup
+  IF
+     r@ M.ADDR @ +    ( -- &mvoclink )
+     >r  VOC-LINK
+     BEGIN
+        dup @         ( -- curlink nxtlink )
+        dup r@ =      ( -- curlink nxtlink modlink? )
+        swap 0= or 0= ( -- curlink not-modlink-or-0? )
+     WHILE
+        @             ( -- nxtlink )
+     REPEAT dup @     ( -- theL theL@ )
+     IF
+        \ It was found...
+        \
+        r@ @ over !
+        -1 #vocs +!   \ unlink the module
+        hash-damaged on \ 00003
+     THEN
+     drop  ( -- )  r> cell+  coldvocnfas  maxvocs 0
+     DO
+        2dup @ =
+        IF
+           dup dup 8 + swap  maxvocs i - 1-  8 *  move    leave
+        THEN  8 +
+     LOOP 2drop
+  THEN rdrop
+;
+
+: (GETMODULE)   ( modulecfa -- )
+  ?Module  >r
+  \
+  \ is it there already?
+  r@ M.LOADED @ 0=
+  IF
+     \
+     \ open the file?
+     ModNameSet @ 0=
+     IF
+        " MOD:" pad $move
+        r@ >name NFACount pad $append
+     THEN
+     ModNameSet off
+     " .MOD" count pad $append
+     pad  $fopen  -dup 0=
+     IF
+         >newline ." Can't open " pad $type  quit
+     THEN
+     dup tempfile !  dup markfclose
+     \
+     \ read in the 1st 20 bytes...
+     ( -- fp )  pad100  20 fread 20 -
+     IF
+         >newline  ." Error reading module "  pad $type  quit
+     THEN
+     \
+     \ check the version...
+     getversion  pad100 @   -
+     IF
+         >newline  pad $type  ."  is not compatible with this image!" quit
+     THEN
+     \
+     \ load module header with stuff...
+     pad100  8 +   r@ M.VOCLINK    [ 3 cells ] literal  move
+     \
+     \ allocate the memory...
+     MEMF_CLEAR  r@ M.SIZE @  dup >r  allocblock?   ( -- area )
+     dup  1 rpick M.ADDR  !          ( -- area )  ( -r- modcfa size )
+     \
+     \ load the binary...
+     tempfile @  swap  r@ fread r> -
+     IF
+         >newline pad $type ."  is not the expected size!"  quit
+     THEN     ( -- )   ( -r- modulecfa )
+     \
+     \ Relocate the link-fields, link it just before the module word...
+     \ the links are currently module-area relative...
+     \ calc module latest...
+     r@ ModuleLatest
+     r@ M.ADDR @ >r   ( -- latest-nfa )
+     dup  1 rpick  >link dup @ >r  !
+     ( -- latestmodnfa )  ( -r- modcfa baseadr nfa-before-modcfa )
+     BEGIN
+        n>link dup @ -dup
+     WHILE
+        ( -- lfa modrelnfa )  1 rpick +  dup rot !  ( -- nextnfa )
+     REPEAT
+     ( lfa )  r> swap !  ( -- )
+     \
+     \ ... and any VOC lfas
+     \
+     1 rpick M.VOCLINK @ -dup
+     IF
+        r@ + cell+
+        BEGIN
+           ( -- lfa )  dup @ -dup
+        WHILE
+           ( -- lfa relnfa )  r@ +  dup rot !  n>link
+        REPEAT  drop
+        1 rpick LinkMODVOC
+     THEN
+     r> drop   ( -r- modcfa )
+     \
+     \ mark it as loaded
+     true  r@ M.LOADED !
+     tempfile @ dup unmarkfclose fclose
+     Hash-Damaged on
+     CacheClearU()   \ 00002
+  ELSE
+     ModNameSet off
+     \
+     \ makesure its not bypassed...
+     r@ M.HIDDEN @
+     IF
+          r@ ModuleLatest  r@ >link !  Hash-Damaged on \ 00003
+          r@ LinkModVOC
+     THEN
+  THEN
+  r@ M.HIDDEN off
+  \
+  \ cleanup...
+  r> drop
+;
+
+
+: GETMODULE  ( -- , make it resident if not there )  ( input: modulename )
+  \
+  \ get the cfa...
+  state @ >r  state off
+  GetModPath? 0= ModNameSet !
+  [compile] '    ( -- cfa )  r> state !   (GETMODULE)
+;
+
+: (HIDEMOD)  ( module-cfa -- )  ?module
+  \
+  dup M.HIDDEN @ 0=
+  IF
+     dup  M.PREVNFA @ over >link ! Hash-Damaged on \ 00003
+     dup  UnLinkModVOC  dup M.HIDDEN ON
+  THEN
+  drop
+;
+
+: HIDEMODULE  ( -- )   (  input:  modulename )
+  state @ >r  state off
+  [compile] '     ( -- cfa )  r> state !  >r
+  \
+  r@ M.LOADED @  r@ M.HIDDEN @ 0= and
+  IF
+     r@ (HideMod)
+  THEN
+  rdrop
+;
+
+
+: (DETACHMOD)  ( cfa -- )  ?module
+  >r
+  r@ M.LOADED @
+  IF
+     r@ M.HIDDEN @ 0=
+     IF
+        r@ (HideMod)
+     THEN
+     r@ M.ADDR dup @  freeblock  off
+     r@ M.HIDDEN off  r@ M.LOADED off
+  THEN
+  rdrop
+;
+
+: DETACHMODULE  ( -- )   ( input:  modulename )
+  ?exec    [compile] '     ( -- cfa )   (DetachMod)
+;
+  
+
+: ExecModWord  ( nfa modulecfa -- , namne at here )  pad100 off
+  swap nfacount pad100 $append  pad100 swap >link (find)
+  IF
+     execute
+  ELSE
+     >newline ." Can't find " pad100 $type  quit
+  THEN
+;
+
+     
+: (WillCreate)  ( -- , name )
+  redef? @ >r   redef? off  [compile] :  r> redef? !
+;
+
+
+: (Will) ( ifhide -- , <modulename> <wordname>  0=get ??=hide )
+  bl word find
+  IF
+     ?module
+     \
+     \ Module found...  ( -- what modulecfa )
+     \
+     2 x>r (WillCreate) 2 xr>  [compile] literal  ( -- what )   compile >r
+     compile r@  compile (GetModule)
+     latest [compile] literal  compile r@  compile ExecModWord
+     IF
+        compile r@  compile (HideMod)
+     THEN  compile rdrop    1 state !  [compile] ;
+  ELSE
+     0 error
+  THEN
+;
+
+
+: WillHide ( -- , <modulename> <wordname> )
+  true (Will)
+;
+
+
+: WillGet ( -- , <modulename> <wordname> )
+  false (Will)
+;
+
+
+: ModOff  ( cfa -- )
+  ( -- cfa )  dup >r M.HIDDEN @
+  IF
+     ( -- )  r@ M.ADDR dup   @ r@ M.HIDDEN !   off
+  ELSE
+     r@ M.LOADED @  ( -- loaded? )
+     IF
+        r@ (HideMod)  r@ M.HIDDEN off
+     ELSE
+        r@ M.ADDR  off
+     THEN
+  THEN
+  r> M.LOADED off
+;
+
+: ModOn  ( cfa -- )
+  dup >r  M.ADDR @
+  IF
+      r@ M.LOADED on
+      r@ ModuleLatest  r@ >link !  Hash-Damaged on \ 00001
+      r@ LinkModVOC
+  ELSE
+      r@ M.HIDDEN @ ?dup
+      IF
+         r@ M.ADDR !  r@ M.LOADED on
+      THEN
+  THEN
+  rdrop
+;
+
+variable ModScanCFA
+
+: Scan-Module  ( nfa -- )
+  ( -- nfa )  dup n>module?
+  IF
+     dup name> ModScanCFA @execute
+  THEN
+  drop
+;
+
+
+: >Modules  ( cfa -- , execute on all defined modules )
+  modscancfa !
+  ' drop is when-voc-scanned
+  ' scan-module is when-scanned   scan-all-vocs
+;
+
+
+redef? @  redef? off
+
+: save-forth  ( -- , make all modules appear detached during the save )
+  only forth definitions
+  ' ModOFF  >Modules
+\ --------------------------------------------------------------
+\ empty ... M.ADDR = 0     M.LOADED = 0      M.HIDDEN = 0
+\ hidden... M.ADDR = 0     M.LOADED = 0      M.HIDDEN = baseaddr
+\ loaded... M.ADDR = addr  M.LOADED = 0      M.HIDDEN = 0
+\ --------------------------------------------------------------
+  save-forth
+  ' ModOn   >Modules
+;
+
+\ Set up new forget, called by FIND EXECUTE
+: [FORGET]  ( -- )
+  ' ModOFF  >Modules   [FORGET]   ' ModON  >Modules
+;
+
+
+: DETACHMODULES  ( -- , detach ALL modules )
+  ' (DETACHMOD)  >Modules
+;
+
+: COLD  detachmodules cold  ;
+
+redef? !
+
+: .MOD  ( cfa -- , report status of module )
+  >newline  dup >name id.  space  ascii . 20 emit-to-column space
+  dup M.LOADED @
+  IF
+     dup M.HIDDEN @
+     IF
+        ." Hidden"
+     ELSE
+        ." Loaded"
+     THEN
+     bl 33 emit-to-column  ( cfa )  dup M.ADDR @ sizemem .(K)
+  ELSE
+     ." Detached"
+  THEN
+  drop  cr
+;
+
+: .Modules  ( -- , report status of ALL defined modules )
+  ' .MOD  >Modules
+;
+
+
+max-inline !
+

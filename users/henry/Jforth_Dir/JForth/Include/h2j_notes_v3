@@ -1,0 +1,147 @@
+Record of additional hand mods made to .J files
+
+5/17/91
+
+Added support for ENUM to H2J.f
+
+8/10/91
+
+EXEC/EXECBASE
+	fixed struct arrays
+EXEC/INITIALIZERS
+	skipped because all macros
+EXEC/INTERRUPTS
+	APTR IS_CODE hand converted
+EXEC/LIBRARIES
+	LH_NODE and other #defines at end removed
+EXEC/LISTS
+	L_PAD unioned with LH_PAD
+	Empty? macros disabled.  See JU:EXEC_LISTS
+EXEC/MEMORY
+	Fixed Union
+	Commented macros
+	Fixed MEM_BLOCKMASK
+EXEC/SEMAPHORE
+	Commented sm_LockMsg
+EXEC/TASKS
+	Changed Task to Exec_Task to avoid name conflict
+EXEC/TYPES
+	Not really needed
+
+LIBRARIES - use 0string for names
+LIBRARIES/CONFIGREGS
+	Strange  "; Bits 0-7" after define!
+	Commented out Macros
+LIBRARIES/DISKFONT
+	Commented alias of DFH_TAGLIST
+LIBRARIES/EXPANSIONBASE
+	Put EB_ prefix on all members of ExpansionBase
+LIBRARIES/IFFPARSE
+	Use CHKID for ID_PROP etc.
+	Fix multiline member definitions
+LIBRARIES/MATHFFP
+	Just copied old stub file
+LIBRARIES/MATHRESOURCES
+	Lots of APTR hand fixes
+	Fixed (1<<0) which H2J missed
+	
+INTUITION/CGHOOKS
+	Fixed nested structure definition for GI_PENS
+		defined GI_PENS.DetailPen
+INTUITION/CLASSUSR
+	Converted class names of 0STRINGs
+	Removed MSG definition, not needed
+INTUITION/IMAGECLASS
+	Changed prefixes to impf_ impd_ impe_ imph_
+	Fixed nested structures
+INTUITION/SCREEN
+	Fixed nested structure in DrawInfo
+
+GRAPHICS/COPPER
+	Use Old V2.0 .j file, add CPR_NT_SYS
+GRAPHICS/GELS
+	Eliminated typedefs for VUserStuff, etc.
+	Made them LONG instead of SHORT to allow addresses!
+GRAPHICS/GFX
+	Fix POINT definition
+GRAPHICS/GFXMACROS
+	Copy stub file from V2.0
+GRAPHICS/GFXNODES
+	Edited .h file (xln_Init) to make H2J happy
+GRAPHICS/GRAPHINT
+	Copied V2.0 file
+GRAPHICS/MONITOR
+	Extensive editing of .h file to cleanup prefixes
+	and to keep H2J happy. Messy file!
+	Added "include? DISPLAYPAL ji:hardware/custom.j"
+		because that was missing from .h file. COMMODORE BUG!
+		
+GRAPHICS/RASTPORT
+	Copied V2.0 file
+GRAPHICS/REGIONS
+	Copied V2.0 file
+GRAPHICS/VIEW
+	Fixed inconsistent prefixes in ColorMap
+	
+HARDWARE/CUSTOM
+	Fixed nested structures using V2.0 code
+HARDWARE/CIA
+	Changed 0xff to $ FF for size of pads.
+DOS/DOS
+	Hand did SIGBREAKF_CTRL_F because of (long)
+DOS/DOSEXTENS
+	ascii W constant ACTION_WRITE, ACTION_READ
+	union{ added for FileHandle, DosPacket and DosList
+	Use LONG for BSTR dol_handler
+	change TASK to EXEC_TASK
+DOS/NOTIFY
+	Fixed UNION
+	
+RESOURCES/MATHResource
+	Hand coded unsigned shorts and void function pointers
+
+WORKBENCH/WORKBENCH
+	Fixed macros that H2J didn't comment out!
+
+DEVICES/BOOTBLOCK
+	Hand coded BBID_DOS and BBID_KICK
+DEVICES/HARDBLOCKS
+	Fixed bad conversion by H2J for
+		struct BadBlockEntry 61 * BYTES bbb_BlockPairs
+DEVICES/INPUTEVENT
+	Fixed nested structures
+DEVICES/NARRATOR
+	Added prefixes ndi_ to narrator_rb
+		mrb_ to mouth_rb
+DEVICES/PRINTER
+	prt_ added to IOPrtCmdReq
+	drp_ added to IODRPReq
+DEVICES/PRTBASE
+	Kludged union in PrinterData by putting in simple
+		members to be compatible with JForth 2.0
+	Changed TASK to EXEC_TASK
+DEVICES/PRTGFX
+	Make ColorEntry union a structure!
+	COnvert ColorEntry pointers to APTR
+
+REXX/REXXIO
+	Added rxib_ prefix to IoBuff
+
+
+--------------------------------------------------
+Corrected bugs in Commodore code
+
+DEVICES/CLIPBOARD
+	Needed to include EXEC/IO.J
+	
+
+GRAPHICS/MONITOR
+	Added "include? DISPLAYPAL ji:hardware/custom.j"
+		because that was missing from .h file. COMMODORE BUG!
+	Also added EXISTS? ECS_SPECIFIC because that is in CUSTOM.J
+	
+DOS/DOSASL
+	Tell COMMODORE about FIX! message! BUG
+
+LIBRARIES/COMMODITIES
+	Needed to include devices/inputevent.j for IEQUALIFIER_LSHIFT

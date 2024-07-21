@@ -1,0 +1,78 @@
+\ VECTORED EXECUTION
+\ works sep16/86. can replace all exec-var-by etc...
+\ OCT 1 86, CHANGED "WAS" TO "WHAT'S"  makes more sense to say:
+\    WHAT'S EMIT  than  WAS EMIT 
+\ 23-apr-91 mdh rewitten deferred words
+\ 00001 PLB 12/5/91 Fixed error message in IS
+
+
+DECIMAL
+\ FORTH DEFINITIONS
+\ INCLUDE? FORGET FORGET 
+
+.NEED COMPILING?  
+: COMPILING?  ( --- FLAG )  STATE @  ;
+.THEN
+
+
+\ INCLUDE? >PARENT JF:PARENT
+
+DECIMAL 
+\ EXEC-VAR etc replaced by DEFER and DEFER-GLOBAL
+
+decimal 10 constant DEFER-SIZE  \ see len of code created by GLOBAL-DEFER...
+
+: GLOBAL-DEFER  ( -- )
+  [compile] :
+  $ 207A,0008 ,   \  4 - move.l  $8(pc),a0
+\ $ 4EB0,C800 ,   \  8 - jsr     $0(a0,org.l)
+  $ 4EF0,C800 ,   \  8 - jmp     $0(a0,org.l)
+  1 state !
+  [compile] ;     \ 10 - rts
+  state off
+  last-sfa drop dup @  GLOBDEF_ID or  swap !
+  ' quit ,        \ cfa placeholder
+;
+\ GLOBAL-DEFER GLOBAL-DEFER-EXAMPLE
+
+: DEFER   ( --- )  ( function-name --in-- ) 
+  global-defer
+  \ last-sfa drop dup @  USERDEF_ID or  swap !
+; 
+\ DEFER DEFER-EXAMPLE
+
+: IsDefered? ( cfa -- flag )
+  cell- @ $ f,0000 and GLOBDEF_ID =
+;
+
+: >IS  ( CFA --- DATA-ADDRESS )
+  dup IsDefered? 
+  IF
+     DEFER-SIZE +
+  ELSE
+     >newline ." >IS : not deferred : " >name id.  QUIT 
+  THEN
+;
+
+: IS    ( CFA --- )  ( deffered-var--in-- )
+  BL WORD FIND NOT
+  IF
+  	>newline  ." IS : can't find : "
+\  	>name id.  \ 00001 didn't FIND so no CFA for >NAME !!!
+	count type \ 00001 TYPE instead
+  	quit  
+  THEN   COMPILING?  
+  IF    [compile] aliteral  compile >is  compile !
+  ELSE  >IS   ! 
+  THEN
+; IMMEDIATE
+
+
+
+: WHAT'S   ( --- CFA )  ( deffered-var --in-- ) BL WORD FIND NOT
+   IF  >newline ." WHAT'S : can't find : " >name id. quit 
+   THEN
+   COMPILING?  
+   IF    [compile] aliteral  compile >is  compile @   \ COMPILE <WHAT'S> , 
+   ELSE  >IS   @ 
+   THEN  ; IMMEDIATE

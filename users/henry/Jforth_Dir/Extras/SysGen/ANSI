@@ -1,0 +1,174 @@
+\ Use ANSI command sequences for fancy text displays.
+\
+\ Provide access to several CSI sequences provided by
+\ the 'console device' specifically the ability to set the
+\ forground and background colors and change the text
+\ characteristics (plain, bold, italic, inverse)
+
+\ for further information, refer to the Amiga Rom Kernel Manual, Chapter 4,
+\ "CONSOLE DEVICE"... of particular interest may be section 
+\ 4.6 "CONTROL SEQUENCES FOR SCREEN OUTPUT"
+
+\ 00001 PLB 1/22/92 Add or subtract N from OUTinstead of 1 in
+\			ANSI.FORWARDS and ANSI.BACKWARDS
+
+ANEW TASK-ANSI
+
+: ANSITYPE  ( adr cnt -- , update out )
+    out @ >r  type r> out !  ;
+
+: ANSI"   ( send following to screen preceeded with esc sequence )
+    $ 9b  [compile] literal
+    compile emit
+    [compile] $"
+    compile count
+    compile ansitype
+; immediate
+
+decimal
+
+$ 9B constant CSI        \ the AMIGA "control sequence introducer!"
+
+: .DECIMAL  ( n -- , output decimal number without spaces )
+    base @ >r
+    decimal n>text type  ( output N )
+    r> base !
+;
+
+: >STYLE  ( n -- , select graphic rendition )
+    out @ >r
+    CSI emit   .decimal
+    ascii m emit
+    r> out !
+;
+
+\ text types --------------------
+
+: PLAIN      ( -- )  0 >style  ;
+: BOLD       ( -- )  1 >style  ;
+: ITALIC     ( -- )  3 >style  ;
+: UNDERSCORE ( -- )  4 >style  ;
+: INVERSE    ( -- )  7 >style  ;
+
+\ forground color ---------------
+
+
+: F:0    30 >style ;
+: F:1    31 >style ;
+: F:2    32 >style ;
+: F:3    33 >style ;
+: F:4    34 >style ;
+: F:5    35 >style ;
+: F:6    36 >style ;
+: F:7    37 >style ;
+
+\ bakground color ---------------
+
+
+: B:0    40 >style ;
+: B:1    41 >style ;
+: B:2    42 >style ;
+: B:3    43 >style ;
+: B:4    44 >style ;
+: B:5    45 >style ;
+: B:6    46 >style ;
+: B:7    47 >style ;
+
+
+: GOTOXY   ( x y -- , move text cursor )
+    over >r
+    csi emit
+    .decimal
+    ascii ; emit
+    .decimal
+    ascii H emit
+    r> out !  \ set out to x
+;
+
+: CLEARSCREEN cls ;
+
+
+: ANSI.1C ( char -- )
+    out @
+    CSI emit
+    swap emit
+    out !
+;
+
+: ANSI.NC ( N char -- )
+    out @ >r
+    CSI emit
+    swap .decimal
+    emit
+    r> out !
+;
+
+: ANSI.INSERT ( N -- , insert character )
+    $ 40 ansi.nc
+;
+
+\ Cursor movement commands.
+: ANSI.UP ( N -- )
+    $ 41 ansi.nc
+;
+
+: ANSI.DOWN ( N -- )
+    $ 42 ansi.nc
+;
+
+: ANSI.FORWARDS ( N -- )
+    dup $ 43 ansi.nc
+    out +! \ 00001
+;
+
+: ANSI.BACKWARDS ( N -- )
+    dup $ 44 ansi.nc
+    out @ swap - 0 max out ! \ 00001
+;
+
+: ANSI.DELETE ( N -- )
+    $ 50 ansi.nc
+;
+
+: ANSI.ERASE.EOL ( -- , erase to end of line )
+    $ 4b ansi.1c
+;
+
+: ANSI.PARSE.SKR  ( -- key-code, get packed key sequence)
+\ This is called after receiving a char=155 decimal
+\ It will eat keys and return a FKEY index
+\ 0 = error
+\ 1 = function key 1, 11 = shift 1,
+\ 21 = cursor-up, 22 = cursor-down,
+\ 23 = cursor-right, 24 = cursor-left,
+\ 25 = shift-cursor-up, 26,27,28 (shifted v < >)
+\ 29 = help
+    key dup 65 68 within?  ( -- char flag )
+    IF ( simple cursor )
+        44 -
+    ELSE  ( -- char )
+        dup 48 57 within?  ( function key )
+	IF ( -- char ) dup 49 =  ( maybe shifted? )
+            IF  drop key dup ascii ~ =
+                IF drop ( fkey 2) 2
+                ELSE key drop  ( get rid of ~ )
+                   37 -  ( shifted )
+                THEN
+            ELSE key drop 47 -
+            THEN
+        ELSE ( other key )
+            CASE
+            ascii ? OF 29 key drop ENDOF
+            ascii T OF 25 ENDOF
+            ascii S OF 26 ENDOF
+	    bl OF key CASE
+                ascii @ OF 27 ENDOF
+                ascii A OF 28 ENDOF
+                0 swap
+                ENDCASE
+               ENDOF
+               0 swap
+            ENDCASE
+        THEN
+    THEN
+;

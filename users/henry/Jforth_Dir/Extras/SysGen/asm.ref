@@ -1,0 +1,140 @@
+ONLY FORTH DEFINITIONS
+
+.NEED ASSEMBLER
+   VOCABULARY ASSEMBLER
+   ALSO FORTH
+.THEN 
+
+INCLUDE? DEFER JF:DEFER 
+
+ONLY FORTH ALSO 
+ASSEMBLER DEFINITIONS
+
+variable #REL
+variable REL-SIZE
+
+.NEED ASSEM   \ if the mpodule is defined, no defered words...
+  DEFER  BYTE-RELATIVE
+  DEFER  WORD-RELATIVE
+  DEFER  ABSOLUTE
+  DEFER  D-ABSOLUTE
+  DEFER  W,(T)
+  DEFER  END-CODE
+  DEFER  MARK
+
+  FORTH DEFINITIONS  ASSEMBLER
+
+  DEFER  CODE
+  DEFER  ;CODE  IMMEDIATE
+
+.ELSE
+  FORTH DEFINITIONS  ASSEMBLER
+.THEN
+
+HEX
+: INSTALL-OFFSET ( DEST-ADR BR# SRC-ADR -- DEST-ADR BR# )
+  >R  OVER  R  -  $ 0FFFF AND   R>
+  REL-SIZE @ $ 4000,0000 AND
+  IF    ( BYTE-RELATIVE ) 1-  C!
+  ELSE  ( WORD-RELATIVE )     W!
+  THEN         ;
+
+HEX
+: HAVE-SRC-ADDR?  ( BR# --- SRC-ADDR TRUE / FALSE )
+     0 SWAP   #REL @ -DUP
+     IF     2 CELLS *   0
+         DO   I  US@  +  @   $ 3FFF,FFFF AND  OVER =
+              IF  2DROP  ( -- )   US@ I + DUP @ REL-SIZE !
+                  DUP 0 SWAP !  CELL + @  1   0   LEAVE
+              THEN   CELL
+        +LOOP
+     THEN  DROP   ;
+
+HEX
+: FIND-DEST-ADDR  ( --- DEST-ADDR BRANCH# TRUE / FALSE )
+     0     #REL @ -DUP
+     IF     2 CELLS *   0
+         DO   I  US@  + DUP   @  DUP 0<
+              IF  ROT DROP  ( ADDR 8XXX -- )  OVER 0 SWAP !
+                  $ 7FFF,FFFF AND   SWAP CELL+ @ SWAP 1   LEAVE
+              THEN 2DROP  CELL
+         +LOOP
+     THEN     ;
+
+: RESOLVE-RELS  (  addr1 n1 addr2 n2 ... addrn nn ---  )
+   0 SP@ >US
+   BEGIN  FIND-DEST-ADDR   ( daddr br# true/false )
+   WHILE BEGIN DUP HAVE-SRC-ADDR? ( daddr br# saddr true )
+         WHILE  INSTALL-OFFSET
+         REPEAT  DDROP
+   REPEAT
+   \
+   \ check for unresolveds...
+   \
+   sp@ #rel @ 0
+   DO
+      ( -- &label )  dup @ 0>
+      IF
+         >newline  latest id.
+         ."  attempts a BRANCH to undefined local label "
+         dup @ $ ffff and decimal . quit
+      THEN
+      [ 2 cells ] literal +
+   LOOP  drop
+   \
+   #REL @ -DUP
+   IF    0 DO DDROP LOOP
+   THEN  0 #REL !  US> 2DROP   ;
+
+HEX
+: BR:  ( #br -- dest-addr #br  )  [ FORTH ]
+         HERE SWAP $ 8000,0000 OR [ ASSEMBLER ]  1 #REL +!  ;
+
+.NEED ASSEM
+  : <RES-BYTE-RELATIVE>  ( branch#--here adjusted-branch# )
+[ .ELSE
+  : BYTE-RELATIVE  ( branch#--here adjusted-branch# )
+[ .THEN ]
+  [  FORTH ]   HERE SWAP   $ 4000,0000 OR [ ASSEMBLER ]  1 #REL +!  ;
+
+
+.NEED ASSEM
+  : <RES-WORD-RELATIVE>  ( branch#--here adjusted-branch# )
+[ .ELSE
+  : WORD-RELATIVE  ( branch#--here adjusted-branch# )
+[ .THEN ]
+    [ FORTH ]   HERE SWAP     [ ASSEMBLER ]   1 #REL +!  2 ALLOT    ;
+
+.NEED ASSEM
+  : <RES-ABSOLUTE>   ( word --- )
+[ .ELSE
+  : ABSOLUTE   ( word --- )
+[ .THEN ]
+    W,   ;
+
+
+.NEED ASSEM
+  : <RES-D-ABSOLUTE> ( cell --- )
+[ .ELSE
+  : D-ABSOLUTE ( cell --- )
+[ .THEN ]
+    ,    ;
+
+
+.NEED ASSEM
+  : <RES-W,(T)>      ( byte --- )
+[ .ELSE
+  : W,(T)      ( byte --- )
+[ .THEN ]
+    W,   ;
+  
+
+.NEED ASSEM
+  : <RES-MARK>   ( --d-adr #br )
+[ .ELSE
+  : MARK   ( --d-adr #br )
+[ .THEN ]
+    BL [ FORTH ] WORD  NUMBER
+    DROP [ ASSEMBLER ]  BR:     ;
+
+decimal

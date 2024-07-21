@@ -1,0 +1,171 @@
+\ JForth picture flipping utilities
+\ PIC support for x, y, and x=y flips of pictures
+\ by Martin Kees
+\ Copyright Martin Kees 4/21/91
+\ This file freely distributable to the JForth Community
+
+\ 00001 PLB 1/7/92 Changed PIC.MAKE to PIC.MAKE? 0=
+
+getmodule includes
+include? picture jiff:load_pic
+
+anew task_pic_flip
+
+asm yflipplane ( plane wbytes  hpixels -- )
+	move.l  (dsp)+,d0  \ # of bytes/row in d0
+	move.l  (dsp)+,a0
+	moveq.l #0,d1      \ low ptr
+	sub.l   a1,a1
+	move.l  tos,d2     \ hi ptr
+	subq.l  #1,d2
+	mulu.w  d0,d2
+	move.l  d2,-(rp)
+	asr.l   #1,tos
+	move.l  tos,d3
+	adda.l  org,a0     \ pointer to plane in a0
+	move.l  d5,-(dsp)
+	bra.s   2$
+1$: move.w  0(a0,d2.l),d4
+	move.w  0(a0,d1.l),d5
+	move.w  d5,0(a0,d2.l)
+	move.w  d4,0(a0,d1.l)
+	add.l   d0,d1
+	sub.l   d0,d2
+2$: dbra.w  d3,1$
+	move.l  tos,d3
+	move.l  a1,d1
+	addq.l  #2,d1
+	move.l  d1,a1
+	move.l  (rp),d2
+	add.l   d1,d2
+	cmp.l   d1,d0
+	bne.s   2$
+	move.l  (dsp)+,d5
+	move.l  (rp)+,d0
+	move.l  (dsp)+,tos
+end-code
+
+\ DOES a vertical flip
+: pic.flip.y { pic | w h -- }
+	pic ..@ pic_bitmap -> pic
+	pic ..@ bm_bytesperrow -> w
+	pic ..@ bm_rows -> h
+	pic ..@ bm_depth
+	0 do i pic bmplane[] @ >rel w h
+		yflipplane
+	loop
+;
+
+
+asm xFlipWords ( plane w-bytes h --- )
+	move.l (dsp)+,d2
+	mulu.w d2,tos
+	subq.l #2,tos
+	move.w  #7,d4
+	move.l (dsp)+,a0
+	adda.l org,a0
+3$: move.w 0(a0,tos.l),d3
+	beq.s  4$
+	move.w  d4,d0
+	moveq.l #0,d1
+1$: lsl.w    #1,d3
+	roxr.w   #1,d1
+	lsl.w    #1,d3
+	roxr.w   #1,d1
+2$: dbra.w  d0,1$
+	move.w  d1,0(a0,tos.l)
+4$: subq.l  #2,tos
+	bpl.s   3$
+	move.l  (dsp)+,tos
+end-code
+
+
+asm xFlipPlane ( plane wbytes  hpixels -- )
+	move.l  (dsp)+,d0  \ # of bytes/row in d0
+	move.l  (dsp)+,a0
+	moveq.l #0,d1      \ low ptr
+	sub.l   a1,a1
+	move.l  d0,d2     \ hi ptr
+	subq.l  #2,d2
+	move.l  tos,d3
+	move.l  d0,tos
+	asr.l   #2,tos
+	adda.l  org,a0     \ pointer to plane in a0
+	move.l  d5,-(dsp)
+	bra.s   2$
+1$: move.w  0(a0,d2.l),d4
+	move.w  0(a0,d1.l),d5
+	move.w  d5,0(a0,d2.l)
+	move.w  d4,0(a0,d1.l)
+	add.l   #2,d1
+	sub.l   #2,d2
+3$: dbra.w  tos,1$
+	move.l  d0,tos
+	asr.l   #2,tos
+	move.l  a1,d1
+	add.l   d0,d1
+	move.l  d1,a1
+	move.l  d1,d2
+	add.l   d0,d2
+	sub.l   #2,d2
+2$: dbra.w  d3,3$
+	move.l  (dsp)+,d5
+	move.l  (dsp)+,tos
+end-code
+
+
+verify-libs @
+verify-libs OFF
+
+\ DOES a horizontal flip
+: PIC.FLIP.X { pic | bm w h -- }
+	pic ..@ pic_bitmap -> bm
+	bm ..@ bm_bytesperrow -> w
+	bm ..@ bm_rows -> h
+	bm ..@ bm_depth
+	0 do i bm bmplane[] @ >rel dup
+		w h xFlipWords
+		w h xflipplane
+	loop
+	w 8 *  pic ..@ pic_src_w
+	- dup IF pic ..@ pic_rastport >abs swap
+		0 0 0 w 8 * 1- h 1-
+		callvoid graphics_lib scrollraster
+	ELSE drop
+	THEN
+;
+
+\ DOES a flip around the x=y axis. In effect rotates rows and columns
+\ of the picture. Result pic is a new size if w <> h.
+\ You probably won't want to do this flip if your picture is displayed
+\ since it will be freed and reallocated!
+
+: PIC.FLIP.DIAG { pict | edpic pw ph srp drp -- }
+	pict pic.get.wh -> ph -> pw
+	memf_clear [ sizeof() picture ] literal allocblock
+	-> edpic
+	edpic
+	IF  pict ..@ pic_ctable
+		pict ..@ pic_num_colors
+		pict pic.get.depth ph pw edpic pic.make? 0= \ 00001
+		IF pict  ..@ pic_rastport  >abs -> srp
+			edpic ..@ pic_rastport  >abs -> drp
+			drp 0 callvoid graphics_lib setrast
+			pw 0 DO
+				ph 0 DO srp j i call graphics_lib readpixel
+					dup
+					IF   drp swap callvoid graphics_lib SetApen
+						drp i j callvoid graphics_lib writepixel
+					ELSE drop
+					THEN
+				LOOP
+			LOOP
+		pict pic.free
+		edpic pict ddup pic.duplicate pic.copy
+		edpic pic.free
+		edpic freeblock
+	THEN
+	THEN
+;
+
+verify-libs !

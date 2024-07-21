@@ -1,0 +1,673 @@
+\ Hash Forth Dictionary to speed compilation.
+\
+\ Hashing converts a name to a fairly unique
+\ number.  This number is used as an index into
+\ a hash table containing NFAs.  This is faster
+\ than doing a linear search through the linked
+\ fields of a normal forth dictionary.
+\
+\ Hashing can be turned on or off with HASH.ON
+\ or HASH.OFF .
+\
+\ Author: Phil Burk
+\ Copyright 1987 Phil Burk
+
+\ MOD: mdh 06/15/88 rewrote 'SAVE-FORTH', implemented 'HASH.COLD'
+\ MOD: PLB 08/08/88 Fix Increment=0 bug in HASH.SEARCH.LL
+\ MOD: mdh 08/28/88 added ASMHASH;
+\ MOD: PLB 9/9/88
+\ MOD: PLB 11/15/88 Removed FULL message. Added REALLOCATE msg.
+\ MOD: PLB 12/10/88 Added proper SMUDGE and UNSMUDGE
+\ MOD: PLB 1/11/89 Don't add to hash table if smudged.
+\      Check for vocabulary collisions.
+\ MOD: MDH 1/17/89 Add include? for ASM for builds with no modules
+\ MOD: MDH 1/22/89 Add flushemit after Rehashing...
+\ MOD: PLB 2/23/89 Move HASH.NEW.VOC call after HASH.EXPAND to
+\      avoid 1/2048 chance of recursion in a redefinition.
+\ 00001 PLB 11/27/91 Fixed ASM syntax, thanks to Jerry Kallaus
+\ 00002 mdh 15-jan-92 added .need
+
+include? ASM jf:Forward-ASM
+
+ANEW TASK-HASHING
+decimal
+
+defer HASH-OLD-:CREATE
+defer HASH-OLD-FIND
+defer HASH-OLD-SMUDGE
+defer HASH-OLD-UNSMUDGE
+
+variable HASH-TABLE-PTR  \ hold address of table
+variable HASH-TABLE-SIZE \ maximum number of entries
+variable HASH-MANY       \ current number of entries
+variable HASH-DISPLACED  \ bumped word for smudge
+.need HASH-#K  \ 00002
+variable HASH-#K         \ initial hash table size
+.THEN
+variable HASH-VOC-OFFSET
+variable HASH-#COLLISIONS
+variable HASH-FOUND?
+variable HASH-STOPPED
+variable HASH-REDEF      \ Set if word is overwritten.
+
+: .VAR ( addr -- , print nicely )
+    BL 16 emit-to-column ? cr
+;
+
+: HASH.DUMP  ( -- ) cr
+    ." Address = " hash-table-ptr .var
+    ." Maxentries = " hash-table-size .var
+    ." Many = " hash-many .var
+    ." Hash-#K = " hash-#k .var
+    ." Hash-State = " hash-state .var
+    ." #Collisions = " hash-#collisions .var
+    ." FIND is " what's find >name id. cr
+;
+
+\ Compile Time Initialization
+8 hash-#k !
+
+\ Create table of prime pairs near 1000s
+CREATE PRIMEK-PAIRS
+        1 ,  1009 ,  2027 ,  2999 ,  4001 ,
+     5009 ,  6089 ,  6959 ,  8009 ,  8999 , 
+    10007 , 11069 , 12041 , 13001 , 14009 , 
+    15137 , 16061 , 17027 , 18041 , 19079 ,
+    20021 , 21011 , 22037 , 23027 , 24107 ,
+    25031 , 26111 , 27059 , 28097 , 29021 , 
+    30011 , 31079 , 32027 , 33071 , 34031 ,
+    35081 , 36011 , 37019 , 37991 ,
+39 constant PRIMEK_MANY
+
+: PRIMEK ( N -- P , lowest of nearest prime pair )
+    dup primek_many <
+    IF cells primek-pairs + @
+    ELSE ." Past Prime Pair Table!" cr
+        1000 * 1-
+    THEN
+;
+
+: HASH.FREE ( -- , free space for table )
+    hash-table-ptr @ ?dup
+    IF ( -- addr )
+       freeblock
+       hash-table-ptr off
+       hash-table-size off
+       hash-many off
+    THEN
+;
+
+: HASH.TERM  ( -- )
+    hash.off
+    hash.free
+;
+
+: $HASH.ABORT ( $error-message -- )
+    hash.term
+    $error
+;
+
+: HASH.ALLOC  ( #K -- error , allocate space for table )
+    hash.free
+    primek 2+
+    dup hash-table-size !  ( set max )
+    cells ( -- #bytes )
+    memf_clear swap allocblock ?dup ( -- addr , zeroed RAM)
+    IF hash-table-ptr ! false
+    ELSE true
+    THEN
+;
+
+\ Functions for generating Hash Keys.
+DEFER NAME>KEY   ( nfa -- key )
+
+\ High level and simpler version.
+false .IF
+: NAME.4N+.HIGH   ( nfa -- key , add characters )
+    0 swap  ( sum )
+    dup 1+ swap c@ 31 and 0  ( -- 0 addr count 0 ) 
+    DO ( -- sum addr )
+        i over + c@  \  dup cr emit space .s ( get char )
+        rot cells + swap
+    LOOP drop abs
+;
+.THEN
+
+ASM NAME.4N+  ( nfa -- key , faster hash key generator )
+\ Register Usage
+\    D0 = Shift Count
+\    D1 = Number of characters left
+\    D2 = Pad for bytes
+\    D7 = running total
+\    A0 = Address of next char
+	MOVE.L		D2,-(A7)
+	MOVE.L		TOS,A0
+	ADD.L		ORG,A0   \ Calc absolute address
+	MOVEQ.L		#0,D7
+	MOVE.L		D7,D0
+	MOVE.L		D7,D2
+	MOVE.B		(A0)+,D1
+	ANDI.L		#$1F,D1
+	BEQ		2$
+	SUBQ.L		#1,D1    \ Adjust for DBRQ
+	MOVEQ.L		#2,D0    \ Size determines shift count!
+	CMP.W		#8,D1
+	BLT		1$
+	MOVEQ.L		#1,D0
+1$:	ASL.L		D0,D7
+	MOVE.B		(A0)+,D2
+	ADD.L		D2,D7
+	DBRA.W		D1,1$
+2$:	ANDI.L		#$FFFFFF,d7  \ clip result 0F!!
+	MOVE.L		(A7)+,D2
+	RTS
+END-CODE
+
+: NAME+VOC>KEY   ( nfa -- key )
+    name.4n+
+    hash-voc-offset @ +
+;
+
+' NAME+VOC>KEY is NAME>KEY
+
+: KEY>HASH ( key -- hash# )
+    hash-table-size @ ( -- nfa max_#entries ) mod
+;
+
+: NAME>HASH  ( nfa -- hash# , convert name to number )
+    name>key key>hash
+;
+
+: HASH.CHECK  ( hash# -- hash# , check for overflow or underflow )
+    dup hash-table-size @ 1- 0 swap within? not
+    IF . " Hash# out of range!" $hash.abort
+    THEN
+;
+
+: HASH>ADDR ( hash# -- addr , calc addr in table )
+    hash.check cells
+    hash-table-ptr @ + ( allocated array base )
+;
+
+: HASH>NAME ( hash# -- nfa )
+    hash>addr @
+;
+
+false .IF
+: MATCH.NAMES.HIGH { nfa1 nfa2 | flag -- flag }
+    nfa1 c@ 31 and
+    nfa2 c@ 31 and =
+    IF  ( same length )
+        true -> flag
+        nfa1 nfa2 dup c@ 31 and 0
+        DO 1+ dup c@ >r
+           swap 1+ dup c@ r> -
+           IF false -> flag
+           THEN
+        LOOP 2drop flag
+    ELSE false
+    THEN
+;
+.THEN
+
+ASM MATCH.NAMES ( nfa0 nfa1 -- if_equal )
+	movem.l		d0-d2/a0-a1,-(a7)
+	move.l		(a6)+,a0
+	adda.l		org,a0
+	move.b		$0(a4,tos),d1    00001 , was "tos)+,d1"
+	move.b		(a0)+,d0
+	moveq.l		#$1f,d2
+	and.l		d2,d0
+	beq		2$
+	and.l		d2,d1
+	cmp.b		d0,d1
+	bne		2$
+
+	addq.l		#1,tos
+	move.l		tos,a1		\ nfa1+1
+	adda.l		org,a1
+	subq.l		#1,d1
+
+1$:	cmpm.b		(a0)+,(a1)+
+	dbne.w		d1,1$
+	bne		2$
+	moveq.l		#$-1,tos
+	movem.l		(a7)+,d0-d2/a0-a1
+	rts
+
+2$:	moveq.l		#0,tos
+	movem.l		(a7)+,d0-d2/a0-a1
+	rts
+END-CODE
+
+\ Return match or empty slot.
+false .IF
+: HASH.SEARCH { name table | key hash# incr modulus -- hash# flag }
+    name name>key dup -> key
+    table @ dup -> modulus  mod dup -> hash#
+\    ." Key = " key . ."  , hash# = " hash# . cr
+\    ." Modulus = " modulus . cr .s
+    table hash>name ?dup 
+    IF  name match.names
+        IF  true
+        ELSE key table @ 2- mod -> incr  ( calculate increment )
+\            ." incr = " incr . cr
+            ( scan for match or empty slot )
+            false modulus 0
+            DO  1 hash-#collisions +! 
+                hash# incr + modulus mod   ( -- new_hash# )
+                dup -> hash#
+                table hash>name ?dup
+                IF  name match.names
+                    IF drop true leave THEN
+                ELSE leave
+                THEN
+            LOOP
+        THEN
+    ELSE false
+    THEN
+    hash# swap
+;
+.THEN
+
+: INCNUMCOL ( -- )
+    hash-#collisions @ 1+ hash-#collisions !
+;
+
+ASM HASH.SEARCH.LL  ( array size name -- hash# flag )
+\ Register Usage
+\  D0 = key
+\  D1 = hash#
+\  D2 = modulus
+\  D3 = increment
+\  A0 = array base
+\  A1 = name
+	movem.l		d0-d3/a0-a1,-(a7)
+\ Get Key for Name
+        move.l		tos,-(a6)	\ DUP
+	callcfa		NAME>KEY  ( -- a s n key )
+\
+\ Gather parameters
+        move.l		tos,d0		\ key
+	move.l		(a6)+,a1	\ name  ( rel )
+	move.l		(a6)+,d2	\ modulus
+	move.l		(a6)+,a0	\ array
+	adda.l		org,a0		\ >abs
+\
+\ DO fast MOD to convert key>hash
+	move.l		d0,d1
+	divu		d2,d1		\ hash# = mod(key,modulus)
+    	swap		d1
+	and.l		#$FFFF,D1
+\
+\ Lookup NFA in array
+	move.l		d1,d7		\ hash#,d7
+	asl.l		#2,d7		\ cell*
+	move.l		$0(a0,d7),d7	\ load name address
+\
+\ Check for match if name found.
+	BEQ		4$		\ skip if empty slot
+	move.l		a1,-(a6)	\ push name
+	callcfa		match.names
+\
+\ Return true if matched
+	tst.l		tos		\ result non zero?
+	BNE		4$		\ 
+\
+\ If it is not the right name, collision!
+\ Calculate increment and begin searching.
+\ Increment = MOD(KEY,SIZE-2)
+	move.l		d0,d3		\ copy KEY
+\ Use size for loop count
+	move.l		d2,d0
+	move.l		d2,d7		\ size
+	subq.l		#2,d7		\ 2-
+	divu		d7,d3		\ MOD
+	swap		d3
+	and.l		#$FFFF,D3
+	BNE		2$
+	moveq.l		#1,d3		\ 1 better than 0
+\
+2$:	add.l		d3,d1		\ increment hash#
+	divu		d2,d1		\ SIZE MOD
+	swap		d1
+	and.l		#$FFFF,d1
+\
+\ Increment Collision Counter
+	callcfa		incnumcol
+\
+\ lookup name in new array location
+	move.l		d1,d7		\ new hash#
+	asl.l		#2,d7
+	move.l		$0(a0,d7),d7	\ load name address
+\
+\ check for match if NFA found
+	BEQ		3$		\ otherwise return 0
+	move.l		a1,-(a6)
+	callcfa		match.names
+\
+\ Keep looking if not a match
+	cmpi.l		#0,tos
+	DBNE.W		d0,2$
+\
+	moveq.l		#$-1,tos
+	bra		4$
+\ 
+3$:	moveq.l		#0,tos
+\
+4$:	move.l		d1,-(a6)
+	movem.l		(a7)+,d0-d3/a0-a1
+	rts
+END-CODE
+
+: HASH.SEARCH ( name -- hash#matched true | hash#empty false )
+    >r hash-table-ptr @ hash-table-size @ r>
+    hash.search.ll
+;
+
+: HASH.FIND.NAME ( name --  nfa true | oldname false )
+    dup hash.search ( -- name hash# flag )
+    IF  nip hash>name true
+    ELSE drop false
+    THEN
+;
+
+: HASH.NEW.VOC ( voc-addr -- )
+   vlink>' >name \ dup id. cr
+   name.4n+ hash-voc-offset !   ( set voc offset )
+;
+
+: HASH.SEARCH.CONTEXT ( name --  nfa true | oldname false )
+    hash-found? off
+    hash-voc-offset @ >r
+    context maxvocs  cnt>range
+    DO  ( -- name )
+        i @  ?dup  0= ?LEAVE
+        hash.new.voc
+        dup hash.find.name
+        IF  ( -- name nfa )
+            nip hash-found? on leave
+        ELSE drop
+        THEN
+    CELL +LOOP
+    r> hash-voc-offset !
+    hash-found? @
+;
+
+  
+: HASH.SEARCH.VOCS ( name --  nfa true | oldname false )
+  hash.search.context dup 0=
+  IF
+     SEARCH-CURRENT @
+     IF
+        drop  CURRENT @ hash.new.voc
+        hash.find.name
+     THEN
+  THEN
+;
+
+: HASH.FIND ( name -- $name 0 | cfa_imm 1 | cfa -1 )
+\ Rehash if dictionary changed by modules, forget, etc.
+    hash-damaged @
+    IF rehash
+    THEN
+    hash.search.vocs
+    IF  dup name> swap immediate?
+        IF 1
+        ELSE -1
+        THEN
+    ELSE false
+    THEN
+;
+
+
+: HASH.FULL? ( -- if_half_full , check table for overflow )
+    hash-table-size @ 2/
+    hash-many @ <
+;
+
+: HASH.(SMUDGE)  ( -- , replace latest entry )
+    hash-old-smudge
+    current @ hash.new.voc
+    latest hash.search
+    IF  hash-displaced @ swap
+        hash>addr !
+    ELSE drop
+    THEN
+    -1 hash-many +!
+\    >newline latest id. ."  smudged" cr
+;
+
+: HASH.(UNSMUDGE) ( -- , restore latest )
+    hash-old-unsmudge
+    current @ hash.new.voc
+    latest dup hash.search drop hash>addr !
+    1 hash-many +!
+\    >newline latest id. ."  unsmudged" cr
+;
+
+: HASH.ADD.NAME ( nfa hash# -- , force add and update counter )
+    hash>addr dup @ hash-displaced ! !  ( save previous occupant )
+    1 hash-many +!
+;
+
+: HASH.ADD.IFROOM  ( nfa hash# -- )
+    hash.full?
+    IF  ( -- n h )
+        2drop
+        hash-stopped on
+\        ." Hash table full!" cr
+    ELSE
+        hash.add.name
+    THEN
+;
+
+: HASH.ADD.IFNEW ( name -- )
+    dup hash.search ( -- name hash# flag )
+    IF 2drop
+    ELSE ( -- n h# )
+        hash.add.ifroom
+    THEN
+;
+
+: HASH.ADD.REHASH ( nfa -- , add to hash table during rehash)
+    dup c@ 31 and
+    IF  dup c@ $ 20 AND  ( hidden? )
+        hash-stopped @ OR
+        IF drop
+        ELSE hash.add.ifnew
+        THEN
+    ELSE drop cr ." HASH.ADD.REHASH Name field is zero!"
+    THEN
+;
+
+: HASH.CLEAR ( -- )
+    0 hash-many !
+    hash-table-ptr @
+    hash-table-size @ cells
+    0 fill
+;
+    
+: <HASH.OFF> ( -- , turn hashing off )
+    hash-state @
+    IF 
+        what's hash-old-:create  is :create
+        what's hash-old-find     is find
+        what's hash-old-smudge   is smudge
+        what's hash-old-unsmudge is unsmudge
+        ' noop dup   is rehash   is hash.cold
+        hash-state off
+    THEN
+;
+' <hash.off> is hash.off
+
+\ Check for vocabulary collisions.
+variable HASH-VOC-KEY
+variable HASH-VOC-LINK
+variable HASH-VOC-ERROR
+
+: HASH.VOC.ERROR ( nfa -- , report collision )
+    >newline ." WARNING! - Possible HASHING conflict between " id.
+    ."  and " hash-voc-link @ vlink>' >name id. cr
+    hash-voc-error on
+;
+
+: HASH.TEST.VOC  ( -- , compare each vocab against one )
+    voc-link
+    BEGIN @ dup
+    WHILE dup hash-voc-link @ -
+        IF ( different vocabulary )
+            dup vlink>' >name dup name.4n+ hash-voc-key @ =
+            IF hash.voc.error
+            ELSE drop
+            THEN
+        THEN
+    REPEAT drop
+;
+
+: HASH.CHECK.VOCS  ( -- , check vocabularies for collision )
+    hash-voc-error off
+    voc-link
+    BEGIN @ dup
+    WHILE dup hash-voc-link !
+        dup vlink>' >name name.4n+ hash-voc-key !
+        hash.test.voc
+    REPEAT drop
+    hash-voc-error @
+    IF  ." Please rename the new vocabulary!"  7 emit cr
+    THEN
+;
+
+redef? off
+: VOCABULARY  ( <name> -- , check after defining )
+    vocabulary
+    hash.check.vocs
+;
+redef? on
+
+: <HASH.REALLOC> ( #K -- )
+    dup hash.alloc
+    IF drop " Could not allocate hash table!"
+       $hash.abort
+    ELSE  hash-#k !
+    THEN
+;
+
+: HASH.EXPAND  ( -- , increase size of hash table )
+    hash-#k @ 4 +
+    <hash.realloc>
+\    ." Hash table reallocated - successfully!" cr
+;
+
+: <REHASH>  ( -- , hash all vocs )
+    hash.check.vocs
+    ."   Rehashing..." flushemit
+    BEGIN
+        0 hash-stopped !
+        hash.clear
+        hash-#collisions off
+        ' hash.add.rehash is when-scanned
+        ' hash.new.voc is when-voc-scanned
+        scan-all-vocs
+        hash-stopped @
+    WHILE
+        hash.expand
+    REPEAT
+    hash-damaged off
+    hash-redef off
+    14 0 DO bsout @ emit space bsout @ emit
+    LOOP
+    flushemit
+;
+
+\ Substitute words.
+: HASH.ADD.NEW ( nfa -- )
+    hash.full?
+    IF  hash.expand
+        rehash
+    THEN
+    current @ hash.new.voc  ( do this after hash.expand )
+    dup hash.search
+    IF hash-redef on ( mark as redefined for fast forget )
+    THEN
+    hash.add.name
+;
+
+: HASH.(CREATE)  ( -- , add to hash table , overwrite existing.)
+    HASH-OLD-:CREATE
+    latest hash.add.new
+;
+
+: CHECK.TIB.END  ( nfa -- , set TIBEND if NUL string )
+    c@ 0= tibend !
+;
+
+: HASH.FORTH.FIND  ( nfa -- nfa 0 | cfa 1 | cfa -1 )
+    dup c@ dup 0= tibend !
+    31 and
+    IF hash.find
+    ELSE 0
+    THEN
+;
+
+: HASH.INIT ( -- )
+    hash-#k @ hash.alloc
+    IF  " No Room for hash Table!" $hash.abort
+    THEN
+    hash-voc-offset off
+    hash-state off
+;
+
+: <HASH.COLD>
+  cr ." Initializing HASHED Vocabulary Search..." flushemit cr
+  HASH.ON
+;
+
+
+: <HASH.ON> ( -- , start using hashing )
+    hash-table-ptr @ 0=
+    IF hash.init 
+    THEN
+    hash-state @
+    IF \ ." Hashing already on!"
+    ELSE 
+        what's :create is hash-old-:create
+        what's find is hash-old-find
+        what's smudge is hash-old-smudge
+        what's unsmudge is hash-old-unsmudge
+        hash-state on
+    THEN
+    ' hash.(create)    is :create
+    ' hash.forth.find  is find
+    ' hash.(smudge)    is smudge
+    ' hash.(unsmudge)  is unsmudge
+    ' <rehash>         is rehash
+    ' <hash.cold>      is hash.cold
+    rehash
+;
+
+' <hash.on> is hash.on
+
+: HASH.REALLOC ( #K -- , reallocate different size)
+    hash.off
+    <hash.realloc>
+    hash.on
+;
+
+: SAVE-FORTH  ( -- , save in TERM state )
+  hash-state @ >r   hash.term  r@
+  IF
+     ' <hash.cold>
+  ELSE
+     ' noop
+  THEN
+  is hash.cold    save-forth  r@
+  IF
+     <hash.on>
+  ELSE
+     ' noop is hash.cold
+  THEN
+  rdrop
+;
+
+if.forgotten hash.term

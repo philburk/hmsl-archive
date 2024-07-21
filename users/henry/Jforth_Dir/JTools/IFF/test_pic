@@ -1,0 +1,136 @@
+\ Test IFF Picture System
+." You must create some IFF pictures first!" cr \ see below
+
+include jiff:load_pic
+include? choose ju:random
+
+ANEW TASK-TEST_PIC
+
+\ You can replace these filenames with your own files if you like.
+: MOUNT_FILENAME " jpics:mountains.pic" ;
+: SHIP_FILENAME " jpics:ship.br" ; \ small UFO
+: COMET_FILENAME " jpics:comet.br" ;
+
+picture MOUNT
+picture SHIP
+picture COMET
+picture BACKUP
+
+: DUP.MOUNT ( -- , make copy of mountains )
+	mount backup pic.duplicate
+	mount backup pic.copy
+;
+
+: TPIC.TERM ( -- )
+	mount pic.free
+	ship pic.free
+	comet pic.free
+	backup pic.free
+	' noop is pic.closebox
+	gr.term
+;
+
+: TPIC.BREAK  ( -- , stop and cleanup if closebox hit )
+	tpic.term
+	quit
+;
+
+: TPIC.INIT ( -- error? )
+	gr.init
+	pic-start-black on ( don't display at first , allow fadein )
+\
+\ You can't use PIC.LOAD here because you need a string.
+	mount_filename mount $pic.load? ?goto.error
+	ship_filename ship $pic.load? ?goto.error
+\
+\ the comet will have offsets based on the brush handle
+	pic-use-grabxy on  ( use handle to offset blit )
+	comet_filename comet $pic.load? ?goto.error
+	pic-use-grabxy off
+\
+	4 mount pic.fadein
+	dup.mount
+\
+	' tpic.break is pic.closebox
+	false
+	exit
+\
+ERROR:
+	tpic.term
+	true
+;
+
+: TPIC.WIPE ( -- , wipe all 4 directions )
+	20  40 1 wipe_left  ship pic.wipe
+	120 40 1 wipe_right ship pic.wipe
+	70  100 1 wipe_up    ship pic.wipe
+	170 100 1 wipe_down  ship pic.wipe
+;
+
+: TPIC.ROTATE ( -- , flash colors by rotating bit planes )
+	mount pic.get.depth 2* 0
+	DO pic.rotate 4 wait.frames
+	LOOP
+;
+
+if.forgotten tpic.term
+
+: BLIT.COMETS ( -- , blit random comets )
+	100 0
+	DO  mount pic.get.wh  ( -- w h )
+		choose swap choose swap  ( -- x y )
+		comet pic.trans.blit
+	LOOP
+;
+
+: TPIC.MOVE.SHIP ( -- , move ship using saved backgrounds )
+	0 ship pic.alloc.backup? 0=
+	IF
+		28 0
+		DO
+			-20 i 10 * +  30 i 2 * +
+			0 ship pic.backup.nth
+			-20 i 10 * +  30 i 2 * +
+			ship pic.trans.blit
+			10 wait.frames
+			0 ship pic.restore.nth
+		LOOP
+	THEN
+;
+
+: TPIC.DO.IT ( -- )
+	0 gr.mode!  ( text drawing mode )
+	4 gr.color!
+	60 40 " JForth Picture Test" gr.xytext
+	1 gr.color!
+	100 wait.frames
+\
+	tpic.wipe
+	100 wait.frames
+\
+	2 mount pic.fadeout
+	0 0 backup pic.blit  ( restore image )
+	1 mount pic.fadein
+	100 wait.frames
+\
+	tpic.rotate
+	100 wait.frames
+\
+	blit.comets
+	100 wait.frames
+\
+	2 mount pic.fadeout
+	0 0 backup pic.blit  ( restore image )
+	1 mount pic.fadein
+	tpic.move.ship
+;
+
+: TEST.PIC ( -- )
+	tpic.init 0=
+	IF
+		tpic.do.it
+		tpic.term
+	THEN
+;
+
+cr ." Enter: TEST.PIC    to see demo." cr

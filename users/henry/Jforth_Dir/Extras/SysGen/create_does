@@ -1,0 +1,54 @@
+\ 00001 plb 9/21/91 Make ARRAY and CARRAY zero out memory, add WARRAY
+
+decimal
+
+-100 constant build-flag
+
+variable 'pushreloc   ' quit 'pushreloc !
+
+: does>  ( user stack: build-flag addr -- , poke address like 'THEN' )
+  us>  r@  us>   build-flag = not
+  IF    cr ." DOES> ... can't find CREATE keyword!"  quit
+  THEN  ( adr-to-poke abs-where-to-call -- )
+  here >r   swap  dp !    ( -- abs-called )
+  >rel  calladr,          ( -- )
+  last-sfa   ( -- sfa diff )  2+ $ 4000,0000 or  over @  ( -- sfa cnt <sfa> )
+  $ 3fff,0000 and  ( -- sfa cnt5 <sfa> )  or swap   !
+  r> dp !
+  r> drop ;
+
+: CREATE  ( -- )   ( user stack:   -- build-flag address )
+  ( pushtos lit   hiword   loword   jsr   hiword   loword   rts )
+  (  2  +    2   +    2   +  2  +    2   +    2   +  2    +  2   = 16 )
+  :create  usp cell- usp !
+  ' (pushadr)  cfa,
+  build-flag >us  here >us
+  $ 4e75,4e75 ,  $ 4e75,4e75 ,
+  unsmudge
+  $ 4000,0006 CREATE_ID or   latest name> cell- !
+;
+
+
+: CARRAY ( #bytes -- )
+  create  here swap even-up dup allot erase
+  does>   +     ;
+
+: WARRAY  ( #cells -- , 00001 ) 
+  create  here swap 2* dup allot erase
+  does>   swap 2* +     ;
+  
+: ARRAY  ( #cells -- )
+  create  here swap cells dup allot erase
+  does>   swap cells +     ;
+
+CREATE DON'T-USE-THIS  UNSMUDGE 
+    ' DON'T-USE-THIS  HERE - ABS CONSTANT DO-DOES-SIZE 
+
+: >BODY  ( cfa -- pfa , CREATE-DOES child only!)
+  do-does-size +
+;
+
+: BODY>  ( pfa -- cfa , CREATE-DOES child only!)
+  do-does-size -
+;
+

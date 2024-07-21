@@ -1,0 +1,37 @@
+\ Load ODE
+
+\ Determine host type
+.need HOST=MAC
+exists? FILE-CREATOR constant HOST=MAC
+.then
+
+.need HOST=AMIGA
+exists? DOS_LIB constant HOST=AMIGA
+.then
+
+include? 'c ju:ajf_dict
+include? ob.make.member jf:member
+include? ..@ jf:c_struct
+include? { ju:locals
+\
+\ ODE - Object Oriented Development Environment ----
+include? task-ajf_base hh:ajf_base
+include? er.report jo:er.report
+include? stack.check jo:utils
+include? task-obj_stack jo:obj_stack
+include? task-obj_main jo:obj_main
+include? task-obj_binding jo:obj_binding
+include? task-obj_methods jo:obj_methods
+include? task-obj_ivars jo:obj_ivars
+include? task-ajf_mm hh:ajf_mm
+include? task-Double_List	ho:Double_List
+include? task-obj_object jo:obj_object
+include? task-obj_array jo:obj_array
+
+\ the following files are optional
+include? task-elmnts jo:elmnts
+include? task-obj_stack_class jo:obj_stack_class
+include? task-obj_string jo:obj_string
+
+\ This file is only needed for Clone
+include? task-Clone_Support jo:Clone_Support

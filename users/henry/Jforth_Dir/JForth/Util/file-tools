@@ -1,0 +1,55 @@
+\ File tools using DOS functions.
+\
+\ MOD: PLB 10/26/90 Add ExNext()
+\ 00001 PLB 1/4/91 Use calls from DOS-SUPPORT.  Old code
+\    converted to relative which was a mistake.
+\    Note difference in stack diagrams:
+\
+\    JU:DOS-SUPPORT -----  LOCK()  ( 0name mode -- abs_lock )
+\    old JU:FILE-TOOLS --  LOCK()  ( $name mode -- rel_lock )
+\
+\    Use JU:DOS-SUPPORT style LOCK()
+
+include? task-dos-support ju:dos-support
+include? fileinfoblock ji:libraries/dos.j
+
+ANEW TASK-FILE-TOOLS
+
+verify-libs @
+verify-libs off
+
+\ In this file, before V3.0  LOCK() took a Forth style $name.
+\ You should now use $LOCK() in place of that call.
+
+." Warning: LOCK() changed.  Use 0LOCK() or $LOCK(). Read JU:FILE-TOOLS" cr
+
+: QUAD-UP  ( N -- M , round up to be divisible by 4 )
+    dup 3 and ?dup  ( are we off )
+    IF 4 swap - +
+    THEN
+;
+
+: QUAD-ALIGN ( -- , aligns DP to 4 byte boundary )
+    here quad-up dp !
+;
+
+Create SPARE-FIB-RAM  QUAD-ALIGN
+    sizeof() FileInfoBlock allot
+
+: SpareFileInfo ( -- fileinfoblock )
+    spare-fib-ram quad-up
+;
+
+: FSIZE ( $name -- #bytes | -1 , get size of file )
+    access_read lock() ?dup
+    IF dup SpareFileInfo examine()
+        IF SpareFileInfo ..@ fib_size
+           swap unlock()
+        ELSE -1
+        THEN
+    ELSE -1
+    THEN
+;
+
+verify-libs !
+

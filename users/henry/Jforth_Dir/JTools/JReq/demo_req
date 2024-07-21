@@ -1,0 +1,105 @@
+\ Demonstrate use of REQ.LIBRARY color pallette.
+\
+\ Color Requester specific code is marked with a %RQ
+\ to find that code just search for %RQ
+\
+\ Author:  Phil Burk
+\ Copyright 1990 Delta Research
+
+decimal
+INCLUDE? NewWindow.Setup JU:AMIGA_GRAPH
+include? sc_Viewport ji:intuition/intuition.j
+INCLUDE? NewScreen.Setup JU:SCREEN_SUPPORT
+INCLUDE? ?CLOSEBOX JU:AMIGA_EVENTS
+include? msec ju:msec
+include? choose ju:random
+
+include? ColorRequester() jreq:req_support.f   \ %RQ
+
+ANEW TASK-DEMO_REQ
+
+decimal
+
+\ Declare necessary Amiga 'C' structures.
+NewScreen req-NewScreen
+NewWindow req-NewWindow
+
+VARIABLE req-SCREEN
+
+: req.INIT.SCREEN ( -- screen | NULL )
+     gr.init   
+\ Set to default values.
+     req-NewScreen NewScreen.Setup
+     req-NewWindow NewWindow.Setup
+\
+\ Modify defaults for this demo.
+     4 req-NewScreen s! ns_Depth  ( 16 colors )
+\
+\ Open Screen and store pointer in NewWindow structure.
+     req-NewScreen openscreen() dup req-Screen !  ( Open screen. )
+\
+\ Sometimes the Amiga can build a bad COPPER list for screens.
+\ This can happen if you have Emacs and Workbench up in INTERLACE
+\ mode and open a NON-INTERLACE screen.
+\ The following calls will correct this problem (hopefully).
+    req-screen @ screentoback()
+    RemakeDisplay()
+    req-screen @ screentofront()
+;
+
+: req.INIT.WINDOW ( screen -- window | NULL )
+     req-NewWindow s! nw_screen
+\
+\ Set up window.
+     0" req - JForth - Delta Research"
+         req-NewWindow s! nw_Title
+     CUSTOMSCREEN   req-NewWindow s! nw_type
+     req-NewWindow s@ nw_Flags ACTIVATE |
+        req-NewWindow s! nw_Flags
+     20    req-NewWindow s! nw_TopEdge
+     320  req-NewWindow s! nw_Width
+     160  req-NewWindow s! nw_Height
+     req-NewWindow gr.opencurw
+\
+\ set window pointer for REQ  \ %RQ
+	?dup
+	IF
+		dup set.windowptr old-windowptr !
+	THEN
+;
+
+: req.TERM ( -- , CLose demo screen )
+\ clear windowptr to avoid terrible crash , maybe...  %RQ
+	old-windowptr @ set.windowptr drop
+\
+    gr.closecurw
+    req-screen @ closescreen()
+;
+
+variable req-#COLORS
+: req.DRAW.STUFF ( -- , draw colored boxes )
+    1 req-NewScreen s@ ns_depth shift
+    dup req-#colors !
+    2
+    DO i gr.color!
+       5 i 14 * +
+       5
+       over 14 +
+       120
+       gr.rect
+    LOOP
+;
+    
+: DEMO.req  ( -- , cycle colors with random source )
+	req?
+    req.init.screen ?dup
+    IF  req.init.window
+        IF  req.draw.stuff
+			0 ColorRequester() drop    \ %RQ    that's all....
+            req.term
+        THEN
+    THEN
+	-req
+;
+
+cr ." Enter:    DEMO.REQ" cr

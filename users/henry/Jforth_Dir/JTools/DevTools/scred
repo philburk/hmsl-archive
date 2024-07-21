@@ -1,0 +1,557 @@
+\ SCRED V1.0 ------ JForth SCReen EDitor ------ © 1986 Delta Research
+\ V1.0a ----------- fixed the 'TEXT' problem...using the ANSI word.
+
+DECIMAL
+
+include? gotoxy jf:ansi
+include? editor jdev:editor
+include? condition jf:condition
+
+anew task-scred
+
+DECIMAL  
+ONLY FORTH DEFINITIONS
+ALSO EDITOR DEFINITIONS
+
+user INSERT?               user REFRESH-FROM
+user WAS-SCR
+user 'NOT-CMD-CR           user 'NOT-CMD-QUIT
+user 'NOT-SCRED-CR         user 'NOT-SCRED-QUIT
+user 'LENGTHS 15 CELLS USER# +!
+user MAX-CMD-OUT           user WRAP
+user WAS-WRAP              user WAS-INSERT
+user WAS-INCLUDED          user WAS-CFBL
+user END-ED?               user SE-RP
+user DO-REFRESH            user PRE-SCRED-WINDOW
+
+: LENGTHS ( line#--adr )  CELLS 'LENGTHS +   ;
+
+: SAVED-LINES  ( line#--adr ) C/L * HERE 512 + +  ;
+
+: .FILE-NAME ( -- )  scrnamecnt $type  ;
+
+( .CNTRL  prints '^A ' format     )
+( .CHAR prints ' A ' for non-ctl-codes )
+
+: .CNTRL ( ctl-code-- )
+  $ 5E EMIT  $ 40 + EMIT SPACE  ;
+
+: .CHAR  ( not-ctl-code-- ) SPACE EMIT SPACE ;
+
+: .RIGHT-BORDER    ( -- ) 
+  inverse   68 7      16 0
+  DO    2DUP GOTOXY ascii | EMIT  1+
+  LOOP  2DROP  plain   ;
+
+FORTH DEFINITIONS  $ 1B CONSTANT ESC
+
+EDITOR DEFINITIONS
+
+$ 0D CONSTANT RET
+
+: .KEY-VALUE ( key-value-- )   CONDITION
+  DUP ESC = IF     DROP ." ESC"  ELSE
+  DUP 0=    IF     DROP ." DEL"  ELSE
+  DUP RET = IF     DROP ." CR "  ELSE
+  DUP 8 =   IF     DROP ." BAC"  ELSE
+  .CNTRL
+  ENDCOND   ascii = EMIT ;
+
+: NEXT-MENU  ( --- )   OUT @ 61 <
+  IF    15 OUT @ OVER MOD - SPACES
+  ELSE  77 out @ - spaces  CR
+  THEN ;
+
+BL ARRAY EDITOR-KEYS
+BL ARRAY KEY-ORDER
+
+0 key-order  bl cells  $ ff   fill
+
+: >KEYINDEX  ( key -- index , -1 if no room )
+  dup $ 7f =
+  IF
+     drop 0
+  THEN
+  -1 -1   ( -- key 1stavail foundat )
+  \
+  \ first, see if we can find it...
+  BL 0
+  DO
+     [ forth ] i  [ editor ] KEY-ORDER @  >r
+     r@ ( -- key 1stfree foundat index@ )  3 pick =
+     IF
+        rdrop  drop  [ forth ] i  [ editor ] leave
+     THEN
+     ( -- key 1stfree foundat )   r>  2 pick  0<
+     IF
+        \ no empty one found yet  ( -- key 1stfree foundat index@ )
+        -1 =
+        IF
+           \ this one is free  ( -- key 1stfree foundat )
+           nip  [ forth ] i   [ editor ] swap
+        THEN
+     ELSE
+        drop
+     THEN
+  LOOP
+  ( -- key 1stfree foundat )   dup 0<
+  IF
+     \ it was not found   ( -- key 1stfree -1 )
+     drop   dup 0<
+     IF
+        \ a free cell was not found  ( -- key -1 )
+        nip
+     ELSE
+        \ a free cell was found  ( -- key index )
+        tuck   KEY-ORDER !
+     THEN
+  ELSE
+     \ it was found   ( -- key 1stfree index )
+     -rot  2drop
+  THEN
+;
+
+: CHAR>EDITOR-KEYS   ( char -- array-adr )
+  >KeyIndex   EDITOR-KEYS
+;
+
+: INIT-EDIT-KEYS  ( --- ) ' BEEP ( CFA ) BL 0
+    DO    DUP  [ FORTH ] I  [ EDITOR ] EDITOR-KEYS !
+    LOOP DROP ;
+ INIT-EDIT-KEYS
+
+: .INSTRUCTIONS   ( --- )   HELP-LEVEL @ 4 >
+   IF      CR inverse   BL 0
+        DO   [ FORTH ] I [ EDITOR ] EDITOR-KEYS  @ DUP ' BEEP CFA = NOT
+             IF   [ FORTH ] I
+                  [ editor ]  KEY-ORDER @ .KEY-VALUE ( CELL+ )
+                  NFA ID.  NEXT-MENU
+             ELSE DROP
+             THEN
+        LOOP 77 out @ - spaces plain 
+    THEN ;
+
+: .CUR ( -- ) R# @ $ 3FF MIN $ 40 /MOD 7 + SWAP 4 + SWAP GOTOXY flushemit ;
+
+: !CUR ( cur#-- )   0 MAX $ 3FF MIN R# ! ;
+
+: +CUR ( n1-- )  R# @ + !CUR ;
+
+: +.CUR ( n1-- )  +CUR .CUR ;
+
+: +LIN ( #lines-- )  R# @ $ 40 / + $ 40 * !CUR ;
+
+: HOM 0 R# ! .CUR ;
+
+: ToBottom  ( -- )
+  0 23 gotoxy  ;
+
+: <SE-LIST>  ( scr#-- )
+  tobottom  BLOCK 0 6 gotoxy  DUP 0 SAVED-LINES 1024 MOVE   16 0
+  DO  CR  inverse   [ FORTH ] I 2 .R  SPACE   plain 
+      DUP C/L -TRAILING
+      DUP I [ editor ] LENGTHS ! TYPE  C/L +
+  LOOP DROP   CR    ;
+
+: ?SMALL  ( char--char )  noop  ;
+
+: .OPTS-HDR  ( -- )
+  inverse 
+  70 7 GOTOXY ." Insert:"
+  70 9 GOTOXY ." Wrap:"
+  plain   ;
+
+: .ins    ( -- )
+  72  8 GOTOXY INSERT? @
+  IF   ." Yes"
+  ELSE ." No "
+  THEN ;
+
+: .wrap   ( -- )
+  70 10 GOTOXY WRAP @ ?dup
+  IF   ." Yes, "  1 .r
+  ELSE ."   No   "
+  THEN ;
+
+: <.opts>  ( -- )
+  .ins  .wrap  ;
+
+: .OPTIONS   ( -- )
+  WAS-INSERT @ INSERT? @ = NOT
+  IF   .ins  insert?   @ was-insert ! 
+  THEN
+  WAS-WRAP   @ WRAP    @ = NOT
+  IF   .wrap wrap      @ WAS-WRAP !
+  THEN    ;
+
+15 CONSTANT .SCR-X
+40 CONSTANT .FILE-X
+
+: .&BLANK ( N1-- ) OUT @ SWAP . OUT @ SWAP - 5 SWAP - SPACES ;
+
+
+: .FILE  ( --- ) .FILE-X 6 + 0 GOTOXY .FILE-NAME   ;
+
+: SCR&FILE ( -- )  WAS-SCR @ SCR @ = NOT   [ DECIMAL ]
+  IF   SCR @ DUP .SCR-X 5  +  0 GOTOXY .&BLANK  WAS-SCR !
+  THEN
+  ( .FILE? )  .FILE  ;
+
+: <TOP>   ( ---)
+  inverse 
+  .SCR-X   0 GOTOXY ." Scr:"
+  .FILE-X  0 GOTOXY ." File:"
+  plain
+  0        0 GOTOXY .INSTRUCTIONS
+   .OPTS-HDR  .RIGHT-BORDER  ;
+
+: OPEN-SCRED-WINDOW  ( -- )  pre-scred-window @ 0=
+  IF    \ bring up a console window...
+  0" RAW:0/2/640/198/SCRED V1.2 -- JForth SCReen EDitor -- © 1992 Delta Research"
+        new  (fopen) ?dup
+        IF    \ window opened ok...  ( -- pointer )
+              CONSOLEOUT @  pre-scred-window !
+              CONSOLE!
+        ELSE  .err ." can't open window!"  quit
+        THEN
+  ELSE
+        fileword drop
+  THEN  ;
+
+: CLOSE-SCRED-WINDOW  ( -- )  pre-scred-window @ ?dup
+  IF   ( -- orig-pointer )  flushemit
+       consoleOUT @ fclose
+       pre-scred-window  dup @ console!  off
+  THEN ;
+  
+: INIT-DISPLAY ( SCR#-- )  
+  OPEN-SCRED-WINDOW
+  CLEARSCREEN <TOP>
+  0 OUT !  0 6 GOTOXY <SE-LIST>
+  true INSERT? !   -1 was-scr !
+  0 WRAP !  0 MAX-CMD-OUT !
+  <.OPTS> SCR&FILE .CUR ;
+
+: <REFRESH-LINE-AT> ( char# line#-- )  [ FORTH ]   R# @ >R
+  DDUP  6 +SHIFT  + R# ! [ editor ]  ( char line--)
+  SCR @ BLOCK R# @ + ( C L REF-addr-- )
+  C/L 3 PICK -   ( C L addr #left-- )  -TRAILING
+  1 PICK 4 PICK - >R   ( C L A #L-- )  ( LINE-ADR R#--R--)
+  2 PICK LENGTHS @  4 PICK - MAX  ( C L AD L-- )  dup
+  IF   .cur TYPE
+  ELSE 2drop
+  THEN ( C L -- )   R@ OVER SAVED-LINES C/L MOVE
+  ( C L--- )   ( LINE-ADR R#--R--- )
+  R> 64 -TRAILING ( C L LIN-ADR LENGTH-- ) SWAP DROP
+  SWAP LENGTHS ! DROP  R> R# !   ;
+
+: 1ST-DIF-CHAR ( line#--1st-char-dif ) 0 SWAP
+  DUP LINE SWAP  SAVED-LINES  ( 0 adr1 adr2-- ) DUP 64 + SWAP
+  DO   DUP C@ [ FORTH ] I C@ =  NOT
+       IF    LEAVE
+       ELSE  BOTH1+
+       THEN
+  LOOP DROP     ;
+
+: ?REF-LINE  ( line#-- )  [ editor ]
+  DUP     LINE OVER SAVED-LINES C/L SWAP compare 0=
+  IF      DROP
+  ELSE    DUP 1ST-DIF-CHAR  SWAP <REFRESH-LINE-AT>
+  THEN    ;
+
+: ?REFRESH   ( -- )   [ editor ]
+  DO-REFRESH @
+  IF   16 0
+           DO     [ FORTH ] I   [ editor ] ?REF-LINE
+           LOOP 0 0 GOTOXY
+  THEN ;
+
+: SAVE-TO-COMPARE  ( -- )  [ editor ]
+  SCR @ WAS-SCR !
+  INSERT? @ WAS-INSERT !  WRAP @ WAS-WRAP !      ;
+
+: CMD-DONE ( -- ) 'NOT-CMD-CR   @  is CR
+                  'NOT-CMD-QUIT @  is QUIT  ;
+
+: <SCR-QUIT>  ( 0 SCREDING ! )   CMD-DONE  0 22 GOTOXY
+   QUIT  ;
+
+: 13EMIT ( -- )  ?PAUSE  OUT @ MAX-CMD-OUT @
+     MAX MAX-CMD-OUT ! [ DECIMAL ]  13 EMIT 0 OUT !    ;
+
+: NO-LFS  ( -- )
+ what's CR  'NOT-CMD-CR !  what's QUIT 'NOT-CMD-QUIT !
+ [ ' 13EMIT CFA ] LITERAL      is CR
+ [ ' <SCR-QUIT> CFA ] LITERAL  is QUIT   ;
+
+FORTH DEFINITIONS
+: END-ED ( --- ) [ EDITOR ] SCREDING @ IF  SCREDING OFF   CMD-DONE
+ 0 22 GOTOXY TRUE   END-ED? !  THEN  ;
+
+EDITOR DEFINITIONS
+
+: COMMAND-INTERPRET ( --- ) [ FORTH ] [COMPILE] EDITOR  [ editor ]
+  0 23 GOTOXY  73 spaces
+  NO-LFS SAVE-TO-COMPARE
+  13EMIT  ." <SCRED>: "   flushemit
+  QUERY 13EMIT  #TIB @ 0
+  DO   SPACE
+  LOOP 9 SPACES  13EMIT
+  0 OUT !  0 MAX-CMD-OUT ! INTERPRET   END-ED? @ NOT
+  IF  13EMIT CMD-DONE SCR&FILE .OPTIONS ?REFRESH   .CUR
+  THEN  ;
+
+: CHECK-FOR   ( cfa  char  -1=left//1=right--- )
+  DUP R# +! >R   SCR @ BLOCK R# @ +
+  BEGIN ( cfa char curs-adr-- )  ( direction--R-- )
+        DUP C@ 2 PICK 4 PICK EXECUTE    ( cfa char cadr fl-- )
+        R# @ DUP 0< SWAP 1023 >  OR OR   NOT
+  WHILE R@ +   R@ R# +!
+  REPEAT R> DDROP DDROP  R# @ 0 MAX  1023 MIN R# !   ;
+
+: NEXT-BL-R   ( -- )
+  [ ' = CFA ] LITERAL  BL   1 CHECK-FOR   ;
+
+: NEXT-BL-L   ( -- )
+  [ ' = CFA ] LITERAL  BL  -1 CHECK-FOR   ;
+
+: NEXT-BL  NEXT-BL-R ;
+
+: BUF/CNT  ( --- ADR CNT )  SCR @ BLOCK  R# @  +  1K R# @ -  ;
+
+: >CNT ( ADR CNT --- )  1 K SWAP - R# ! SWAP DROP ;
+
+: NEXT-CHAR-R  ( -- )
+  [ ' - CFA ] LITERAL  BL   1 CHECK-FOR   ;
+
+: NEXT-CHAR-L  ( -- )
+  [ ' - CFA ] LITERAL  BL  -1 CHECK-FOR   ;
+
+: NEXT-CHAR  NEXT-CHAR-R ;
+
+: COLUMN  ( --- )  R# @  NEXT-CHAR  R# @ - ABS DELETE ;
+
+: COLUMNS  ( number-of-lines --- )  0
+( works from current cursor position.  removes spaces to align a column )
+   DO  COLUMN C/L R# +! LOOP R# @ [ 1K 1- ] LITERAL MIN R# ! ;
+
+: REVERSE  ( FROM-LINE TO-LINE --- )   SWAP DDUP -  0
+    DO    OVER  D    DUP I 1+
+    LOOP  DDROP ;
+
+: join   ( ---)  R# @   #LAG R# +! DROP ( NL after reloading )
+\ JOIN-LINE  with next line and remove spaces
+      NEXT-CHAR R# @ - ABS DELETE ;
+
+: WORD-RIGHT  ( -- )  NEXT-CHAR-R NEXT-BL-R
+  R# @ 1023 <   IF -1 R# +!   THEN   ;
+
+: WORD-LEFT   ( -- )  NEXT-CHAR-L NEXT-BL-L
+  R# @ 0=   SCR @ BLOCK C@ BL = NOT   AND
+  IF   0    ELSE   1
+  THEN +CUR  ;
+
+: <?CTL-CHARS>  ( --flag ) ( are their any non-ascii in SCR? )
+  SCR @ BLOCK DUP   1K +                 1K   0
+  DO     1- DUP  C@  32 126 within? NOT IF LEAVE THEN
+  LOOP    -    ;
+
+: SCR-UP  ( -- )
+  scr @ 1+ sel  SCR&FILE  ;
+
+: SCR-DOWN ( -- ) scr @ 0>
+  IF   -1 scr +!  SCR&FILE
+  ELSE  7 emit
+  THEN  ;
+
+: CLRLINE ( -- )   R# @ 64 /  [ EDITOR ] E  [ FORTH ] ;
+
+: DELINE  ( -- )   R# @ 64 /  [ EDITOR ] D  [ FORTH ] ;
+
+: INSLINE ( -- )   R# @ 64 /  [ EDITOR ] S  [ FORTH ] ;
+
+EDITOR DEFINITIONS
+: DEL-CHAR     ( -- ) [ FORTH ]  R# @ C/L /  (  line-- )  >R
+  [ EDITOR ] #LEAD + ( cur-adr-- ) DUP DUP 1+ SWAP ( TO FR TO-- )
+  #LAG SWAP DROP 1- (  FROm to cnt-for-this-line --- )
+  15 R> -          (  f t c-t-l #lines-left-- )
+  WRAP @ MIN       (  f t c-t-l #-to-wrap-- )  C/L * + DUP >R
+  MOVE BL SWAP R> + C!  UPDATE   ;
+
+: BACKUP-CURSOR  r# @  -1 +cur
+  IF  DEL-CHAR
+  THEN  ;
+
+: <!BLK> ( char--)
+ R# @ C/L /MOD >R  1+ ( convert to column# )
+  R@ LENGTHS @ MAX R> LENGTHS !   ( update lengths if longer )
+  DUP 0 SAVED-LINES R# @ + C!           ( update saved-area )
+  R# @ SCR @   ( store in buffer )
+  BLOCK + C! UPDATE 1 +CUR ;          ( and advance cursor )
+
+: MAKE-A-HOLE  ( -- ) R# @ C/L /MOD  ( char#  line-- )  >R
+  SCR @ BLOCK R# @ +  ( char# cursor-addr-- )     DUP 1+
+  ROT C/L SWAP - 1-  (  from to cnt-for-this-line --- )
+  15 R> -          (  f t c-t-l #lines-left-- )
+  WRAP @ MIN       (  f t c-t-l #-to-wrap-- )  C/L * +
+  MOVE         ;  ( make a hole!!! )
+
+: !BLK  ( char-- )  INSERT? @
+  IF    MAKE-A-HOLE THEN  <!BLK>     ;
+
+: USE-CHAR  ( char --- )  ?SMALL DUP EMIT !BLK  ;
+
+: <SCR-EDIT>  ( -- )
+  BEGIN  do-refresh on  (KEY) dup $ 9b =
+         IF    drop (KEY)                 CASE
+               $ 41 OF   c/l negate +cur  ENDOF
+               $ 42 OF   c/l        +cur  ENDOF
+               $ 43 OF     1        +cur  ENDOF
+               $ 44 OF    -1        +cur  ENDOF  ENDCASE
+         ELSE  $ 7f and  DUP  $ 7F = IF DROP 0 THEN  DUP  BL <
+               IF    CHAR>EDITOR-KEYS @EXECUTE
+               ELSE  USE-CHAR
+               THEN  ?REFRESH
+         THEN  .CUR
+  AGAIN   ;
+
+: EDITOR-KEYS?  ( ---)
+  BL 0 DO   CR [ FORTH ] I  dup  [ editor ]  KEY-ORDER @ .key-value space
+               EDITOR-KEYS @ >NAME ID. LOOP ;
+
+: EDITOR-KEY-DOES ( key --- )  ( <function> --in-- )
+   DUP $ 7F =
+   IF   DROP   0
+   THEN
+   ( -- key )  >KeyIndex  dup 0<  ?ABORT" EDITOR-KEY-DOES: Invalid key"
+   EDITOR-KEYS  []  ' CFA     SWAP !   ;
+
+exists? set-rp not
+.IF    ascii X   ' rp! >name 1+ c!
+       max-inline @  20 max-inline !
+       : set-rp  ( rp -- )  rp!   inline ;
+       max-inline !
+       ascii R   ' Xp! >name 1+ c!
+.THEN
+
+\ EDITOR-KEY WORDS
+HEX
+makeucase @  makeucase off  ( MUST STAY IN UPPER CASE TILL RESTORED!!!!! )
+: ForthCmd    ( --- )   SE-RP @ SET-RP                   ;
+: Down        ( --- )   40 +CUR    DO-REFRESH OFF        ;
+: Left        ( --- )   -1 +CUR    DO-REFRESH OFF        ;
+: Up          ( --- )   -40 +CUR   DO-REFRESH OFF        ;
+: Right       ( --- )   1 +CUR     DO-REFRESH OFF        ;
+: InsertFlip  ( --- )   INSERT? @ 0= INSERT? ! .OPTIONS DO-REFRESH OFF ;
+: HorizTAB    ( --- )   R# @ 8 / 8 * 8 + !CUR  DO-REFRESH OFF          ;
+: Join        ( --- )   JOIN ;
+: ClearLine    ( --- )    CLRLINE          ;
+: InsertLine   ( --- )    INSLINE          ;
+: DeleteLine   ( --- )    DELINE           ;
+: DeleteChar   ( --- )    DEL-CHAR         ;
+: Column        ( --- )    COLUMN           ;
+: WordRight    ( --- )    WORD-RIGHT   DO-REFRESH OFF    ;
+: WordLeft     ( --- )    WORD-LEFT    DO-REFRESH OFF    ;
+: BackSpace          ( --- )    BACKUP-CURSOR    ;
+: NextSCR     ( --- )    SCR-UP           ;
+: PrevSCR     ( --- )    SCR-DOWN         ;
+: NextLine     ( --- )    1 +LIN       DO-REFRESH OFF    ;
+: DeleteWord   ( --- )    -1 +CUR  NEXT-CHAR R# @ NEXT-BL
+     R# @ - ABS  DELETE ;
+: Exit   ( --- )
+  SAVE   [ EDITOR ]  SCREDING OFF
+  0 22 GOTOXY    END-ED? ON
+  SE-RP @ SET-RP  ;
+
+
+CTL E  EDITOR-KEY-DOES  Up
+7F     EDITOR-KEY-DOES  DeleteChar
+CTL A  EDITOR-KEY-DOES  WordLeft
+CTL M  EDITOR-KEY-DOES  NextLine
+CTL I  EDITOR-KEY-DOES  HorizTAB
+
+CTL X  EDITOR-KEY-DOES  Down
+CTL W  EDITOR-KEY-DOES  DeleteWord
+CTL F  EDITOR-KEY-DOES  WordRight
+CTL J  EDITOR-KEY-DOES  InsertLine
+CTL G  EDITOR-KEY-DOES  Column
+
+CTL S  EDITOR-KEY-DOES  Left
+CTL K  EDITOR-KEY-DOES  DeleteLine
+CTL R  EDITOR-KEY-DOES  PrevSCR
+CTL O  EDITOR-KEY-DOES  ClearLine
+CTL P  EDITOR-KEY-DOES  Join
+
+CTL D  EDITOR-KEY-DOES  Right
+CTL H  EDITOR-KEY-DOES  BackSpace
+CTL C  EDITOR-KEY-DOES  NextSCR
+CTL V  EDITOR-KEY-DOES  InsertFlip
+ESC    EDITOR-KEY-DOES  ForthCmd
+
+CTL Q  EDITOR-KEY-DOES  Exit
+MAKEUCASE !
+
+DECIMAL
+: HALF-LINES ( #lines-- ) 2/  R# @ >R
+  WRAP @ >R    1 WRAP !
+  R# @ C/L / DUP >R   C/L * 32 + R# ! R> ( #lines cur-line-- )
+  15 OVER - 2/  ( #l cl #max-- )  ROT MIN DUP >R  0
+  DO     32 0 DO DEL-CHAR LOOP    128 +CUR
+  LOOP   ( cur-line-- )   DROP R> DROP
+  R> WRAP !  R> R# !   ;
+
+\ ;S   ...following lines will automatically delete remaining
+\         1/2 lines.  If used they replace lines 7 - 9 above.
+\   LOOP   ( cur-line-- )   1+  R> 0
+\   DO  DUP  [ EDITOR ] D [ FORTH ] 1+
+\   LOOP   DROP R> WRAP !  R> R# !   ;
+
+: END-SCRED    ( -- )
+  CLOSE-SCRED-WINDOW
+  'not-scred-quit @ is quit
+  'not-scred-cr   @ is cr  0sp  ;
+
+: <SCRED.QUIT>  ( -- )
+  64 23 gotoxy  ." any key QUITs" flushemit key drop
+  end-scred   QUIT  ;
+
+: START-SCRED  ( -- )
+  what's QUIT  'not-scred-quit !
+  what's CR    'not-scred-cr   !
+  ' <SCRED.QUIT> is QUIT
+  ' ToBottom     is CR   ;
+
+FORTH DEFINITIONS
+
+: SE  ( -- )
+  SCR-FILE @
+  IF
+     decimal [ EDITOR ] SCREDING @ NOT
+     IF  SCR @ INIT-DISPLAY  SAVE-TO-COMPARE  END-ED? OFF
+         SCREDING ON    also editor  .cur
+         START-SCRED
+         BEGIN rp@  cell-   se-rp !
+            <SCR-EDIT>  END-ED? @  0=
+            IF
+               COMMAND-INTERPRET
+            THEN
+            END-ED? @
+         UNTIL END-SCRED
+     THEN
+  ELSE
+     >newline 7 emit
+     ." SE: there is no open SCR-FILE. Use: SCRED <filename>" quit
+  THEN
+  SCR-FILE @
+  IF
+     >newline cr
+     ." A Reminder...  the file '" .file-name ." ' is still open."  cr
+     ." Don't forget to CLOSE-SCR when you are done with it." cr cr
+  THEN
+;
+
+: SCRED ( --- ) ( "<filename>" )
+  OPEN-SCR  1 SEL  SE  ;
+
+ONLY FORTH DEFINITIONS
+

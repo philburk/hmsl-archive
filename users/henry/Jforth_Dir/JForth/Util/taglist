@@ -1,0 +1,67 @@
+\ TAGLISTs
+\
+\ For passing multiple parameters to AmigaDOS 2.0 and greater.
+\
+\ Author: Phil Burk and Marty Kees
+\ Copyright 1991 Delta Research
+\
+\ 00001 PLB 1/4/92 Add TAG-PAD
+
+ANEW TASK-TAGLIST
+
+variable TAGLIST-BASE
+variable TAGLIST-HERE
+
+create TAG-PAD 16 cells 2* cell+ allot  \ enough for 16 tags, 00001
+
+\ User must decide where to put taglist.
+
+: TAGLIST{  ( taglist -- )
+	dup taglist-base !
+	taglist-here !
+;
+
+: }TAGLIST ( -- taglist )
+	taglist-base @
+;
+
+: TAG, ( value -- , add to current taglist )
+	taglist-here @
+	dup>r ! ( store value in memory )
+	r> cell+ 0 over !
+	taglist-here !
+	
+;
+
+: +TAG ( attr value -- )
+	swap tag, tag,
+;
+
+: +TAG.ABS ( attr abs-addr -- )
+	swap tag, if>abs tag,
+;
+
+: TAGLIST.DUMP ( taglist -- , dump taglist maximum 100 long)
+	>newline
+	100 0
+	DO
+		dup @ 0=
+		IF LEAVE THEN
+		." ATTR: " dup @ . cell+
+		." , VAL: " dup @ .
+		." , (ADDR: " dup @ if>rel .hex ascii ) emit
+		cell+ cr
+	LOOP
+	drop
+;
+
+
+: TAGLIST.TEST ( -- )
+	PAD
+	TAGLIST{
+		7 200    +TAG
+		9 $ 1234 +TAG.ABS
+	}TAGLIST
+	taglist.dump
+;
+

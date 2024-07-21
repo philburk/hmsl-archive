@@ -1,0 +1,315 @@
+\ STRUCTUREs are for interfacing with 'C' programs.
+\ Structures are created using :STRUCT and ;STRUCT
+\
+\ This file must be loaded before loading any .J files.
+\
+\ Author: Phil Burk
+\ Copyright 1986 Phil Burk
+\
+\ MOD: PLB 1/16/87 Use abort" instead of er.report
+\      MDH 4/14/87 Added sign-extend words to ..@
+\ MOD: PLB 9/1/87 Add pointer to last member for debug.
+\ MOD: MDH 4/30/88 Use fast addressing for ..@ and ..!
+\ MOD: PLB/MDH 9/30/88 Fixed offsets for 16@+long and 8@+long
+\        fixed OB.COMPILE.+@/! for 0 offset
+\ MOD: PLB 1/11/89 Added EVEN-UP in case of last member BYTE
+\ MOD: PLB 2/23/90 ADD S@ and S! for auto >ABS and >REL
+\ MOD: PLB 7/18/90 Added IF>ABS to !BYTES
+\
+\ 00001 14-may-90 mdh LoadJForth files now in jf:
+\ 00002 PLB 11/19/91 Add TAIL to >ABS32!+LONG and >ABS32!+BYTE
+\ 00003 PLB/MDH 1/22/92 Use $ERROR instead of ABORT
+
+INCLUDE? OB.MAKE.MEMBER jf:MEMBER
+
+ANEW TASK-C_STRUCT
+
+\ STRUCT ======================================================
+: <:STRUCT> ( pfa -- , run time action for a structure)
+    [COMPILE] CREATE  
+        @ even-up here swap dup ( -- here # # )
+        allot  ( make room for ivars )
+        erase  ( initialize to zero )
+;
+
+\ Contents of a structure definition.
+\    CELL 0 = size of instantiated structures
+\    CELL 1 = #bytes to last member name in dictionary.
+\             this is relative so it will work with structure
+\             relocation schemes like MODULE
+
+: :STRUCT (  -- , Create a 'C' structure )
+\ Check pairs
+   ob-state @
+   warning" :STRUCT - Previous :STRUCT or :CLASS unfinished!"
+   ob_def_struct ob-state !     ( set pair flags )
+\
+\ Create new struct defining word.
+  CREATE
+      here ob-current-class !  ( set current )
+      0 ,        ( initial ivar offset )
+      0 ,        ( location for #byte to last )
+   DOES>  <:STRUCT>
+;
+
+: ;STRUCT ( -- , terminate structure )
+   ob-state @ ob_def_struct = NOT
+   IF " ;STRUCT - Missing :STRUCT above!" $error
+   THEN
+   false ob-state !
+
+\ Point to last member.
+   latest ob-current-class @ -  ( byte difference )
+   ob-current-class @ cell+ !
+\
+\ Even up byte offset in case last member was BYTE.
+   ob-current-class @ dup @ even-up swap !
+;
+
+: DUP128<  ( n1 -- n1 flag )
+  dup  $ 80  <
+;
+
+\ Member reference words.
+: ..   ( object <member> -- member_address , calc addr of member )
+    ob.stats? drop state @
+    IF   \ [compile] literal compile +
+         ?dup
+         IF   $ 0687 w,  ,
+         THEN
+    ELSE +
+    THEN
+; immediate
+
+hex
+: 32@+BYTE \ move.l $x(org,tos.l),tos
+    [ 2e34,7800 ,                         ( -1 c! ) ]  inline ;
+: 32@+LONG \ add.l #x,tos  move.l $0(org,tos.l,tos)
+    [ 0687 w, 0 , 2e34,7800 ,             ( -8  ! ) ]  inline ;
+
+\ These are for S@ and S!
+: (IF>REL)  ( -- , these must follow a MOVE to TOS )
+\ CCR must already be set
+\    beq @1
+    [ 6702 w,
+\    sub.l org,tos  @1
+      9E8C w, ]  inline ;
+
+: 16U@+byte [ 7000,3034 , 7800,2e00 ,             ( -3 c! ) ]  inline ;
+: 16U@+long [ 0687 w, 0 , 7000,3034 , 7800,2e00 , ( -12 ! ) ]  inline ;
+: 8U@+byte  [ 7000,1034 , 7800,2e00 ,             ( -3 c! ) ]  inline ;
+: 8U@+long  [ 0687 w, 0 , 7000,1034 , 7800,2e00 , ( -12 ! ) ]  inline ;
+
+\ Since these are signed they don't need a zeroed D0
+: 16@+byte \ move.w $x(org,tos.l),tos ext.l
+    [ 3e34,7800 , 48c7 w,                  ( -3 c! ) ]  inline ;
+: 16@+long [ 0687 w, 0 , 3e34,7800 , 48c7 w,      ( -10  ! ) ]  inline ;
+: 8@+byte  [ 1e34,7800 , 4887 w, 48c7 w,          ( -5 c! ) ]  inline ;
+: 8@+long  [ 0687 w, 0 , 1e34,7800 , 4887 w, 48c7 w, ( -12 ! ) ]  inline ;
+
+: 32!+byte [ 299e,7800 , 2e1e w,                 ( -3 c! ) ]  inline tail ;
+: 32!+long [ 0687,0000 , 0000,299e , 7800,2e1e , ( -10 ! ) ]  inline tail ;
+: 16!+byte [ 39ae,0002 , 7800,588e , 2e1e w,     ( -5 c! ) ]  inline tail ;
+: 16!+long [ 0687,0000 , 0000,39ae , 0002,7800 ,
+                                     588e,2e1e , ( -14 ! ) ]  inline tail ;
+: 8!+byte  [ 19ae,0003 , 7800,588e , 2e1e w,     ( -5 c! ) ]  inline tail ;
+: 8!+long  [ 0687,0000 , 0000,19ae , 0003,7800 ,
+                                     588e,2e1e , ( -14 ! ) ]  inline tail ;
+
+\ These do an IF>ABS before storing into structure.
+: >ABS32!+BYTE  ( -- , OFFSET -3)
+  [ 
+   201E W,         \  move.l  (dsp)+,d0 
+   6700 W, 0004 W, \  beq.l   $490B2   
+   D08C W,         \  add.l   org,D0
+   2980 W, 7800 W, \  move.l  d0,$0(org,tos.l)
+   2E1E W,         \  move.l  (dsp)+,tos
+  ] INLINE TAIL
+;
+
+: >ABS32!+LONG  ( -- , OFFSET -10 )
+  [
+   201E W,         \  move.l  (dsp)+,d0 
+   6700 W, 0004 W, \  beq.l   $490B2   
+   D08C W,         \  add.l   org,D0
+   0687 W, 0 ,     \  add.l   #$0,tos  ( OVERWRITE HERE )
+   2980 W, 7800 W, \  move.l  d0,$0(org,tos.l)
+   2E1E W,         \  move.l  (dsp)+,tos
+  ] INLINE TAIL
+;
+
+decimal
+
+variable OB-CFA-B
+variable OB-CFA-POKE-B
+variable OB-CFA-L
+variable OB-CFA-POKE-L
+variable OB-CFA-0
+
+: OB.COMPILE.+@/! ( offset cfa-b poke-b cfa-l poke-l cfa-0 -- )
+    ob-cfa-0 !
+    ob-cfa-poke-l ! ob-cfa-l !
+    ob-cfa-poke-b ! ob-cfa-b !
+    dup128<
+    IF  ?dup
+        IF ob-cfa-b @ cfa, here ob-cfa-poke-b @ - c!
+        ELSE ob-cfa-0 @ cfa,
+        THEN
+    ELSE ob-cfa-l @ cfa, here ob-cfa-poke-l @ - !
+    THEN
+;
+
+: !BYTES ( value address size -- )
+    CASE
+    cell OF ! ENDOF
+      -4 OF swap if>abs swap ! ENDOF
+  ABS  2 OF w! ENDOF
+       1 OF c! ENDOF
+       " ..! -  Not 1,2 4 or -4 bytes!" $error
+    ENDCASE
+;
+
+: COMPILE+!BYTES ( [ value address ] offset size -- )
+    CASE
+       4 OF ' 32!+byte 3 ' 32!+long 10 ' !
+            ob.compile.+@/!
+         ENDOF
+       -4 OF ' >abs32!+byte 3 ' >abs32!+long 10 ' >abs32!+LONG
+            ob.compile.+@/!
+         ENDOF
+     ABS
+       2 OF ' 16!+byte 5 ' 16!+long 14 ' w!
+            ob.compile.+@/!
+         ENDOF
+       1 OF ' 8!+byte  5 '  8!+long 14 ' c!
+            ob.compile.+@/!
+         ENDOF
+       " ..! -  Not 1,2 or 4 or -4 bytes!" $error
+    ENDCASE
+;
+
+\ These provide ways of setting and reading members values
+\ without knowing their size in bytes.
+: ..! ( value object <member> -- , store value in member )
+    ob.stats?
+    dup -4 =    \ ..@ does not use automatic >REL
+    IF drop 4
+    THEN
+    state @
+    IF  compile+!bytes 
+    ELSE ( -- value obj off size )
+        >r + r> !bytes
+    THEN
+; immediate
+
+\ Automatically convert addresses to absolute.
+: S! ( value object <member> -- , store value in member w/ >ABS )
+    ob.stats?
+    state @
+    IF  compile+!bytes 
+    ELSE ( -- value obj off size )
+        >r + r> !bytes
+    THEN
+; immediate
+
+variable SIGNED-MEMBERS  ( if true, sign extend signed members )
+signed-members ON  ( default )
+
+
+: @BYTES ( addr +/-size -- value )
+    CASE
+       4 OF @  ENDOF
+      -4 OF @ if>rel ENDOF
+       2 OF w@      ENDOF
+       1 OF c@      ENDOF
+      -2 OF w@ w->s     ENDOF
+      -1 OF c@ b->s     ENDOF
+       " ..@ -  Not 1,2 or 4 bytes!" $error
+    ENDCASE
+;
+
+: COMPILE+@BYTES ( [ value address ] offset +/-size -- )
+    signed-members @ 0=
+    IF ABS  ( ignore sign of member )
+    THEN
+    CASE
+       4 OF ' 32@+byte  1 ' 32@+long   8 ' @
+            ob.compile.+@/!
+         ENDOF
+       -4 OF ' 32@+byte  1 ' 32@+long   8 ' @
+            ob.compile.+@/!
+            compile (if>rel)
+         ENDOF
+       2 OF ' 16u@+byte 3 ' 16u@+long 12 ' 16u@+byte
+            ob.compile.+@/!
+         ENDOF
+       1 OF ' 8u@+byte  3 ' 8u@+long  12 ' 8u@+byte
+            ob.compile.+@/!
+         ENDOF
+      -2 OF ' 16@+byte  3 ' 16@+long  10 ' 16@+byte \ !!
+            ob.compile.+@/!
+         ENDOF
+      -1 OF ' 8@+byte   5 ' 8@+long   12 ' 8@+byte \ !!
+            ob.compile.+@/!
+         ENDOF
+       " COMPILE@BYTES -  Not 1,2 , -1,-2 or 4 bytes!" $error
+    ENDCASE
+;
+
+: ..@ ( object <member> -- value , fetch value from member )
+    ob.stats?
+    dup -4 =    \ ..@ does not use automatic >REL
+    IF drop 4
+    THEN
+    state @
+    IF compile+@bytes
+    ELSE >r + r> @bytes
+    THEN
+; immediate
+
+\ Automatically convert absolute addresses
+: S@ ( object <member> -- value , fetch value from member, >REL )
+    ob.stats?
+    state @
+    IF compile+@bytes
+    ELSE >r + r> @bytes
+    THEN
+; immediate
+
+\ These are aliases for use in reading AMIGA .J files.
+: | ( n m -- n|m , for easy AMIGA calls )
+   OR
+inline ;
+
+: << ( n m -- n<<m , shift left n by m )
+   ashift
+;
+
+\ NULL pointer for 'C'
+0 constant NULL
+
+\ Allocate a structure, state sensitive
+: (ALLOCSTRUCT)  ( size -- addr | 0 , allocate clear )
+    memf_clear swap allocblock
+;
+
+: ALLOCSTRUCT ( <structure> -- , allocate a structure )
+    [compile] sizeof()
+    state @
+    IF compile (allocstruct)
+    ELSE (allocstruct)
+    THEN
+; immediate
+
+: RECARRAY 
+	CREATE ( many bytes/record <name> -- )
+		dup , * allot
+	DOES> ( index base -- addr )
+		tuck @ * + cell+
+;
+
+: ARRAYOF  ( many <structure> <name> -- )
+	[compile] sizeof()
+	recarray
+;
+

@@ -1,0 +1,138 @@
+\ Play HMSL Instrument for FB-01
+\
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk, Larry Polansky, David Rosenboom
+\ All Rights Reserved
+
+INCLUDE? OB.FB.INSTRUMENT FB_INSTRUMENT
+
+ANEW TASK-FB_PLAY
+
+OB.FB.INSTRUMENT FB1
+OB.TRANSLATOR FB-TR   ( contains cents )
+
+: FB.RAND  ( -- , play random notes on FB-01 )
+    BEGIN 20 choose 100 note.on: fb1
+        200 msec
+        last.note.off: fb1
+        ?terminal
+    UNTIL
+;
+
+: FILL.FB-TR.1/4  ( -- fill tuning with 1/4 tone scale )
+    48 new: fb-tr
+    48 0
+    do i 25 * i to: fb-tr  ( 25 cents per step )
+    loop
+    3000 put.offset: fb-tr
+    1200 put.modulus: fb-tr  ( octave replicating )
+;
+
+: FILL.FB-TR.SLENDRO ( -- , fill with javanese slendro )
+    5 new: fb-tr
+    0 0 to: fb-tr     \ 1:1
+    231 1 to: fb-tr   \ 8:7
+    462 2 to: fb-tr   \ 64:49
+    702 3 to: fb-tr   \ 3:2
+    933 4 to: fb-tr   \ 12:3
+\
+    3000 put.offset: fb-tr
+    1200 put.modulus: fb-tr
+;
+
+: FILL.FB-TR.12TONE
+    12 new: fb-tr
+       0  \ 1:1
+     105  \ 17:16
+     204  \ 9:8
+     316  \ 6:5   minor 3rd
+     386  \ 5:4   major 3rd
+     498  \ 4:3
+     583  \ 7:5
+     702  \ 3:2   fifth
+     814  \ 8:5
+     884  \ 5:3
+    1018  \ 9:5
+    1101  \ 17:9
+    12 0 DO 11 i - to: fb-tr LOOP
+    2000 put.offset: fb-tr
+    1200 put.modulus: fb-tr
+
+;
+
+\ Adaptive tuning.
+\ Continuously adapts fundamental so that intervals
+\ remain at a constant ratio.
+CREATE ADAP-LAST -1 ,  ( last note , for interval)
+
+\ This function can replace the standard translation method
+\ for the translator so that it works on a relative
+\ note scheme.
+: FB.ADAPTIVE.TRANS  ( input translator -- output )
+    >r   ( save translator on return stack )
+    adap-last @  ( -- in last )
+    over adap-last !  ( update variable )
+    dup 0>  ( is this the first note )
+    IF  - ( -- dif )
+        dup 0< IF -1 ELSE 1 THEN   ( calculate direction )
+        swap abs ( -- sign[dif] abs[dif] ) 
+        r@ limit: [] /mod  ( -- sign rem q , do octaves)
+        r@ get.modulus: [] *    ( offset to octave )
+        swap r@ at: []          ( look up ratio )
+        + *
+        r@ get.offset: [] +     ( offset from previous note )
+    ELSE 2drop 4000   ( for first note always use 4000 )
+    THEN
+    dup r> put.offset: []   ( save new "fundamental" )
+;
+
+: FB.ADTR.SHOW  ( in tr -- out , show value )
+    fb.adaptive.trans
+    gr-curwindow @
+    IF 2 20 gr.move dup gr.number
+    THEN
+;
+
+: FB.ADAPT ( -- , make translator use custom function )
+    ' fb.adtr.show put.translate.function: fb-tr
+;
+
+: FB.INIT  ( -- , word to initialize system )
+    fb.start.events
+    0 put.offset: fb1
+    fb-tr put.tuning: fb1
+\ Setup for HMSL.EDIT.PLAY
+    fb1 put.instrument: se-player
+    fill.fb-tr.12tone
+    open: fb1
+;
+
+: FB.TERM  ( -- , cleanup )
+    close: fb1
+    free: fb1
+    free: fb-tr
+    fb.stop.events
+;
+
+\ Use MIDI Parser to play FB-01 with fractional tuning.
+\ The next two words will be called by the MIDI Parser.
+: FB.NOTE.OFF ( note velocity -- )
+    2drop last.note.off: fb1
+;
+
+: FB.NOTE.ON  ( note velocity -- )
+    dup 0>
+    IF  note.on: fb1
+    ELSE fb.note.off
+    THEN
+;
+
+\ Set vectors and play.
+: FB.PLAY
+    mp.reset
+    'c fb.note.on mp-on-vector !
+    'c fb.note.off mp-off-vector !
+    midi.parser.on hmsl midi.parser.off
+    mp.reset
+;
+

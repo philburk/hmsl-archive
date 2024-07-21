@@ -1,0 +1,31 @@
+ 
+( SELECT --- positional case statement )
+FALSE 
+.IF  
+CODE <SELECT>   ( N1 --- )  ( IP --R-- [IP+1]+N1*CELL )
+    SP A@+ 0DR DN MOVE  2 # 0DR DN ASL
+    IP 0DR CELL AN+R+B  W  AN MOVE
+    W     A@+  TEMP0 AN  MOVE
+    IP A@ IP AN MOVE
+    TEMP0 A@  JMP    END-CODE
+
+.THEN 
+
+: <SELECT>  ( N1 --- )  ( IP --R-- IP' )
+    1+ CELLS
+    INLINE@       ( -- bytes adr0 )
+    DUP @ INLINE+ ( -- bytes adr0 )
+    tuck + @      ( -- adr0 offset )  + EXECUTE ;
+
+: SELECT  ( --- )  ?COMP  COMPILE <SELECT>  HERE 0 ,  
+    BEGIN       BL WORD DUP $" END-SELECT" $= 
+    WHILE-NOT   FIND  NOT ABORT" SELECT item not found!"  over - , 
+    REPEAT      DROP  DUP HERE - ABS SWAP !  
+;  IMMEDIATE
+
+( SELECT WORD1 WORD2 ... END-SELECT )
+
+: END-SELECT ; 
+
+( NEW VERSION TESTED SEPT/13/86.  BTD.  SEEMS FINE )
+

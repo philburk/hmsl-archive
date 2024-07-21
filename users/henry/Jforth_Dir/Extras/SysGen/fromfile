@@ -1,0 +1,122 @@
+\ file? NAME ... prints file that NAME was compiled from...
+\
+\ NOTE: this only is true if FILEHEADERS was true at compile time...
+\       This is the normal default state for JForth.
+\ 00001 26-jan-92 mdh  CR chganged to >NEWLINE
+include? valid-name? jf:smart-id.
+
+decimal
+
+\ : @?   ( addr -- )  dup 1 and
+\   IF   cr ." long fetch, odd boundary: "  base @ hex swap . base !  quit
+\   THEN @ ;
+\ 
+\ : @ @? ;
+
+' forth >name  ' root - constant vocsize
+
+: fileheader?  ( nfa -- flag )
+  1+ odd@  $ 3a3a3a3a =
+;
+
+: unnest  ( -- nfa )
+  BEGIN  n>link @   ( prevnfa -- )
+         dup fileheader?
+  UNTIL  ;
+
+: nested?   ( nfa -- true-if-;;; )
+  @  $ 833b3b3b =   ;
+
+
+: lookforit   ( addr cnt -- , of filename text )
+  here pad 128 + $move
+  >dos  dosstring 2+  (fopen) -dup       ( wants null-term )
+  IF    dup  markfclose  tempfile !
+        tempbuff openfv markfreeblock    ( -- )
+        BEGIN  2 x>r  ?pause  2 xr>
+               tempfile @  tempbuff  pad 128 readline    
+               ( pad actual-line-len ) dup  0< 0=
+        WHILE  ( not end of file ) ( pad actual-line-len ) dup
+               IF  ( not an empty line )   ( pad len -- )
+                   2dup pad 128 + count match?  ( pad len flag -- )
+                   IF   ( found it there! ) cr
+                        BEGIN  type  2 x>r  ?pause 2 xr>   cr  ( -- )
+                               tempfile @ tempbuff
+                               pad 128 readline dup 0= over 0< or
+                        UNTIL  ( adr cnt -- )
+                   THEN
+               THEN 2drop
+        REPEAT 2drop
+        tempbuff @ unmarkfreeblock
+        tempbuff closefvread
+        tempfile @ dup unmarkfclose  fclose
+  ELSE  cr ." Sorry, can't open the file."
+  THEN  ;
+
+user #nested
+
+: nextname?   ( nfa -- next-nfa OR 0 )  dup 0> >r
+  BEGIN  2- dup r@
+         IF
+            0>
+         ELSE
+            >abs
+         THEN
+         IF   dup valid-name?
+         ELSE drop false true
+         THEN
+  UNTIL  rdrop  ;
+
+
+: NFA.FILE? ( nfa -- , file? with this NFA )
+       1 #nested !
+       >newline dup id. 
+       BEGIN  dup nextname? ( thisnfa prevnfa/0 -- ) -dup
+              IF   swap drop dup nested?
+                   IF    1 #nested +!
+                   THEN
+                   dup fileheader?  dup
+                   IF   -1  #nested +!
+                   THEN #nested @ 0= and
+              ELSE cr ." FILE?: fileheaders not found!" quit
+              THEN
+       UNTIL
+       ."  was compiled from "  dup >r
+       ( nfa -- )  dup c@ $ 1f and    ( nfa cnt -- )
+       4 -  ( nfa cnt-4 -- ) ( adjust out the locater text )
+       swap 5 + swap  ( adr cnt -- , of filename )
+       2dup type  cr   r> [ ' ::::keyboard >name ] literal = 0=
+       IF   ." Display?" y/n
+            IF   2dup lookforit
+            THEN
+       THEN 2drop
+;
+\
+: file?   ( -- )   ( eats: name )
+  >newline bl word  find  cr
+  IF   ( pfa -- )  >name ( -- nfa)
+      nfa.file?
+  ELSE $type ."  isn't in the selected vocabularies."
+  THEN  cr ;
+
+\ : view   ( -- , eats filename from input )
+\   file?  ;
+
+
+: MATCH.FILE? ( nfa -- , file? if match )
+    dup count $ 1F and ( -- nfa addr count )
+    here count 2 pick = ( nfa addr count here )
+    IF  text=? ( -- nfa flag )
+        IF nfa.file? cr
+        ELSE drop
+        THEN
+    ELSE 2drop 2drop
+    THEN
+;
+
+: EACH.FILE?  ( <name> -- , file? for every entry in dict. )
+    bl word drop
+    ' match.file? is when-scanned
+    ' drop is when-voc-scanned
+    scan-all-vocs
+;

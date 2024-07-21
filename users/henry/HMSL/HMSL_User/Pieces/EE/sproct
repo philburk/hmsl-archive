@@ -1,0 +1,103 @@
+\
+\ experiment with sound process..
+\
+\
+include? ee.spot ee
+
+anew sproc.spot
+
+Create dump:sproc
+$ F00f7F0B , $ 00f70000 ,
+
+\ reverse order of "final" bytes, as per soundproc.
+
+: Heks.
+hex
+dup  $ FF00 and 8 -shift s->D <# ascii : hold # # #> type
+     $ 00FF and          s->D <# # # #> Type
+decimal
+;
+
+: Nibs>-Pts@ ( addr -- # )
+{ Addr -- }
+           Addr 3 + C@ 15 And 
+ 4 +Shift  Addr 2 + C@ 15 And +
+ 4 +Shift  Addr 1 + C@ 15 And +
+ 4 +Shift  Addr 0 + C@ 15 And +
+;
+
+: SPCDump { | torg -- }
+
+\ now dump table (translating...)
+Sets:sproc 5 + -> torg
+11 0 do
+cr i . ." :"
+ 12 0 do
+ torg Nibs>-Pts@ heks. ."  "
+ torg 4 +  -> torg
+  loop
+
+
+loop
+;
+
+
+: dtable 
+Midi.clear
+envir:sproc
+start-list
+\ check it out..
+sproc:enasx 6 midi.write
+sproc:stat
+spstat 4 + c@ 0 = if
+Dump:Sproc 6 midi.write
+sproc:stat
+spstat 4 + c@ 0 = if
+11  12 * 4 * 0 do
+begin
+    midi.recv until
+ Sets:sproc i + C!
+loop
+then
+midi.clear
+sproc:EnaFP 6 midi.write
+Sproc:Stat
+else
+." sproc didn't open..." cr
+then
+mididevopened off
+spcDump
+;
+
+\ * test out a tuning of sorts?? of sproc
+: @..% dup . @% ;
+\
+: backwds
+start-list
+cr cr
+0
+11 0 do
+dup . ." :"
+i @C  @..%  \ C
+i @B  @..%  \ C#
+i @Bb @..%  \ D
+i @A  @..%  \ Eb
+i @Ab @..%  \ E
+i @G  @..%  \ F
+i @F# @..%  \ F#
+i @F  @..%  \ G
+i @E  @..%  \ Ab
+i @Eb @..%  \ A
+i @D  @..%  \ Bb
+i @C# @..%  \ B
+cr
+loop
+end-list
+drop
+spcDump
+;
+
+
+
+
+

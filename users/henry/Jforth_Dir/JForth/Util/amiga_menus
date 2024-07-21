@@ -1,0 +1,317 @@
+\ These words provide easy access to the Menu facility of the Amiga.
+\ Using these words you can easily setup the linked lists
+\ of menus, menuitems, and intuitext structures.  The structures
+\ will be filled with default values for simple text menus.
+\ The defaults can be changed to achieve any of the fancier
+\ menu types.
+\ Some of these words will have a MENU. prefix to distinguish them
+\ as menu words and minimize potential conflict with user words.
+\
+\ The addresses passed between these words are relative addresses
+\ for JForth to use.
+\ The address stored in the actual menus and menuitems as link
+\ pointers are absolute for the Amiga to use.
+\
+\ Author: Phil Burk
+\ Copyright 1986 - Delta Research
+\
+\ MOD: PLB 01/32/89 Put check in EZMENU.FREE to avoid freeing twice.
+\ MOD: MDH 02/05/89 Merge changes from Textra menus for 2.0 release.
+\ MOD: PLB 9/12/90 Add subitem support, convert to s@ and s!.
+\ MOD: PLB 12/13/91 Remove FREEVAR
+
+getmodule includes
+include? { ju:locals
+
+ANEW TASK-AMIGA_MENUS
+decimal
+
+\ MACROS from INTUITION.H , We try to avoid having executable code
+\ in include files so that they can be modules.
+: MENUNUM() ( menucode -- menu# )
+    $ 1F AND
+;
+
+: ITEMNUM() ( menucode -- item# )
+    -5 ashift  $ 3F AND
+;
+
+: SUBNUM() ( menucode -- subitem# )
+    -11 ashift $ 1F AND
+;
+
+\ =======================================================
+variable menu-defwidth        100 menu-defwidth !
+variable menuitem-defwidth    200 menuitem-defwidth !
+
+\ new vars, mdh...
+
+variable menu-defLeft          10 menu-defLeft !
+variable menuitem-defLeft      10 menuitem-defLeft !
+variable intuitext-defLeft      CHECKWIDTH intuitext-defLeft !
+variable menu-defTop
+variable menuitem-defTop
+
+: MENUITEM.SETUP  ( item# menuitem -- , Set defaults for item)
+    NULL  over s! mi_nextitem
+    menuitem-defLeft @             over s! mi_leftedge
+    swap 10 * menuitem-defTop @ +  over s! mi_topedge
+    menuitem-defwidth @            over s! mi_width
+    10                             over s! mi_height
+    ITEMTEXT ITEMENABLED | HIGHCOMP |   over s! mi_flags
+    0    over s! mi_MutualExclude
+    NULL  over s!  mi_itemfill
+    NULL  over s!  mi_selectfill
+    0     over s! mi_command
+    NULL  swap s! mi_SubItem
+;
+
+: INTUITEXT.SETUP ( intuitext -- , Set defaults. )
+    0    over s! it_frontpen
+    1    over s! it_backpen
+    JAM2 over s! it_DrawMOde
+    intuitext-defLeft @ over s! it_LeftEdge
+    1    over s! it_TopEdge
+    NULL over s! it_ITextFont
+    0" --------" over s! it_IText
+    NULL swap s! it_NextTExt
+;
+
+: MENU.SETUP ( 0str menu# &menu -- , set defaults )
+    NULL over s! mu_NextMenu
+    menu-defwidth @ rot *
+    menu-defLeft @ +   over s! mu_LeftEdge  ( set menu X )
+    menu-defTop @      over s! mu_TopEdge
+    menu-defwidth @    over s! mu_Width
+    10   over s! mu_Height
+    MENUENABLED  over s! mu_Flags
+    s! mu_MenuName
+;
+
+: MENU.MIS># ( subitem# item# menu# -- menunum , generate Amiga menunum )
+    6 ashift OR
+    5 ashift OR
+;
+    
+: MENU.NTH ( N menustrip -- Nth_menu , scan links for Nth menu )
+    swap ?dup
+    IF ( link through menus for right menu )
+        0 DO
+            s@ mu_nextmenu
+        LOOP
+    THEN
+;
+
+: MENU.LINKTO  ( menu1 menu2 -- , menu1 ---> menu2 )
+    swap s! mu_nextmenu
+;
+
+: MENU.LINKINTO  ( menu1 menu2 -- , menu1 ---> menu2 )
+  over s@ mu_nextmenu >r
+  tuck swap s! mu_nextmenu
+  r> swap  s! mu_nextmenu
+;
+
+: MENU.UNLINKFROM  ( UnlinkThisMenu FromThisMenu -- )
+  swap s@ mu_nextmenu   swap s! mu_nextmenu
+;
+
+: SetMenuStrip() ( rel_window rel_menu -- , Add menus to window. )
+    callvoid>abs intuition_lib SetMenuStrip
+;
+
+: ClearMenuStrip() ( rel_window -- , Clear menus from window. )
+    callvoid>abs intuition_lib ClearMenuStrip
+;
+
+: OnMenu() ( window menunum -- , turn ON that part )
+    callvoid>abs intuition_lib OnMenu
+;
+
+: OffMenu() ( window menunum -- , turn OFF that part )
+    callvoid>abs intuition_lib OffMenu
+;
+
+: ItemAddress()  ( menustrip menucode -- rel-menuitem )
+  call>abs intuition_lib ItemAddress if>rel
+;
+
+
+\ Support for Easy Menu system. --------------------------------
+:struct EZMENU
+    struct menu ezm_menu  ( intuition menu first for easy calls )
+    rptr   ezm_intuitexts ( text to use for menuitems )
+    rptr   ezm_cfas       ( array of cfas for words to execute for a menu )
+    short  ezm_many       ( number of items in menu )
+;struct
+
+:struct EZMENUITEM
+    struct MenuItem ezi_MenuItem
+    aptr   ezi_SubMenu    ( for getting CFAS )
+;struct
+
+user ezmenu-lastitem    ( for reference by menu actions )
+user ezmenu-lastsubitem    ( for reference by menu actions )
+
+: EZMENU.ITEM[] ( item# ezmenu -- &item , address of item in array )
+    .. ezm_menu s@ mu_firstitem
+    swap sizeof() ezmenuitem * +
+;
+
+: EZMENU.TEXT[] ( item# ezmenu -- &intuitext , address of intuitext in array )
+    s@ ezm_intuitexts
+    swap sizeof() intuitext * +
+;
+
+: EZMENU.CFA[] ( item# ezmenu -- &cfa , Address of action for menu item. )
+    s@ ezm_cfas
+    dup 0= abort" EZMENU.CFA[] - EZMENU.ALLOC? not called!"
+    swap cells +
+;
+
+: EZMENU.FREE  ( ezmenu -- , free space allocated for menu )
+    >r
+    0 r@ s! ezm_many    ( clear #items )
+\
+    r@ .. ezm_menu s@ mu_firstitem
+    ?dup IF freeblock THEN     ( deallocate menuitems )
+    0 r@ .. ezm_menu s! mu_firstitem
+\
+    r@ .. ezm_intuitexts freevar
+    r@ .. ezm_cfas freevar ( deallocate cfa array )
+    rdrop
+;
+
+: EZMENU.ALLOC?  { #items ezmen | &items -- &items | 0 }
+	ezmen ezmenu.free
+\
+\ allocate space for items and text
+    #items ezmen s! ezm_many    ( save #items )
+\
+\ allocate menuitems
+    MEMF_CLEAR #items sizeof() ezmenuitem *
+    ALLOCBLOCK dup -> &items
+\ link to first item
+    IF
+    	&items ezmen .. ezm_menu s! mu_firstitem
+\
+\ allocate intuitext
+    	MEMF_CLEAR #items sizeof() intuitext *
+    	ALLOCBLOCK ?dup
+    	IF ( -- &texts )
+    		ezmen s! ezm_intuitexts
+\  allocate cfa array 
+    		MEMF_CLEAR #items cells
+    		ALLOCBLOCK ?dup
+    		IF ( &cfas )
+    			ezmen s! ezm_cfas
+    		ELSE
+    			0 -> &items
+    		THEN
+		ELSE
+			0 -> &items
+		THEN
+	THEN
+	&items 0=
+	IF
+		ezmen ezmenu.free
+	THEN
+	&items
+;
+
+: EZMENU.ALLOC  ( #items ezmenu -- , allocate space for items and text )
+	ezmenu.alloc? 0= abort" EZMENU.ALLOC - could not allocate menu."
+;
+    
+: EZMENU.TEXT! ( 0$ item# ezmenu --  , Set Text for Menu )
+    ezmenu.text[]   ( This assumes already linked )
+    s! it_IText
+;
+
+: EZMENU.SET.FLAG ( flag item# ezmenu -- , OR with existing flags )
+    ezmenu.item[] dup s@ mi_flags  ( get existing flags )
+    rot OR swap s! mi_flags  ( set bit )
+;
+
+: EZMENU.COMMSEQ! ( char item# ezmenu -- , Set commend key for item)
+    2dup COMMSEQ -rot ezmenu.set.flag
+    ezmenu.item[]  s! mi_command   ( set char )
+;
+
+: EZMENU.EXCLUDE! ( mask item# ezmenu -- , set mask,  CHECKIT flag)
+    2dup CHECKIT -rot ezmenu.set.flag
+    ezmenu.item[] s! mi_mutualexclude
+;
+
+: EZSUBMENU.SETUP { ezmen | #items -- , set defaults and links }
+    ezmen s@ ezm_many  ( get count ) dup -> #items
+    IF  #items 
+        0 DO
+\ Set default CFA for menuitem
+            ' noop  i  ezmen  ezmenu.cfa[] !
+\
+\ Set defaults for item and text
+            i  i ezmen ezmenu.item[] menuitem.setup
+            i ezmen ezmenu.text[] dup intuitext.setup
+\
+\ Link text to item
+            i ezmen ezmenu.item[] s! mi_itemfill
+\
+\ Link to next menuitem.
+            i 1+ ezmen ezmenu.item[]
+            i ezmen ezmenu.item[] s! mi_nextitem
+        LOOP
+\ NULL last link
+        NULL #items 1- ezmen ezmenu.item[] s! mi_nextitem
+    ELSE
+        warning" EZSUBMENU.SETUP -- Menu has no items!"
+    THEN
+;
+
+: EZMENU.SETUP ( 0str menu# ezmen | #items -- , set defaults and links )
+    dup>r
+    .. ezm_menu  menu.setup
+	r> ezsubmenu.setup
+;
+
+\ link items from one menu as subitems into another menu
+: EZMENU.SUBMENU!  { submen item# ezmen | &item -- , set submenu for this item }
+	item# ezmen ezmenu.item[] -> &item
+	submen &item s! ezi_SubMenu
+	0 submen ezmenu.item[]  &item s! mi_subitem
+;
+
+: EZMENU.EXEC { menucode menustrip | ezmen item# &item -- }
+\ execute appropriate cfa
+	menucode  MENUNULL = not
+	IF
+\ get specific menu
+		menucode menunum() menustrip menu.nth -> ezmen
+\
+\ save last item and address
+		menucode itemnum() dup -> item# ezmenu-lastitem !
+		item# ezmen EZMENU.ITEM[] -> &item
+\
+		menucode subnum() dup NOSUB =
+		IF ( -- subitem )
+			drop item# ezmen
+		ELSE
+			&item s@ ezi_submenu
+		THEN
+		ezmenu.cfa[] @ ?dup
+		IF
+     		execute
+		THEN
+	THEN
+;
+
+: EZmenu.SetItem  ( 0$ cfa char? item# menu -- )
+  2 x>r  swap rot            ( -- char? cfa 0$ )
+  r@ 1 rpick  ezmenu.text!   ( -- char? cfa )
+  r@ 1 rpick  ezmenu.cfa[] ! ( -- char? )        ?dup
+  IF
+     r@ 1 rpick  ezmenu.commseq!
+  THEN
+  rdrop rdrop
+;
+

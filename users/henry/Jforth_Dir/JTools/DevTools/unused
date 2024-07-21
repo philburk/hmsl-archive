@@ -1,0 +1,86 @@
+\ Mark words as used when compiling.
+\ This is useful for finding out which words can be eliminated
+\ from a file to save space and can also catch bugs.
+\
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research
+\
+\ MOD: PLB 9/9/88 use if.forgotten
+
+include? USED_BIT ju:sfa_bits
+
+
+ANEW TASK-UNUSED
+
+.need used_bit
+$ 2000,0000 constant USED_BIT
+.then
+
+: MARK.USED ( cfa -- )
+    cell- dup @
+    used_bit or swap !
+;
+
+: MARK.UNUSED ( cfa -- )
+    cell- dup @
+    used_bit comp and swap !
+;
+
+USER OLD-FIND-CFA
+
+: (MARK.FIND) ( string -- string false | cfa true )
+    old-find-cfa @execute dup
+    IF over mark.used
+    THEN
+;
+
+: (CLEAR.MARKS) ( nfa -- , clear mark for word )
+    name> mark.unused
+;
+: SCAN-WITH ( cfa -- , scan dictionary with cfa )
+    dup is when-scanned
+    is when-voc-scanned
+    scan-words
+;
+
+: CLEAR.MARKS ( -- , clear marks on words )
+   ' (clear.marks) scan-with
+;
+
+: START.MARKING.WORDS  ( -- , Mark all subsequently found words. )
+    old-find-cfa @ 0=
+    IF  what's find  old-find-cfa !
+        ' (mark.find) is find
+    THEN
+;
+
+: STOP.MARKING.WORDS  ( -- , Mark all subsequently found words. )
+    old-find-cfa @
+    IF  old-find-cfa @ is find
+        0 old-find-cfa !
+    THEN
+;
+
+: (PRINT.UNUSED) ( nfa -- , print if not used )
+    dup name> cell- @ used_bit and
+    IF   drop
+    ELSE ID.lIST \ cr? id. space space
+    THEN
+;
+
+: UNUSED.WORDS ( -- , print unused words )
+    ' (print.unused) scan-with
+;
+
+: (PRINT.USED) ( nfa -- , print if not used )
+    dup name> cell- @ used_bit and
+    IF   ID.LIST  \ cr? id. space space
+    ELSE drop
+    THEN
+;
+
+: USED.WORDS ( -- , print unused words )
+    ' (print.used) scan-with
+;
+
+if.forgotten stop.marking.words

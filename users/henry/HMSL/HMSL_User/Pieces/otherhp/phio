@@ -1,0 +1,34 @@
+\
+\ phi - o - mania
+\
+
+anew phio.spot
+5. fsqrt 1. f+ 2. f/ constant phi
+
+\ tone ?
+ phi 5.0 F* 2.0 F+  constant Octave
+
+phi   octave F/ 2.0 swap f**  constant tone
+1.    octave F/ 2.0 swap f**  constant Semitone
+: r>c
+fln 2. fln f/ 1200. f* 
+;
+: phio
+tone
+10 0 do
+dup cr i . ." :" r>c f.
+tone f* 
+dup
+ 2.0 F> if
+2.0 f/
+then
+loop
+drop
+;
+
+3.1415926 Constant Pi
+2.0 1. pi 2.0 f* f/ f** constant PiInt  
+
+: PiI
+;
+

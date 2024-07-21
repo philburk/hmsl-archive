@@ -1,0 +1,11 @@
+; Assignments for a hard disk called "work:"
+; Edit this file to suit your system.
+; See Hard Disk Installation Instructions in manual.
+
+assign JForth: JFHD:JForth
+assign Extras: JFHD:Extras
+assign Jtools: JFHD:JTools
+
+execute Extras:assigns
+execute JForth:assigns
+execute JTools:assigns

@@ -1,0 +1,133 @@
+\ Select various subdivisions for simultaneous play.
+\ A set of shapes, each having a different subdivision of a measure,
+\ are created.  A production is written that selects up to 8 of
+\ these for simultaneous play.
+\
+\ Author: Phil Burk
+\ Original Composition: Phil Corner
+\ Copyright 1987
+
+include? { ju:locals
+include? ob.deck ho:deck
+
+ANEW TASK-SUBDIV
+
+\ Control data
+3 4 * 5 * 7 * constant TICKS/MEASURE
+2 constant SD_SCALAR     ( interval between shapes )
+50 constant SD_OFFSET
+
+: SD.FILL.SHAPE { shape divs | tprev -- }
+    dup 1 < warning" 0 divisions!"
+    divs 2 shape new: []
+    0 -> tprev
+    divs 1
+    DO  i ticks/measure * divs /  ( absolute time of note )
+        dup tprev -  ( -- time_now dur )
+        divs sd_scalar * shape add: []
+        -> tprev
+    LOOP
+    ticks/measure tprev -  ( remaining duration )
+    divs sd_scalar * shape add: []
+;
+
+: SD.INIT.UNIT { divs | shape player instr -- player , build player }
+    instantiate ob.shape dup -> shape
+    divs sd.fill.shape
+\
+    instantiate ob.player -> player
+    0 shape player 0stuff: []
+\
+    instantiate ob.midi.instrument -> instr
+    1 8 instr put.channel.range: []
+    sd_offset instr put.offset: []
+    instr player put.instrument: []
+    player
+;
+
+: SD.TERM.UNIT  { player -- , free all morphs }
+    0 player get: []  ( get rid of shape )
+    dup free: []
+    deinstantiate
+    player free: []
+    player get.instrument: [] deinstantiate
+    player deinstantiate
+;
+
+: SD.MAKE.PLAYERS  ( max_div -- , make all players )
+    dup new: coll-s-1
+    0 DO
+        i 1+ sd.init.unit
+        add: coll-s-1
+    LOOP
+;
+
+: SD.KILL.PLAYERS ( -- )
+    many: coll-s-1 0
+    DO  i get: coll-s-1
+        sd.term.unit
+    LOOP
+;
+
+: SD.PRINT.SHAPES ( -- )
+    many: coll-s-1 0
+    DO i . cr
+       i get: coll-s-1
+       0 swap get: []   ( get shape )
+       print: []
+    LOOP
+;
+
+: SD.SIMPLE  ( -- , play simple sequence of divisions )
+    12 sd.make.players
+    coll-s-1 hmsl.play
+    sd.kill.players
+;
+
+\ Select multiple parallel tracks.
+20 constant SD_MAX_DIVS
+OB.DECK SD-TRACKS-USED  ( keep track of which ones have been selected)
+: SD.SELECT.PLAYER  ( -- player )
+    deal: sd-tracks-used
+    get: coll-s-1
+;
+
+: SD.PICKEM  ( -- )
+    shuffle: sd-tracks-used
+    clear: coll-p-1
+    8 choose 1+ 0
+    DO  sd.select.player
+        add: coll-p-1
+    LOOP
+;
+
+: SD.INIT.MULTI ( -- )
+    sd_max_divs sd.make.players
+    8 new: coll-p-1
+    sd_max_divs new: sd-tracks-used
+\
+    1 new: production-1
+    'c sd.pickem add: production-1
+\
+    2 new: coll-s-2
+    production-1 add: coll-s-2
+    coll-p-1 add: coll-s-2
+    24 put.repeat: coll-s-2
+;
+
+: SD.TERM.MULTI ( -- )
+    sd.kill.players
+    free: sd-tracks-used
+    free: coll-p-1
+\
+    free: production-1
+    free: coll-s-1
+;
+
+: SUBDIV  ( -- , perform piece )
+    sd.init.multi
+    coll-s-2 hmsl.play
+    sd.term.multi
+;
+
+." Enter: SUBDIV  to hear piece." cr

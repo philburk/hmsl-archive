@@ -1,0 +1,261 @@
+\ 
+\
+\ Hmmm.. "detect the chord?"
+\
+anew bw.spot
+
+\ NO-COMMAS
+
+create played 128 cells allot
+
+
+v: ShutDown
+
+\ each bit corresponds to the keys being held down, squooshed to 1 8ve.
+v: TonPat
+v: TonMax
+v: TheKey
+
+v: velo
+v: note
+v: note'
+
+\ counts how many Note-ons etc.  0..11 
+create Counts 12 cells  allot
+
+create NotesPlaying 128 cells allot
+
+
+v: OnPattern
+v: NumPlaying
+
+\ adapted to remove octave...
+: Note. ( note -- )
+\ dup 
+12 mod
+case
+00 of ." C  " endof
+01 of ." C# " endof
+02 of ." D  " endof
+03 of ." Eb " endof
+04 of ." E  " endof
+05 of ." F  " endof
+06 of ." F# " endof
+07 of ." G  " endof
+08 of ." Ab " endof
+09 of ." A  " endof
+10 of ." Bb " endof
+11 of ." B  " endof
+endcase
+\ 12 / .
+;
+
+\ prints a chord relative to the "pattern"
+binary
+100000000000 Constant C_Alone
+110000000000 Constant C_R-5
+100100000000 Constant C_R-6
+100010000000 Constant C_R-3
+110010000000 Constant C_Maj 
+110011000000 Constant C_Maj7
+110010000010 Constant C_7
+110000000100 Constant C_Min 
+110110000000 Constant C_6 
+111000000000 Constant C_R59
+111000000010 Constant C_Sus7
+110100000100 Constant C_Min6
+100010001000 Constant C_+
+100010001010 Constant C_+7
+100100100000 Constant C_0
+100100100100 Constant C_07
+101000000000 Constant C_R-2
+decimal
+: Chord. ( pattern -- )
+case
+  C_Alone of ." Alone " endof
+  C_R-5 of ." R-5 " endof
+  C_R-6 of ." R-6 " endof
+  C_R-2 of ." R-2 " endof
+  C_R-3 of ." R-3 " endof
+  C_Maj of ." Maj " endof
+  C_Maj7 of ." Maj7 " endof
+  C_7 of ." 7 " endof
+  C_Min of ." Min " endof
+  C_6 of ." 6 " endof
+  C_R59 of ." R59 " endof
+  C_Sus7 of ." Sus7 " endof
+  C_Min6 of ." Min6 " endof
+  C_+ of ." + " endof
+  C_+7 of ." +7 " endof
+  C_0 of ." 0 " endof
+  C_07 of ." 07 " endof
+  dup  binary . decimal  ." ? " 
+endcase
+;
+decimal
+
+
+\ the question becomes... hmmm. this is probably not the ideal 
+\ reordering.
+\
+\ c g d a e b F# c# ab Eb Bb F
+: NoteBit ( -- bit )
+\ the 7* moves it in a circle of fifths !!!!
+note @ 12 mod  7 * 12 mod 11 swap -
+;
+
+: BitNoto ( bit -- transposed note in 12 )
+11 swap - 7 * 12 mod 
+;
+
+
+: PatRot
+\ rotate tonpat mod 12 
+tonPat @ 2* dup 12 bit-set? if 1+  12 clr-bit then tonpat !
+;
+
+
+\ scan on-notes and make a pattern
+: BitPatMake
+ 0 \ preset a 0...
+onpattern off
+12 0 do
+\ n set-bit or clr-bit
+  i  Counts i cells + @ 
+\ i . dup . cr 
+	if set-bit  else clr-bit then 
+loop
+ onpattern !
+\  ." new:" onpattern @ binary . decimal cr
+;
+
+
+\ I don't know if those patterns are really necessary, but we can use em
+\ to determine a gamut and a transformed note from that gamut.
+\ this trick works by rotating the note pattern until it's
+\ at its maximum value.
+\ that "normalizes" it.
+\ but what we probably want to do is convolve the total velocities
+\ of all existing keys with a harmonic weight array..
+\ then use that to determine the key...
+\
+: getgamut ( notein -- noteout )
+\ discover the "key"
+TheKey off
+OnPattern @ dup TonMax ! TonPat !
+12 0 do
+ TonPat @ TonMax @ > 
+  if i 7 * 12 mod  TheKey ! tonPat @ TonMax ! then
+PatRot
+loop
+
+ TheKey @ note.  tonmax @ Chord. cr
+
+;
+
+
+
+: Do.note.off ( note vel -- )
+velo ! note !
+NumPlaying decr
+\ knock off the velo and registry in notesplaying
+NotesPlaying note @ cells + off
+
+\ decrement note hits?
+Counts notebit cells + decr
+
+note @ cells Played + @ velo @ midi.noteoff
+\ not really needed...
+0 note @ cells played + !
+;
+
+
+: Do.note.on ( note vel -- )
+
+velo ! note !
+
+velo @ if-not
+\ actually a noteoff!
+note @ 64 do.note.off
+else
+
+NumPlaying incr
+\ save note in playing...
+
+velo @ NotesPlaying note cells + !
+\ set the note pattern bit...
+
+Counts notebit cells + incr
+BitPatMake
+
+\ we register 
+note @ getgamut note' !
+\  ." got " note' @ note.  ." from note " note @ note. cr
+
+note' @ note @ cells played + !
+note' @ velo @ MIDI.Noteon
+then
+;
+
+
+: Do.Control ( num amt )
+\ wheel = shutup
+over 1 = if
+ 2drop  ShutDown On
+else \ send all controls -- like "pedal" 
+ midi.control
+then
+;
+
+
+\ these numbes start at 0.. but midi.program thinks of 1..n
+
+: DO.ProgCh ( progno -- )
+\ dumbass thing wants numbers 1--128 not 0..127!
+1+ MIDI.program 
+\ crank volume
+ 7 127 MIDI.control
+;
+
+
+: bw.init
+\ for every midi note in, pull 8 note numbers out.
+
+Shutdown off
+\ clear the Counts
+12 0 do
+ Counts i cells + off
+loop
+
+MIDI.Clear
+mp.reset
+    'c Do.note.on  mp-on-vector !
+    'c Do.note.off  mp-off-vector !
+    'c Do.Control  mp-Control-Vector !
+    'c Do.progch mp-Program-Vector !
+\ set prog to 1
+0 do.Progch
+
+1 midi.channel!
+;
+
+
+: bw.play
+\ watch the midi's and retune them
+MIDI.Parser.on
+begin MIDI.Parse shutdown @ until
+;
+
+: bw.end
+MIDI.Parser.off
+MIDI.Clear
+MIDI.kill
+;
+
+: bw
+bw.init bw.play bw.end
+." bw done!" cr
+;
+
+
+." Use bw (jhhl)" cr

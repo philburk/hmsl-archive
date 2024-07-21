@@ -1,0 +1,1260 @@
+\ Debugger
+\
+\ To use this debugger, surround the code you
+\ want debugged with debug{ ..... }debug
+\ then compile it.  The debugger will compile
+\ names embedded in the code.
+\ Then enter:   DEBUG  name     to debug a
+\ named Forth routine.
+\ Enter '?' in debugger for menu.
+\
+\ For example:
+\    DEBUG{
+\    : FOO ( -- )
+\        23 dup + .
+\    ;
+\    }DEBUG
+\    DEBUG FOO
+\
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk
+\
+\ MOD: PLB 8/29/88 Check for second level of interpreter.
+\      For LOCALS and other vectorred FINDs.
+\      Save Stack, HERE and PAD
+\      Don't use Assembler
+\ MOD: PLB 9/9/88 Use IF.FORGOTTEN }DEBUG
+\ MOD: PLB 9/13/88 Add HERE 256 dump
+\ MOD: PLB 11/15/88 Fixed line handling with FILL-TIB?
+\      Handle LF chars to allow DEBUG from CLI
+\ MOD: PLB 12/7/88 Added 'l' command, added window,
+\      removed call to DB.FILL-TIB?
+\ MOD: PLB 12/10/88 Display Relative addressing.
+\ MOD: PLB 12/15/88 Vector quit to close window.
+\ MOD: PLB 1/3/89 Save LASTSCAN before WORD
+\      Added multiple breakpoints.
+\ MOD: PLB 1/11/89 Cleanup RECURSION check, add DEBUG.RESET
+\ MOD: PLB 2/3/89 Save EMIT properly and use FAST I/O, add BYE
+\ MOD: PLB 2/7/89 Save HERE and PAD during debug.
+\ MOD: PLB 6/6/91 INCLUDE JU:LOCALS so that ';' is before debugger
+\		copy name to DB-PAD in DB.FIND
+\ MOD: PLB 7/2/91 Do not DB-WINPTR OFF so that windows can
+\       be closed with DEBUG.STOP after an error.
+\ 00001 18-aug-91  mdh     Incorporated XBLK
+\ 00002 PLB 11/14/91 Used $= so JU:LOCALS not needed. Now works
+\          with any redefinition of ; EXIT RETURN or ;M
+\ 00003 PLB 12/14/91 Fixed BREAKAT when DEBUG{ on by using DB-PAD2
+\ 00004 PLB 1/4/92 Fixed BREAKAT for words with locals by
+\		adding DB.RETURN.TO.RTS
+
+decimal
+include? tolower ju:char-macros
+
+ANEW TASK-DEBUGGER
+decimal
+
+: SAVE.REGS ( -- )
+    [ $ 48e7,fefc , ] inline
+;
+: RESTORE.REGS ( -- )
+    [ $ 4cdf,3f7f , ] inline
+;
+
+: PUSH.REGS ( -- a7-a0/d7-d0 )
+    [ $ 2D07 w, \ move.l tos,-(dsp)
+      $ 48E6FFFF , \ movem.l d0-d7/a0-a7,-(dsp)
+      $ 2E1E w, \ move.l (dsp)+,tos
+    ]
+;
+
+: .REG  ( reg -- )
+    base @ >r HEX
+    s->d
+    <# # # # #
+       # # # # #>
+    type
+    r> base !
+;
+: PRINT.4REGS  ( v4 v3 v2 v1 -- )
+    4 0 DO BL i 12 * 4 + emit-to-column .reg LOOP
+;
+
+: PRINT.16REGS  ( -- a7-a0/d7-d0 )
+    >newline ." Data Registers" cr
+    ." D0-3: " print.4regs cr
+    ." D4-7: " print.4regs cr
+    ." Address Registers" cr
+    ." A0-3: " print.4regs cr
+    ." A$-7: " print.4regs cr
+;
+
+: DUMP.REGS
+    save.regs
+    push.regs
+    print.16regs
+    restore.regs
+;
+
+\ This next word will be handy for calling from ASM code.
+variable db-SAVE-PC
+: DUMP.68000 ( -- , show PC & regs )
+    r@ >rel db-save-pc !
+    save.regs  push.regs
+    >newline db-save-pc @ ." PC = " .reg cr
+    print.16regs
+    restore.regs
+;
+
+    
+\ ---------------- ALL VARIABLES --------------------
+DEFER OLD.FIND
+what's find is old.find
+defer USER.BREAK?  ( address -- debug? )
+' 0= is user.break?
+DEFER db.OLD.QUIT
+' noop is db.old.quit
+
+\ Variables used at compile time.
+variable db-PAD1 128 allot
+variable DB-PAD2 128 allot ( name to search for in BREAKAT 00003 )
+variable db-INSTALLED ( vectors installed )
+variable db-LATEST  ( save latest to tell when in new word)
+variable db-LAST-STATE  ( use to detect state transitions)
+variable db-START-STATE ( use to detect debug{ }debug errors )
+variable db-ABORT   ( use to avoid recursion in user.break?)
+variable db-SIZE-ADDR ( place where instruction size goes )
+variable db-CODE-ADDR ( address of code after debug )
+variable db-ENABLE  ( allow compilation of debug info )
+
+\ Variables used when debugging.
+variable db-ACTIVE  ( control whether debug prints )
+variable db-TOUCH   ( control whether debug stops )
+variable db-GO      ( do another step )
+variable db-COUNT   ( only break if zero )
+variable db-CURRENT ( address of current step )
+variable db-NAME    ( address of current word name )
+variable db-DIVE    ( control traversing called words)
+variable db-LEVEL   ( level of nesting )
+variable db-TRIGGER ( level for debugger to come back )
+variable db-GOT-LF  ( getting an LF means in CLI !! )
+variable db-OLDCON  ( hold old console, true if dbg window open)
+variable db-WINPTR  ( pointer to debugger window )
+variable db-OUT     ( hold OUT when in debug )
+variable db-SAVE-RP ( save RP as place to jump back to )
+variable db-MODE    ( mode for traversing code )
+variable db-RESULT  ( result from searches and other things )
+variable db-RETPTR  ( return stack pointer at entry )
+
+\ Variables used to control Debugger options.
+variable db-WINDOW  ( true if use own window )
+db-window on
+variable db-CHECK^D ( break on ^D if true )
+db-check^d on
+
+0 constant db_NORMAL_MODE  ( stop and debug code )
+1 constant db_SEARCH_MODE  ( scan code for instruction )
+2 constant db_ENTRY_MODE   ( find entry point )
+3 constant db_SKIP_MODE    ( skip over code )
+\
+\ Support multiple breakpoints ---------------------------------
+\ Keep breakpoints in a table.
+\ Use by scanning for match.
+\ Add breakpoint at a zero location.
+\ Remove by scanning for match and setting to zero.
+16 constant db_MAX_BREAKS
+variable db-NUM-BREAKS
+db_max_breaks array db-BREAK-TABLE
+
+: NOBREAKS ( -- clear all breakpoints )
+    0 db-num-breaks !
+;
+nobreaks
+
+: DB.MATCH.BREAK  ( value -- index | -1 )
+    -1 swap   ( default flag )
+    0 db-break-table
+    db-num-breaks @ 0
+    DO  2dup @ =
+        IF >r >r drop i r> r> LEAVE
+        THEN cell+  ( fast linear search )
+    LOOP 2drop
+;
+
+: DB.ADD.BREAK ( value -- )
+    db-num-breaks @ db_max_breaks <
+    IF dup >newline ." Breakpoint added at " .hex cr
+       db-num-breaks @ db-break-table !
+       1 db-num-breaks +!
+    ELSE drop ." Breakpoint table full!"
+    THEN
+;
+
+: DB.CLEAR.BREAK ( value -- , remove from table )
+    db.match.break dup 0<
+    IF drop ."  Breakpoint not set!"
+    ELSE ( -- i )
+        dup 1+ db-num-breaks @ <
+        IF  ( -- i , pack table )
+            dup>r 1+ db-break-table  ( -- src )
+            dup cell-   ( -- src dst )
+            db-num-breaks @ r> - 1- 0 max cells move
+        ELSE drop
+        THEN
+        -1 db-num-breaks +!
+    THEN
+;
+
+: DB.SHOW.BREAKS ( -- )
+    >newline db-num-breaks @ 0
+    DO i .hex i db-break-table @ .hex cr
+    LOOP
+;
+    
+\
+\ -----------------------------------------------------
+\ Calling Sequence Trace Stack
+\ This will be needed for CLONED programs that don't
+\ have NFAs so UNRAVEL won't work.
+32 constant db_MAX_NEST
+db_max_nest array db-CALLS
+variable db-SP  ( number of things on stack )
+: DB.0SP  ( - , clear debug stack )
+    db-sp off
+;
+
+: DB.PUSH  ( value -- , push value onto stack )
+    db-sp @ db_max_nest <
+    IF db-sp @ db-calls !
+       1 db-sp +!  ( post increment )
+    ELSE drop
+       ." db.PUSH - debug stack overflow, nested too deep!" cr
+    THEN
+;
+
+: DB.TOS ( -- value ,  )
+    db-sp @ 1- ( predecrement ) db-calls @
+;
+
+: DB.DROP ( -- )
+    db-sp @ 0>
+    IF -1 db-sp +!
+\    ELSE
+\       ." db.DROP - already empty debug stack!"
+    THEN
+;
+
+: DB.POP ( -- value )
+    db.tos
+    db.drop
+;
+
+: DB.SAVE.CALLS ( -- )
+    r> ( return address )
+    0
+    BEGIN dup db-sp @ <
+    WHILE dup db-calls @ >r 1+
+    REPEAT drop
+    db-sp @ >r ( save count )
+    >r
+;
+
+: DB.RESTORE.CALLS ( -- )
+    r> ( return address )
+    r> dup db-sp !  ( get count )
+    BEGIN dup 0>
+    WHILE 1- r> over db-calls  !
+    REPEAT drop
+    >r
+;
+
+: DB.SHOW.CALLS ( -- , assume stack has $names )
+    >newline ." Calls: "
+    db-sp @ 0
+    DO  i 0> IF ."  --> "
+        THEN
+        i db-calls @ $type cr?
+    LOOP
+;
+
+: DB.TEST.CALLS ( -- )
+    db.0sp
+    " SWAP" db.push
+    " JABBER" db.push
+    " 1+" db.push
+    db.show.calls
+    db.0sp
+;
+
+\ -----------------------------------------------------
+
+: DB.VARS.OFF ( -- , reset variables )
+    db-active off
+    db-count off
+    db-current off
+    db-dive off
+    db-level off
+    db-trigger off
+    db-abort off
+    db-latest off
+    db-last-state off
+    db-got-lf off
+\    db-oldcon off
+\    db-winptr off
+    db-mode @ off
+;
+
+: DB.SAVE.VARS  ( -- , save state )
+    r>  ( save return address )
+    db-active @ >r
+    db-go @ >r
+    db-count @ >r
+    db-current @ >r
+    db-dive @ >r
+    db-level @ >r
+    db-trigger @ >r
+\    db-oldcon @ >r
+\    db-winptr @ >r
+    db-save-rp @ >r
+    db-mode @ >r
+    db-retptr @ >r
+    db-out @ >r
+    db-name @ >r
+    db-touch @ >r
+    >r  ( restore return address )
+;
+: DB.RESTORE.VARS  ( -- , restore state , must match DB.SAVE.VARS )
+    r>  ( save return address )
+    r> db-touch !
+    r> db-name !
+    r> db-out !
+    r> db-retptr !
+    r> db-mode !
+    r> db-save-rp !
+\    r> db-winptr !
+\    r> db-oldcon !
+    r> db-trigger !
+    r> db-level !
+    r> db-dive !
+    r> db-current !
+    r> db-count !
+    r> db-go !
+    r> db-active !
+    >r  ( restore return address )
+;
+
+: DB.SAVE.HERE ( -- , save here and 256 byte on R stack )
+    r>  ( save return address )
+\ Save HERE and next 256 bytes, saves PAD
+    64 0
+    BEGIN 2dup >
+    WHILE here over cells + @ >r 1+
+    REPEAT 2drop
+    here >r
+    >r ( for RTS )
+;
+
+: DB.RESTORE.HERE ( -- , restore HERE )
+    r>  ( return address )
+    r> HERE - warning" WARNING - HERE and PAD moved!"
+    64
+    BEGIN dup 0>
+    WHILE 1- r> over cells here + !
+    REPEAT drop
+    >r  ( for RTS )
+;
+
+: DB.PAUSE  ( -- , do several lines of forth input )
+\ Save data stack on return stack.
+    depth 0>
+    IF depth dup>r
+        xdup r> x>r
+    THEN
+    depth >r
+\
+\ Save miscellaneous.
+    flushemit  pushtib
+    span @ >r
+    db.save.calls
+    db.save.vars
+    db.vars.off
+    xblk @ >r ( 00001 )   fblk @ >r  blk @ >r
+    xblk off  ( 00001 )   fblk off  blk off  out off
+\
+    BEGIN cr ." Forth> " query #tib @ 0>
+    WHILE interpret
+    REPEAT
+\
+    r> blk !  r> fblk !    r> xblk ! ( 00001 )
+    db.restore.vars
+    db.restore.calls
+    r> span !
+    pulltib
+\
+\ Restore Data Stack
+    0sp r> dup 0>
+    IF xr>
+    ELSE drop
+    THEN
+;
+
+: DB.INPUT$ ( -- $string )
+    span @
+    db-pad1 1+
+    128 expect
+    span @ db-pad1 c!
+    span !
+    db-pad1
+;
+
+: DB.LF.INPUT$ ( -- , skip first LF if in CLI )
+    db-got-lf @
+    IF db.input$ c@ 0=
+       IF db.input$  ( try again )
+       ELSE db-pad1
+       THEN
+    ELSE db.input$
+    THEN
+;
+
+: DB.INPUT# ( -- N )
+    ." #> "
+    db.input$
+    number?
+    IF  dpl @ 0< ( single precision? )
+        IF drop
+        THEN
+    ELSE 0 ." Not valid, 0 used!" cr
+    THEN
+;
+
+: DB.S  ( -- , print stack )
+    >newline
+    depth 0<
+    IF ." Underflow!" 0sp  ( reset )
+    ELSE
+        depth 0=
+        IF ." Empty!"
+        ELSE
+            depth 10 >
+            IF ." <<<["
+            ELSE ." ["
+            THEN
+            base @ decimal
+            depth 1- 1 .r ." ] "
+            base !
+            depth 8 min 0
+            DO depth 8 min i - 1- pick . cr?
+            LOOP
+        THEN
+    THEN
+;
+
+: DB.RDEPTH  ( -- #retcells )
+    r0 @ db-retptr @ - cell/  20 -
+    0 max
+;
+
+: DB.RSTACK  ( -- , print return stack )
+    >newline
+    db.rdepth  10 >
+    IF ." <<<("
+    ELSE ." ("
+    THEN
+    base @ decimal
+    db.rdepth 1 .r ." ) "
+    base !
+    db.rdepth dup 30 - 0 max
+    DO r0 @  i 5 + cells - @ .hex cr?
+    LOOP
+;
+
+: DB.GET.SIZE ( -- size )
+    db-name @ dup c@ + c@ ascii 0 -
+;
+
+: DB.SKIP ( -- skip instruction )
+    db.get.size db-save-rp +!
+;
+
+\ Window I/O Control
+: SWAP.OUT ( -- , swap debugger out for systems )
+    out @ db-out @ out ! db-out !
+;
+
+defer DB-OLD-EMIT
+defer DB-OLD-FLUSHEMIT
+variable DB-OLD-FASTIO?
+
+: DB.SET.VECTORS ( -- )
+    what's db-old-emit ' quit =
+    IF  flushemit
+        what's emit is db-old-emit
+        what's flushemit is db-old-flushemit
+        fastio? @ db-old-fastio? !
+        fast  ( comment out this line to make debug work with LOGTO )
+        ( But there may be problems with users redefining EMIT )
+        ( and recursing! )
+    THEN
+;
+
+: DB.RESET.VECTORS ( -- )
+    what's db-old-emit ' quit -
+    IF  what's db-old-emit is emit
+        what's db-old-flushemit is flushemit
+        db-old-fastio? @ fastio? !
+        ' quit is db-old-emit
+    THEN
+;
+    
+: DB.WINDOW.ON  ( -- , use debugger window )
+    db-winptr @
+    IF  db.set.vectors
+        db-oldcon @ 0=
+        IF  console@ db-oldcon !
+            flushemit swap.out
+            db-winptr @ console!
+        THEN
+    THEN
+;
+
+: DB.WINDOW.OFF  ( -- , use normal window )
+    db-winptr @
+    IF  db-oldcon @
+        IF  flushemit db-oldcon @ console!
+            swap.out  db-oldcon off
+        THEN
+        db.reset.vectors
+    THEN
+;
+
+: DB.CLOSE.WINDOW ( -- , close debugger window )
+    db-winptr @
+    IF  db.window.off
+        db-winptr @ fclose
+        db-winptr off
+    THEN
+;
+
+: DB.CLEANUP ( -- )
+    db-active off db-trigger off
+    db.0sp
+    db.close.window
+    what's db.old.quit dup ' noop =
+    IF drop
+    ELSE is quit ' noop is db.old.quit
+    THEN 
+;
+
+: DB.QUIT ( -- , quit and reset vectors )
+    db.cleanup quit
+;
+
+: DB.OPEN.WINDOW ( -- , open debugger window )
+    db-window @
+    db-winptr @ 0= AND
+    IF  " RAW:0/20/640/120/JForth Debugger"
+        $fopen ?dup
+        IF db-winptr !
+        ELSE ." Debugger window could not be opened!" cr
+        THEN
+    THEN
+    what's db.old.quit ' noop =
+    IF \ Set quit vectors
+        what's quit is db.old.quit
+        ' db.quit is quit
+    THEN
+;
+
+
+: WAIT?CR  ( -- , wait if key )
+    ?terminal
+    IF key drop
+        key drop
+    THEN cr
+;
+
+\ Interactive Command Parsing
+: DB.HELP ( -- )
+    wait?cr
+    ." JForth Debugger - PLB" wait?cr
+    ." Information:" wait?cr
+    ."   w - Where?, who called who" wait?cr
+    ."   6 - 680x0 register dump" wait?cr
+    ."   m - Memory dump from address on stack" wait?cr
+    ."   s - regular Stack dump" wait?cr
+    ."   r - Return stack hex dump" wait?cr
+    ."   h - HERE 256 DUMP , shows PAD too" wait?cr
+    ." Action:" wait?cr
+    ."   f - Forth, interpret one line" wait?cr
+    ."   x - drop one number from stack" wait?cr
+    ."   n - push a Number onto stack" wait?cr
+    ."   + - add a number to top of stack" wait?cr
+    ." Bases: 1 - decimal , 2 - binary , 3 - hex" wait?cr
+    ." User:  7,8,9 - DEBUG.USER.7,8,9" wait?cr
+    ." Control:" cr
+    ."   b - set the Breakpoint here" wait?cr
+    ."   c - Clear the breakpoint here" wait?cr
+    ."   # - enter # breaks to skip" wait?cr
+    ."   u - Up, continue until RTS" wait?cr
+    ."   j - Jump over next instruction" wait?cr
+    ."   z - set user.break? to 0= , disabled" wait?cr
+    ."   l - Look at code ?terminal until" wait?cr
+    ."   g - Go" wait?cr
+    ."   <SPACE> - single step on same level" wait?cr
+    ."   <CR> or d - dive down into word" wait?cr
+    ."   q - quit" wait?cr
+;
+
+defer debug.user.7 ' db.help is debug.user.7
+defer debug.user.8 ' db.help is debug.user.8
+defer debug.user.9 ' db.help is debug.user.9
+
+: DB.PARSE  ( char -- continue? , act on char )
+    db-go off
+    tolower
+    CASE
+           $ 0D OF db-dive on db-go on
+                ENDOF
+             BL OF db-dive off db-go on
+                ENDOF
+        ascii u OF db-active off db-go on
+                   db-level @ db-trigger !
+                ENDOF
+        ( ^D) 4 OF >newline ." Control-D break!" cr
+                ENDOF
+             10 OF ( ignore line feed )
+                ENDOF
+        ascii 1 OF decimal  >newline ." Decimal!" ENDOF
+        ascii 2 OF 2 base ! >newline ." Binary!"  ENDOF
+        ascii 3 OF hex  >newline ." Hexadecimal!" ENDOF
+        ascii 6 OF dump.regs ENDOF
+        ascii d OF db-dive on db-go on
+                ENDOF
+        ascii f OF db.pause >newline
+                ENDOF
+        ascii g OF db-active off db-go on
+                   db-trigger off
+                ENDOF
+        ascii h OF here 256 dump
+                ENDOF
+        ascii j OF db.skip ." Instruction Skipped!" db-go on
+                ENDOF
+        ascii l OF db-touch off db-go on
+                ENDOF
+        ascii m OF dup 32 dump
+                ENDOF
+        ascii n OF >newline ." Push " db.input#
+                ENDOF
+        ascii r OF db.rstack
+                ENDOF
+        ascii s OF .s
+                ENDOF
+        ascii w OF db.show.calls
+                ENDOF
+        ascii x OF drop
+                ENDOF
+        ascii + OF >newline ." Add " db.input# +
+                ENDOF
+        ascii b OF db-current @ db.add.break >newline
+                ENDOF
+        ascii c OF db-current @ db.clear.break >newline
+                ENDOF
+        ascii # OF >newline ." Skip " db.input#
+                   1- 0 max db-count !
+                   db-active off db-go on
+                ENDOF
+        ascii z OF ' 0= is user.break? >newline ENDOF
+        ascii q OF db.quit  ENDOF
+        ascii ? OF db.help
+                ENDOF
+        ascii 7 OF debug.user.7 >newline ENDOF
+        ascii 8 OF debug.user.8 >newline ENDOF
+        ascii 9 OF debug.user.9 >newline ENDOF
+                cr ." Unrecognized DEBUG command = "
+                dup . dup emit cr
+                ." Enter ? for help." cr
+    ENDCASE
+    db-go @
+;
+
+: DB.DISPLAY  ( -- , display current stack and word )
+    db.s cr
+    db-current @ .hex ." : "
+    ascii - 14 emit-to-column
+    ." ( " db-level @ 2* spaces ( indent )
+    db-name @ count 1- ( 1- to account for size suffix )
+    type space
+    bl 50 emit-to-column
+    ." |? "
+;
+
+: DB.INTERP ( -- , interpret debugger key commands )
+    BEGIN
+        db.display
+        db-got-lf @  ( in CLI with LFs coming? )
+        IF  key dup 10 = ( empty line, convert to <CR> )
+            IF  drop 13
+            ELSE BEGIN key 10 = UNTIL  ( wait for LF to clean up)
+            THEN
+        ELSE key dup 10 =
+            IF db-got-lf on
+            THEN
+        THEN
+        dup dup BL <
+        IF drop space
+        ELSE emit
+        THEN space
+        db.parse
+        flushemit
+    UNTIL
+;
+
+: DB.SAVE.STATUS  ( -- , save variables that DB touches )
+    r>
+    db.save.here
+    #digs @ >r
+    hld @ >r
+    state @ >r
+    >r
+;
+
+: DB.RESTORE.STATUS ( -- )
+    r>
+    r> state !
+    r> hld !
+    r> #digs !
+    db.restore.here
+    >r
+;
+    
+: ($DEBUG) ( $string+size -- )
+    rp@ db-retptr !  ( snapshot return pointer for rdump )
+    db.save.status
+    >newline ascii - 57 emit-to-column
+    db-name !
+    db-touch @
+    IF db.interp
+    ELSE db.display
+        ?terminal
+        IF db-touch on
+        THEN
+    THEN
+    bl 56 emit-to-column ." ) "
+    flushemit
+    db.restore.status
+;
+
+.NEED SetSignal()
+: SetSignal()  ( value mask -- oldvalues )
+    call exec_lib SetSignal
+;
+.THEN
+
+: ?CONTROL-D   ( -- flag , true if control D hit )
+    0 $ 2000 setsignal()
+    $ 2000 and 0= 0=
+;
+
+\ Decision to display db.
+: DEBUG? ( address -- debug? )
+\ Give the debugger various chances to turn on if off.
+    db-current !
+\
+\ Check for debug back on for this level.
+    db-active @ 0=
+    IF db-level @ db-trigger @ <
+        IF db-active on
+           db-level db-trigger !
+        THEN
+    THEN
+\
+\ Check for breakpoint hit.
+    db-current @ db.match.break -1 >
+    IF  db-count @ 0=
+        IF  db-active on db-touch on
+            >newline ." Breakpoint Encountered!"
+        ELSE -1 db-count +!
+        THEN
+    THEN
+\
+\ Allow user test to turn on debugger.
+    db-abort @
+    IF  ." RECURSION! Don't compile words for USER.BREAK? with DEBUG{" cr
+        ." Hit a key" key drop
+        db-abort off abort
+    ELSE
+        db-abort on ( prevent dangerous recursion )
+        db-current @ user.break? dup ( give user chance to test )
+    THEN
+    IF  >newline ." USER.BREAK? caused break." cr
+        db-touch on
+    THEN
+    db-abort off
+
+    db-active @ OR
+    db-check^D @
+    IF ?control-D OR
+    THEN
+    dup db-active !
+;
+
+$ 4E71 constant db_NOOP_CODE
+
+: DB.MARKED? ( cfa -- if_debuggable? )
+    dup w@ db_noop_code =  dup 0=
+    IF >newline swap >name id. ."  not compiled with debug{" cr
+    ELSE nip
+    THEN
+;
+
+: $BREAKAT ( mode $name -- , find and set breakpoint)
+\ If mode is search, the string at db-pad2 will be used.
+    find
+    IF  dup db.marked?  ( mode cfa flag )
+        IF  db-mode @ >r
+            swap db-mode !
+            db-result off
+            execute
+            db-result @ ?dup
+            IF db.add.break
+            ELSE ."  Couldn't match " db-pad2 $type \ 00003
+            THEN
+            r> db-mode !
+        ELSE 2drop
+        THEN
+    ELSE nip ."  $BREAKAT - Couldn't FIND " ID.
+    THEN
+;
+
+: BREAKAT ( <name> <string> -- )
+    32 word
+    dp @ >r db-pad2 dp ! fileword r> dp ! \ string to db-pad2 , 00003
+    c@ 0=
+    IF db_entry_mode swap
+    ELSE db_search_mode swap
+    THEN  $breakat
+;
+
+\ These words are the entry points into the debugger.
+\ They must switch the window if open.
+: DB.CHECK.NAME ( $string+size -- match? )
+    dup db-name !
+    dup c@ db-pad2 c@ <
+    IF drop false  ( too big )
+    ELSE  count db-pad2 count swap >r min
+        r> text=?
+    THEN
+;
+
+: $DEBUG ( $string+size -- , called from code )
+    r@ >rel
+    save.regs
+    db-save-rp @ >r
+    dup db-save-rp !
+    db-mode @
+    CASE
+        db_normal_mode
+        OF  db.window.on
+            debug?
+            IF   ($debug)
+            ELSE drop
+            THEN
+            db.window.off
+        ENDOF
+        db_search_mode
+        OF  swap db.check.name
+            IF db-result !
+               db_skip_mode db-mode !
+            ELSE drop
+            THEN
+            db.skip
+        ENDOF
+        db_skip_mode
+        OF  drop db-name !
+            db.skip
+        ENDOF
+        db_entry_mode
+        OF  db-result ! db-name !
+            db.skip db_skip_mode db-mode !
+        ENDOF
+        ." Invalid Debugger Mode!" abort
+    ENDCASE
+    db-save-rp @
+    r> db-save-rp !
+    restore.regs
+    >abs rdrop >r
+;
+
+: $DB.ENTRY.NORMAL
+    1 db-level +!
+    db-dive @
+    IF  db-dive off
+    ELSE  ( don't dive into this !)
+        db-active @
+        IF  ( currently on? )
+            db-level @ db-trigger !
+            db-active off
+        THEN
+    THEN
+    db.window.on
+    debug?
+    IF  >newline ." Entering:  " $type
+        ."  >>>>>>>>>>>>>>>>>>>>>" cr
+    ELSE drop
+    THEN
+    db.window.off
+;
+
+: $DB.ENTRY  ( $string -- )
+    r@ >rel
+    save.regs
+    over db.push
+    db-mode @
+    CASE
+        db_normal_mode
+        OF  $db.entry.normal
+        ENDOF
+        nip nip
+    ENDCASE
+    restore.regs
+;
+
+: DB.RETURN.TO.RTS ( -- , advance return address to RTS, 00004 )
+	BEGIN
+		db-save-rp @ w@ $ 4E75 = not
+	WHILE
+		2 db-save-rp +!
+	REPEAT
+;
+
+: $DB.RETURN ( $string -- , called before return )
+    r@ >rel
+    save.regs
+    db-save-rp @ >r
+    dup db-save-rp !
+    db-mode @
+    CASE
+    	db_normal_mode
+    	OF
+	    	db.window.on
+	        debug?
+	        IF  >r " RTS0" ($debug) r>
+	            >newline ." Returning from: " $type
+	            ."  <<<<<<<<<<<<<<<<<<<<<" cr
+	        ELSE drop
+	        THEN
+	        db.window.off
+	        db-dive on
+	        -1 db-level +!
+    	ENDOF
+    	db_search_mode
+    	OF
+    		2drop db.return.to.rts \ 00004
+    	ENDOF
+    	db_skip_mode
+    	OF
+    		2drop db.return.to.rts \ 00004
+    	ENDOF
+    	2drop
+    ENDCASE
+    db.drop
+    db-save-rp @
+    r> db-save-rp !
+    restore.regs
+    >abs rdrop >r
+;
+\ ----------------------------
+
+: DB.NEW.WORD? ( -- new? , true once if defining new word)
+    false >r  ( default )
+    state @
+    IF  db-last-state @ 0=  ( detect ] )
+        IF  latest db-latest @ - ( new word )
+            IF  rdrop true >r
+                latest db-latest ! \ ." Start" cr
+            THEN
+        THEN
+    THEN
+    r>
+;
+
+: DB.NEW.METHOD? ( -- new? , true once if defining new word)
+    false >r  ( default )
+    state @
+    IF  db-last-state @ 0=  ( detect ] )
+        IF  current-method @ ?dup  ( inside method )
+            IF db-latest @ - ( new word )
+               IF  rdrop true >r
+                  current-method @ db-latest ! \ ." Start" cr
+               THEN
+            THEN
+        THEN
+    THEN
+    r>
+;
+
+: $>HERE ( $string -- )
+    here $move
+    here c@ 1+ allot align
+;
+    
+: $LITERAL ( $string -- , compile literal string )
+    compile ($")
+    $>here
+; IMMEDIATE
+
+: $NFALITERAL ( nfa -- , compile literal nfa )
+    compile ($")
+    count 31 and
+    0 here !
+    here $append
+    here c@ 1+ allot align
+; IMMEDIATE
+
+: DB.NAME>HERE  ( addr count -- , put string HERE)
+    0 here !
+    here $append
+    " 0" count here $append
+    here c@ 1+ allot
+    here 1- db-size-addr !
+    align
+;
+
+: DB.UPDATE.SIZE ( -- , set size in previous instr )
+    db-size-addr @
+    IF  here db-code-addr @ -  ( size of inst )
+        db-size-addr @ c@ + 255 min  ( clip to byte )
+        db-size-addr @ c!
+    THEN
+;
+
+: DB.COMPILE.BODY ( -- )
+    db-pad1 c@ 0>
+    IF  db.update.size
+        compile ($")
+        db-pad1 count db.name>here
+        compile $DEBUG
+        here db-code-addr !
+    THEN
+;
+
+: DB.COMPILE.RETURN ( -- )
+    db.update.size
+    db-size-addr off
+    db-LATEST @ [compile] $nfaliteral
+    compile $db.RETURN
+;
+
+: DB.COMPILE.ENTRY ( nfa -- )
+    db_noop_code w,  ( compile noop as flag for debugger )
+    [compile] $nfaliteral
+    compile $db.ENTRY
+;
+
+: DB.COMPILE (  name 0 | cfa 1 [imm] | cfa -1 -- SAME )
+    2dup  ( n 0 n 0 | c t c t )
+\
+\ Compile following word if immediate for ' $ ..@ , etc.
+    dup 1 =
+    IF  lastscan @ $ 0A = 0=
+        tib >in @ + c@ $ 0A = 0= AND
+        tib >in @ + #tib @ >in @ - bl skip nip AND
+        IF  >in @ lastscan @
+            "  " count db-pad1 $append
+            32 word count db-pad1 $append
+            lastscan ! >in !
+        THEN
+    THEN
+\
+\ Compile entry handler if new ODE method.
+    db.new.method?
+    IF  current-method @ db.compile.entry
+    ELSE 
+\ Compile entry handler if new word.
+        db.new.word?
+        IF  LATEST db.compile.entry
+        THEN
+    THEN
+\
+    state @ db-last-state !
+\
+\ Special handling for special words.
+    IF  
+    	CASE
+        db-pad1 " ;"      $= ?OF db.compile.return ENDOF \ 00002
+        db-pad1 " EXIT"   $= ?OF db.compile.return ENDOF \ 00002
+        db-pad1 " RETURN" $= ?OF db.compile.return ENDOF \ 00002
+        db-pad1 " ;M"     $= ?OF db.compile.return ENDOF \ 00002
+        ' (      OF ( ." Ignore Comment" cr ) ENDOF
+        ' \      OF ( ." Ignore Comment" cr ) ENDOF
+        ' DOES>  OF db.compile.return
+                    ( trick db.NEW.WORD?)
+                    db-last-state off
+                    db-latest off     ENDOF
+        	db.compile.body
+        ENDCASE ( -- cfa true )
+    ELSE ( -- name 0 name )
+        db.compile.body
+        2drop drop
+        db-pad1 here $move  ( cuz old HERE clobbered )
+        here 0
+    THEN
+;
+
+: IN.INTERPRET? ( raddr -- flag )
+     >rel what's interpret dup 32 + within?
+;
+
+: DB.FIND ( $name -- $name 0 | cfa 1 [imm] | cfa -1 )
+	dup db-pad1 $move
+    old.find
+    state @
+    IF ( -- cfa +-1|0)
+        blk @ abort" DB.FIND not supported with BLOCK"
+        db-enable @
+        IF
+\ Here is a ghastly kludge that will be replaced
+\ when INTERPRET supports the debugger.
+\ Search over broad range
+            0 rdepth  2
+            DO  i rpick in.interpret? OR
+                dup IF leave THEN
+            LOOP
+            IF  ( FIND called from interpreter )
+                depth >r
+                db.compile
+                depth r> - abort" Stack change!"
+            THEN
+        THEN
+    THEN
+    state @ 0=
+    IF db-last-state off
+    THEN
+;
+
+: DEBUG{   ( -- , start compiling debug info )
+    db-installed @ not
+    IF  what's FIND is old.FIND
+        ['] db.find is FIND
+        db-active off
+        db-installed on
+        db-enable on
+        db-latest off
+        state @ dup db-last-state !
+        db-start-state !
+    ELSE ." Debugging already installed!" cr
+    THEN
+; IMMEDIATE
+
+: }DEBUG  ( -- , stop compiling debug info )
+    db-installed @
+    IF  what's old.FIND is FIND
+        db-active off
+        db-installed off
+        db-enable off
+        state @ db-start-state @ -
+        IF >newline
+           ." DEBUG{ and }DEBUG must BOTH be in or out of definition!" cr
+        THEN
+    ELSE ." Debugging already removed!" cr
+    THEN
+; immediate
+
+: DB.ON
+    db-active on
+    db-dive on  ( for first level )
+    db-touch on
+    db_normal_mode db-mode !
+;
+
+: DB.OFF ( -- , turn on interactive debugger )
+    db-active off
+    db-dive off
+;
+
+: DEBUG.BREAK ( -- , act like breakpoint )
+    save.regs
+    db.window.on
+    >newline
+    ." User Breakpoint Hit!" cr 
+    db.show.calls
+    db.on
+    db.window.off
+    restore.regs 
+;
+
+: DEBUG.START ( -- , turn on interactive debugger )
+    db.vars.off
+    db.0sp
+    db.on
+    db.open.window
+;
+
+: DEBUG.STOP
+    db.off
+    db.cleanup
+;
+
+: DEBUG  ( <name> -- , debug one word )
+    [compile] '
+    debug.start
+    execute
+    debug.stop
+;
+
+: DEBUG.RESET ( -- , reset debugger )
+    nobreaks
+    ' 0= is user.break?
+    db.cleanup
+    db.vars.off
+;
+
+\ --------------
+: JUMPTO  ( cfa -- , jump to but don't return )
+    $ 2007 w,    \ move.l tos,d0
+    $ 2E1E w,    \ move.l dsp+,tos
+    $ 4EF40800 , \ jmp    $(org,d0.l)
+; immediate
+
+redef? off
+: INCLUDE  ( -- , warn if debugger on )
+    db-installed @
+    IF >newline ." Compiling with Debugger On."
+    THEN
+\ Use JUMPTO in case someone RE-INCLUDES Debugger
+    ' include jumpto
+;
+: BYE ( -- , close window )
+    db.close.window bye
+;
+
+redef? on
+
+if.forgotten }debug
+
+false   ( true if testing )
+.IF
+debug{
+: TD ( n -- ) dup 1+ * . ;
+: TD.LOOP ( -- )
+    4 0 DO
+        ." Value = " i . cr
+        i td cr
+    LOOP
+;
+: TD.RS ( -- )
+    $ 123 >r $ 456 >r $ 777 >r
+    r> . r> . r> .
+;
+: TD.RS2 ( -- )
+    debug.start
+    $ 123 >r $ 456 >r $ 777 >r
+    r> . r> . r> .
+    debug.stop
+;
+: TD.DOT ( N -- )
+    s->d tuck dabs
+    <# #s sign #> type
+;
+}debug
+.THEN

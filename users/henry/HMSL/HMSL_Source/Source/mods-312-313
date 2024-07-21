@@ -1,0 +1,35 @@
+Version 3.13 of HMSL are quite different on the Mac
+and the Amiga.  On the Macintosh, version 3.13
+is essentially the same as 3.12 except it runs
+on the Mac II.  The Amiga version has more enhancements
+because HMSL is developed on the Amiga and ported
+to the Macintosh.
+
+HMSL version 3.13 on the Amiga differs from version 3.12 in
+the following ways:
+
+* 0STUFF: added to action-table.
+
+* Added words to list ODE info:
+    ALL.METHODS ( -- , list all methods)
+    METHODS.OF  ( <class> -- , list methods supported by class)
+    INHERITANCE.OF ( <class> -- , list superclasses of class )
+
+* SHAPE features - uses instance object for names,
+  cleaner PRINT:  , added:
+    SCALE: ( numer denom start end dim -- , scale values )
+    PUT.DIM.LIMITS: ( low high dim -- , set allowable limits)
+    CLIP.ED.TO: ( value elmnt# dim -- , clip then set value )
+
+* Shape Editor now clips to current shape limits.
+
+* Cut, Copy, and Paste sped up by factor of 40-80.
+
+* Productions save self in CURRENT-PRODUCTION variable.
+
+* Insufficient memory allocated in DEMO.ACTION corrected.
+  ( Was 8 3 NEW: , now 16 3 NEW: )
+
+----- Amiga Specific --------------------
+
+* Sample drawing sped up greatly.  Sample REVERSE: also sped up.

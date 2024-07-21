@@ -1,0 +1,195 @@
+Notes on the background glove task GT:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+I wrote this code because I didn't want to have a task polling the glove
+and waiting through all those interminable delays before being able to do
+anything else.  Since the Amiga multitasks, it's a natural to write the
+polling routine as a background task, using timer-based delays that put
+the task to sleep so the foreground task that actually uses the data can
+run as fast as it can.  The inter-task messaging of AmigaDos provides a
+clean way to communicate between the background task and those other tasks
+that use the data it collects.
+
+The program GT, written in HMSL*, implements a background task that access-
+es the PowerGlove using the hardware configuration described by Alan Bland
+in his preliminary C code for the Amiga, EXCEPT that power is routed to
+pin 7, not pin 5 as in the C source file "glove.c".  The hardware required
+is therefore just a cable as described below:
+
+          ------
+         /   1 |     Brn
+	| 5  2 |  wh Red
+	| 6  3 |     Orng
+	| 7  4 |     Yel
+	--------
+
+	GLOVE                       AMIGA
+	~~~~~~~~~~~~~~~~~~~~~~~~	~~~~~~~~~~~~~~~~~~~~~~~~
+	GND pin1                    pin18 parallel port GND
+	clock pin2                  pin2  parallel port D0
+ 	latch pin3                  pin3  parallel port D1
+	data pin4                   pin4  parallel port D2
+	+5V pin7                    pin14 power +5V
+	
+Messages:
+~~~~~~~~~
+The task sets up a message port called "gl_backg", to which you send custom
+glove-style AmigaDos messages.  The messages are standard Exec messages with
+an opcode and a glove data packet buffer grafted onto them, as shown below:
+
+	:STRUCT _glove_data					( the standard glove structure )
+		ubyte	gd_dum0
+		byte	gd_x
+		byte	gd_y
+		byte	gd_z
+		ubyte	gd_rot
+		ubyte	gd_fingers
+		ubyte	gd_keys
+		ubyte	gd_dum7
+		ubyte	gd_dum8
+		ubyte	gd_dum9
+		ubyte	gd_dumA
+		ubyte	gd_dumB
+	;STRUCT
+
+	:STRUCT GloveMessage
+    	struct Message gl_msg			( Exec-style message )
+	    long gl_opcode					( Opcode )
+		struct _glove_data gl_data		( 12-byte glove data packet )
+	;STRUCT
+
+The opcode specifies the meaning of the message.  There
+are currently five messages supported:
+
+	GL_RESET		to reset the glove into hires at any time
+	GL_START		to start polling the glove, storing data into
+					the gl_data portion of the message structure
+	GL_STOP			to stop polling
+	GL_POLL			to get a single poll representing the current status
+					of the glove into the message structure
+	GL_KILL			to kill GT
+
+When polling, or after a GL_POLL message, glove data is stored by GT into
+the gl_data area of the message from the calling program; thus the calling
+program accesses the latest data by looking at that substructure.
+
+A GL_RESET message causes GT to send the hires init bytes, poll once, and
+resend the hires "signature".  I've found that this always seems to put the
+glove into hires mode, whether it starts out in hires or lores.
+
+GL_START causes GT to start polling the glove as fast as it can.  Data is
+placed into the gl_data area of the message, overwriting old data with 
+each packet.
+
+GL_STOP turns off the polling, and puts the task to sleep, waiting for the
+next message.
+
+GL_POLL grabs one packet from the glove, places it into the gl_data area
+of the message, and goes back to sleep.
+
+GL_KILL shuts GT down cleanly and exits.
+
+When not polling, GT is usually asleep, waiting for a message, so there's
+minimal time overhead in running the task.  When polling, GT checks for new
+messages between each poll.
+
+Timing:
+~~~~~~~
+Timing is currently done using the timer.device in usec mode.  The timer
+device guarantees to delay for the time specified, but may not get a message
+back to gt promptly, depending on the system load.  This means
+that you can slow things down by running CPU-intensive jobs, as against
+CIA-B based code that interrupts when done.  Surprisingly, the timer.device
+is fast and accurate enough to enable gt to generate good data at acceptable
+rates (15-20 polls/sec with no load); however, I'll probably replace the
+file glove_timer with a direct CIA-based version in the near future.
+
+I actually found that I needed a delay in gt after each packet to keep
+things properly aligned.  At the moment, that delay is provided by printing
+the packet to the console device; I will experiment a little for an optimal
+setting and put in an appropriate delay when the code is CIA-based.
+
+Files included:
+~~~~~~~~~~~~~~~
+	GT				the object program: "glove_messages" CLONEd
+	glove_messages	top level JForth* code, implements the message stuff
+	message_support	needed for both senders and receivers
+	test_messages	to test GT from JForth*
+	TimedHires		Hires glove code, using the timer.device
+	Glove_Timer		Timer.device support for usec timer
+	ParPoll			Low-level parallel port tweaking, and lores code
+	Par_Port		Supplied with HMSL*, direct tweaking of the
+					parallel port
+
+Using it:
+~~~~~~~~~
+To use GT with the test code:
+
+To do this						Type this							
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~	~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+run it from a CLI				run gt
+from a JForth* task,
+	include the test file		include test_messages
+initialise the test				test.init
+send a message, say
+	GL_RESET					GL_RESET msg.do
+try the other messages
+kill GT							GL_KILL msg.do
+terminate the test				test.term
+
+Improvements:
+~~~~~~~~~~~~~
+i. GT runs too fast.  It dumps the packet to the console when polling simply
+	to slow it down a little; changing the window size increases the accur-
+	acy (!)  When I find an optimal value, I'll put a pause at the end of
+	each packet.
+ii. It looks horrible.  When I get a minute, I'll give it a custom window,
+	maybe a reset click box, etc etc.
+iii. History buffer.  Instead of plonging the packet into one place, over-
+	writing old packets, I'd like a circular buffer producer-consumer
+	arrangement, so you can recognize time-based gestures as well as finger
+	positions.
+iv. Originally, I tried this off the second mouse port, but failed
+	because of the hardware timing limitations imposed by the capacitors
+	on the output lines, I think.  I'd still dearly love to get this
+	happening properly on that port and use my parallel port for other
+	things ...
+v. Noise reduction.  Data averaging and so forth.  This needs some exper-
+	imentation first.
+vi. Any suggestions from you out there?
+
+Disclaimer:
+~~~~~~~~~~~
+Code supplied without any warranty of any kind.  No guarantees to run on
+your machine.  Directly accesses the parallel port, which is known to be
+rather fragile; therefore you can't hold me responsible if you blow it up.
+Feel free to modify code, and send me a copy if you do.
+
+Plug:
+~~~~~
+HMSL is a language for music performance, composition and experiment.  It
+was itself written in JForth, a Forth for the Amiga, and HForth, a Forth
+for the Macintosh.  JForth has a full-featured mechanism for interfacing
+to AmigaDos libraries, structure support, all the goodies you need to take
+advantage of the machine and the C code written for it, but in an interact-
+ive environment where you can fool with things to find out how they work.
+Most of GT is JForth, with a couple of utility words from HMSL.  JForth
+is a product of Delta Research; I don't work for or with them (though I
+collaborated in the construction of HMSL), but this is definitely my envir-
+onment of choice.
+
+I run a BBS for users of HMSL.  It's (415) 928 8246, 2400 8N1.
+
+Thanks:
+~~~~~~~
+To all who've been hacking the glove, esp. Manfred (originator of C hires
+code), D Stampe (lots of stuff on the glove list), Alan Bland (Amiga C
+code and parallel port info).  It warms the cockles of my heart to see the
+guerilla approach moving ahead with leaps and bounds despite the obfuscation
+and non-support of the major players.
+
+--rbt (robert@f24.n125.z1.fidonet.ORG)
+
+*JForth, Delta Research Inc, Box 1051, San Rafael, CA 94915
+	(415) 461 1442
+*HMSL, Frog Peak Music, c/o Delta Research (I can't find the actual address
+	right now)

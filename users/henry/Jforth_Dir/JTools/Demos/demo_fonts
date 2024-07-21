@@ -1,0 +1,95 @@
+\ Demonstrate the use of fonts in JForth
+\
+\ Author: Phil Burk
+\ Copyright 1987 Phil Burk
+
+include? gr.init ju:amiga_graph
+include? ?closebox ju:amiga_events
+include? get.font ju:graph_support
+include? value ju:value
+
+ANEW TASK-FONTS
+
+\ --------------------------------
+
+\ NUL terminated font names.
+: "TOPAZ" 0" topaz.font" ;
+: "EMERALD" 0" emerald.font" ;
+: "RUBY" 0" ruby.font" ;
+: "OPAL" 0" opal.font" ;
+: "SAPPHIRE" 0" sapphire.font" ;
+: "DIAMOND" 0" diamond.font" ;
+: "GARNET" 0" garnet.font" ;
+
+0 value EMERALD
+0 value GARNET
+0 value OPAL
+
+: USE.FONT   ( font -- , safe font use in case it's zero )
+	?dup
+	IF gr.font!
+	ELSE ." Font not open!" cr
+	THEN
+;
+
+: CLOSE.FONT ( font -- , safe close )
+	?dup
+	IF closefont()
+	THEN
+;
+
+: FONTS.TEST   ( -- , draw using several fonts )
+	gr.clear
+	gr.mode@  ( -- mode , save mode on stack )
+	JAM1 gr.mode!  ( don't clear background of characters )
+\
+\ Open fonts and store pointers to FONT structure in value
+	"emerald" 20 get.font -> emerald
+	"garnet" 16 get.font -> garnet
+	"opal" 12 get.font -> opal
+\
+	3 gr.color!
+	opal use.font
+	20 20 " Demonstrate Amiga Fonts" gr.xytext
+\
+	2 gr.color!
+	10 30 400 120 gr.rect
+\
+	1 gr.color!
+	emerald use.font
+	40 60 " ABCDefgh Emerald 20" gr.xytext
+\
+	0 gr.color!
+	garnet use.font
+	40 80 " ABCDefgh Garnet 16" gr.xytext
+\
+	3 gr.color!
+	opal use.font
+	40 100 " ABCDefgh Opal 12" gr.xytext
+\
+\ restore mode
+	gr.mode!
+;
+
+: FONTS.INIT  ( -- )
+	diskfont?
+	gr.opentest
+;
+
+: FONTS.TERM  ( -- )
+	gr.closecurw
+	emerald close.font
+	garnet close.font
+	opal close.font
+;
+
+: DEMO.FONTS   ( -- )
+	gr.init
+	fonts.init
+	fonts.test
+	BEGIN ?closebox UNTIL
+	fonts.term
+	gr.term
+;
+
+cr ." Enter:   DEMO.FONTS   to see fonts!" cr

@@ -1,0 +1,27 @@
+\ from Transoniq hacker June 1990 #60
+\ Gary Morrison
+anew mork.spot
+
+\ set notes 12 .. 120 .. sort of dopy tuning
+: Mork
+start-list
+12
+10 1 do
+i 1 - @B  62 cents>pts + @% \ c
+i     @C  50 cents>pts + @% \ c#
+i     @C# 39 cents>pts + @% \ d
+i     @D  26 cents>pts + @% \ Eb
+i     @D# 15 cents>pts + @% \ E
+i     @E  3  cents>pts + @% \ F
+i     @E  90 cents>pts + @% \ F#
+i     @F  78 cents>pts + @% \ G
+i     @F# 67 cents>pts + @% \ Ab
+i     @F# 67 cents>pts + @% \ A
+i     @G  54 cents>pts + @% \ Bb
+i     @G# 42 cents>pts + @% \ B
+i     @A  31 cents>pts + @% \ C
+loop
+drop
+end-list
+;
+." mork" cr

@@ -1,0 +1,141 @@
+\ Support tools for the use of Amiga Intuition Gadgets
+\
+\ Initialize Gadget Structures to reasonable values.
+\ Call these first then override them with your own settings.
+\
+\ Author: Phil Burk
+\ Copyright 1988 Delta Research
+\
+\ MOD: PLB 9/19/89 RELVERIFY added to INTGADGET.SETUP for Dave Sirag
+\ 00002 mdh 16-jul-91 changed '-2' in BORDER.SETUP to '-1'
+\ 00003 PLB 1/6/92 Add return parameters to AddGList and RemoveGList !!
+\ 			Use CALL>ABS for all calls instead of IF>ABS and >ABS
+
+getmodule includes
+include? gadget ji:intuition/intuition.j
+
+ANEW TASK-GADGET_SUPPORT
+
+: ITEXT.SETUP ( text0 intuitext -- , Set defaults. )
+    3    over ..! it_frontpen
+    1    over ..! it_backpen
+    JAM1 over ..! it_DrawMOde
+    2    over ..! it_LeftEdge
+    2    over ..! it_TopEdge
+    NULL over ..! it_ITextFont
+    NULL over ..! it_NextTExt
+    swap >abs swap ..! it_IText
+;
+
+: OW!++  ( addr value  -- addr+2 )
+    over w! 2+
+;
+
+: BOX.SETUP ( width height addr -- , set 5 points for box )
+    0 ow!++      0 ow!++
+    2 pick ow!++ 0 ow!++
+    rot ow!++    over ow!++
+    0 ow!++      swap ow!++
+    0 ow!++      0 swap w!
+;
+
+: BORDER.SETUP ( width height border -- )
+    ( -2 -mdh 00002 ) -1 over ..! bd_leftedge
+    ( -2 -mdh 00002 ) -1 over ..! bd_topedge
+    1 over  ..! bd_frontpen
+    0 over  ..! bd_backpen
+    JAM1 over ..! bd_drawmode
+    5 over  ..! bd_count
+    NULL over ..! bd_nextborder
+    ..@ bd_xy >rel box.setup
+;
+    
+: BOOLEAN.SETUP ( x y width height gadget -- )
+    NULL over ..! gg_nextgadget
+    tuck   ..! gg_height
+    tuck   ..! gg_width
+    tuck   ..! gg_topedge
+    tuck   ..! gg_leftedge
+    GADGHCOMP over ..! gg_flags
+    BOOLGADGET over ..! gg_gadgettype
+    NULL over ..! gg_gadgetrender
+    NULL over ..! gg_selectrender
+    NULL over ..! gg_gadgettext
+    0 over    ..! gg_mutualexclude
+    NULL over ..! gg_specialinfo
+    0 over    ..! gg_gadgetid
+    NULL swap ..! gg_userdata
+;
+
+: CHECKBOX.SETUP ( x y width height gadget -- )
+    TOGGLESELECT RELVERIFY | over ..! gg_activation
+    boolean.setup
+;
+
+: MENUBUTTON.SETUP ( x y width height gadget -- )
+    GADGIMMEDIATE over ..! gg_activation
+    boolean.setup
+;
+
+: PROPINFO.SETUP ( hpot vpot hbody vbody propinfo -- )
+    >r
+    AUTOKNOB FREEHORIZ | FREEVERT | r@ ..! pi_flags
+    r@ ..! pi_vertbody
+    r@ ..! pi_horizbody
+    r@ ..! pi_vertpot
+    r> ..! pi_horizpot
+;
+
+: PROPGADGET.SETUP ( x y width height gadget -- )
+    >r
+    r@ boolean.setup
+    TOGGLESELECT RELVERIFY | r@ ..! gg_activation
+    PROPGADGET r> ..! gg_gadgettype
+;
+
+: STRINGINFO.SETUP ( buffer maxchars stringinfo -- )
+    >r
+    r@ ..! si_maxchars
+    >abs r@ ..! si_buffer
+    NULL r@ ..! si_undobuffer
+    0 r@ ..! si_bufferpos
+    0 r> ..! si_disppos
+;
+
+: STRINGGADGET.SETUP ( x y width height gadget -- )
+    >r
+    r@ boolean.setup
+    RELVERIFY r@ ..! gg_activation
+    STRGADGET r> ..! gg_gadgettype
+;
+
+: INTGADGET.SETUP ( x y width height gadget -- )
+    dup>r
+    stringgadget.setup
+\    LONGINT r> ..! gg_activation
+    LONGINT RELVERIFY | r> ..! gg_activation
+;
+
+\ Support routines ==============================================
+: REFRESHGADGETS() ( gadgets ptr req -- )
+	callvoid>abs intuition_lib refreshgadgets
+;
+
+: ActivateGadget()   ( gadg window req -- )
+	callvoid>abs intuition_lib ActivateGadget
+;
+
+: DRAWIMAGE() ( rport image x y -- )
+	callvoid>abs intuition_lib DrawImage
+;
+: RefreshGList() ( gadget window requester numgads  -- )
+	callvoid>abs intuition_lib refreshglist
+;
+
+\ 00003 An earlier beta version of these did not return any parameters!
+: RemoveGList() ( window gadget numgads -- position|-1 )
+	call>abs intuition_lib removeglist w->s
+;
+: AddGList() ( window gadget position numgads requester -- realpos )
+	call>abs intuition_lib AddGList
+;

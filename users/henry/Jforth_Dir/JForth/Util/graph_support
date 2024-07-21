@@ -1,0 +1,345 @@
+\ General support for graphics.
+\
+\ Author: Phil Burk
+\ Copyright 1987 Delta Research
+\
+\ MOD: PLB 8/3/90 Fixed calls to BltClear, calc #bytes
+\ MOD: PLB 10/20/90 Add CLEAR.BITPLANE
+\ 00001 PLB 11/15/91 Add FREE.VIEW
+\ 00002 PLB 11/27/91 Add free of v_SHFCprList to FREE.VIEW
+\ 00003 PLB 1/7/92 Add BltBitMap() and BltMaskBitMapRastPort()
+\ 00004 PLB 1/28/92 Added BITMAPS= for PIC.DISPLAY
+\ 00005 PLB 4/27/92 Allow room for more than 8 planes
+
+\ Get the module instead of including the .j files.
+exists? includes
+exists? newwindow not and
+.IF getmodule includes
+.THEN
+
+include? { ju:locals
+include? graphics_text_h ji:graphics/text.j
+
+ANEW TASK-GRAPH_SUPPORT
+
+: RASSIZE() ( height width -- size_in_bytes )
+    swap 15 + -3 ashift
+    $ FFFE and
+    *
+;
+
+\ Calls to Amiga Library.
+: ALLOCRASTER() ( x y -- address )
+    call graphics_lib allocraster if>rel
+;
+
+: BltBitMapRastPort() ( bitmap x y rp x y w h minterm -- )
+    callvoid>abs graphics_lib BltBitMapRastPort
+;
+
+: BltClear() ( memblock bytecount flags -- )
+    callvoid>abs graphics_lib BltClear
+;
+
+: ClipBlit() ( src_rp x y dest_rp x y w h minterm -- )
+    callvoid>abs graphics_lib ClipBlit
+;
+
+: FREERASTER() ( address x y -- )
+    callvoid>abs graphics_lib freeraster
+;
+
+: INITTMPRAS() ( tmpras buffer size -- )
+    callvoid>abs graphics_lib inittmpras
+;
+
+: INITBITMAP() ( bitmap depth width height -- )
+    callvoid>abs graphics_lib initbitmap
+;
+
+: INITVIEW() ( view -- )
+    callvoid>abs graphics_lib initview
+;
+
+: INITVPORT() ( viewport -- )
+    callvoid>abs graphics_lib initvport
+;
+
+: INITRASTPORT() ( RastPort -- )
+    callvoid>abs graphics_lib initrastport
+;
+
+: LOADVIEW()  ( view -- )
+    callvoid>abs graphics_lib loadview
+;
+
+: LOADRGB4()  ( vp colortable n -- )
+    callvoid>abs graphics_lib loadrgb4
+;
+
+: MAKEVPORT()  ( view viewport -- )
+    callvoid>abs graphics_lib makevport
+;
+
+: MRGCOP()  ( view -- )
+    callvoid>abs graphics_lib mrgcop
+;
+
+: SetRast()  ( rastport pen -- )
+    callvoid>abs graphics_lib Setrast
+;
+
+: WaitTOF() ( -- , wait till next vertical blank )
+    callvoid graphics_lib WaitTOF
+;
+
+: WAIT.FRAMES ( N -- , wait for N blanking intervals )
+    0 DO WaitTOF()
+    LOOP
+;
+
+\ Support for manipulating Bitmaps
+: BITMAP>WH ( bitmap -- width height )
+    dup ..@ bm_bytesperrow 3 ashift
+    swap ..@ bm_rows
+;
+
+: BMPLANE[] ( index bitmap -- &plane-ptr , get plane ptr)
+    .. bm_planes swap cells +
+;
+\ This word is handy for double buffering.
+: SWAP.PLANES  { bmap1 bmap2 -- , swap planes between bitmaps }
+    bmap1 ..@ bm_depth bmap2 ..@ bm_depth min 0
+    DO i bmap1 bmplane[] @ ( -- p1 )
+       i bmap2 bmplane[] @ ( -- p1 p2)
+       i bmap1 bmplane[] ! ( -- p1 )
+       i bmap2 bmplane[] ! ( -- )
+    LOOP
+;
+
+: BITMAPS= { bmap1 bmap2 | result -- flag , true if same size }
+	false -> result
+	bmap1 s@ bm_bytesperrow bmap2 s@ bm_bytesperrow =
+	IF
+		bmap1 s@ bm_rows bmap2 s@ bm_rows =
+		IF
+			bmap1 s@ bm_depth bmap2 s@ bm_depth =
+			-> result
+		THEN
+	THEN
+	result
+;
+
+: COPY.PLANES { src_bm dest_bm -- , copy planes into other bitmap }
+    src_bm ..@ bm_depth
+    dup dest_bm ..! bm_depth 0
+    DO i src_bm bmplane[] @
+       i dest_bm bmplane[] !
+    LOOP
+;
+
+: ROTATE.PLANES ( bitmap -- , rotate planes for effect )
+    0 over bmplane[] @ swap  ( -- 0th-plane  bm )
+    dup ..@ bm_depth 0
+    DO  i 1+ over bmplane[] @ ( -- 0th bm i+1th )
+        i 2 pick bmplane[] !
+    LOOP
+    dup ..@ bm_depth 1- swap bmplane[] !
+;
+
+: ALLOC.BITMAP { bdepth bwidth bheight | bmap berror -- bitmap | false }
+    false -> bmap
+    false -> berror
+    0 sizeof() bitmap
+    bdepth 8 - 0 max cells +   \ allow room for additional planes 00005
+    allocblock ?dup
+    IF  dup -> bmap
+        bdepth bwidth bheight InitBitMap()
+        bdepth 0
+        DO  bwidth bheight AllocRaster() ?dup
+            IF >abs i bmap bmplane[] !
+            ELSE i 1+ -> berror
+                ." Couldn't allocate Bitmap Planes!"  cr leave
+            THEN
+        LOOP
+        berror IF  ( deallocate planes )
+            berror 1- 0
+            DO  i bmap bmplane[]  @ >rel
+                bwidth bheight freeraster()
+            LOOP
+            bmap freeblock 0 -> bmap
+        THEN
+    THEN
+    bmap
+;
+
+: CLEAR.BITPLANE ( plane# bitmap -- , clear plane of bitmap )
+	dup>r bmplane[] @ >rel  ( get relative plane pointer )
+	r@ ..@ bm_bytesperrow
+	r> ..@ bm_rows *
+	1  BltClear()
+;
+
+: CLEAR.BITMAP ( bitmap -- , set planes to zero )
+    dup ..@ bm_depth 0
+    DO i over clear.bitplane
+    LOOP drop
+;
+
+: ALLOC.SHADOW { bdepth bwidth bheight | bmap -- bitmap | false }
+\ Create shadow bitmap for transparency tricks.
+\ Allocate only ONE plane and use it many times.
+    false -> bmap
+    0 sizeof() bitmap allocblock ?dup
+    IF  dup -> bmap
+        bdepth bwidth bheight InitBitMap()
+        bwidth bheight AllocRaster() ?dup
+        IF	>abs bdepth 0
+            DO ( -- plane )
+                dup i bmap bmplane[] !
+            LOOP drop
+            0 bmap clear.bitplane
+        ELSE
+            ." Couldn't allocate Bitmap Plane!"  cr
+            bmap freeblock 0 -> bmap
+        THEN
+    THEN
+    bmap
+;
+
+: FREE.BITMAP { bmap -- , free planes and bitmap }
+    bmap ..@ bm_depth 0
+    DO  i bmap bmplane[] @ >rel
+        bmap ..@ bm_bytesperrow 3 ashift
+        bmap ..@ bm_rows
+        FreeRaster()
+    LOOP
+    bmap freeblock
+;
+
+: FREE.SHADOW { bmap -- , free plane and bitmap }
+    bmap .. bm_planes @ >rel
+    bmap ..@ bm_bytesperrow 3 ashift
+    bmap ..@ bm_rows
+    FreeRaster()
+    bmap freeblock
+;
+
+: ALLOC.RASTPORT ( -- rastport | 0 )
+    0 sizeof() rastport allocblock ?dup
+    IF dup InitRastPort()
+    ELSE ." Couldn't allocate RastPort!" cr NULL
+    THEN
+;
+
+: LINK.BM>RP ( bitmap rastport -- , connect bitmap )
+    >r >abs r> ..! rp_BitMap
+;
+    
+: REMAKE.SCREEN ( screen -- , rebuild amiga display system )
+    >abs call intuition_lib makescreen drop
+    call intuition_lib rethinkdisplay drop
+;
+
+: SWITCH.SCREEN { rport scrn -- , switch double buffer }
+    rport ..@ rp_bitmap >rel
+    scrn .. sc_bitmap swap.planes  ( switch planes )
+    scrn remake.screen  ( show new planes )
+;
+
+\ Color Table Support -------------------------
+\ Maximum scalar, 0-16, 16 is equivalent to 1.0
+16 constant MAX_RGB_SCALAR
+
+: UNPACK.RGB  ( ctable-entry -- r g b )
+    dup>r -8 ashift $ 0f and
+    r@ -4 ashift $ 0f and
+    r> $ 0F and
+;
+: PACK.RGB  ( r g b -- ctable-entry )
+     >r >r
+     4 ashift r> or
+     4 ashift r> or    
+;
+
+: CTABLE>RGB  ( index ctable -- r g b , extract colors )
+    swap 2* + w@
+    unpack.rgb
+;
+
+: RGB>CTABLE  ( r g b index ctable -- , store colors )
+    swap 2* + >r
+    pack.rgb
+    r> w!
+;
+
+: SCALE.COLOR ( color scalar -- color' , 0-16 scale )
+    w* -4 ashift
+;
+
+: SCALE.RGB ( r g b scalar -- r' g' b' )
+    dup>r scale.color rot
+    r@ scale.color rot
+    r> scale.color rot
+;
+
+: SCALE.CTABLE { ctable1 ctable2 many scalar -- , scale c1 into c2}
+    many 0
+    DO i ctable1 ctable>rgb scalar scale.rgb
+       i ctable2 rgb>ctable
+    LOOP
+;
+
+\ Font Support
+\ Amiga Library calls.
+: OPENFONT() ( textattr -- font | NULL)
+    call>abs graphics_lib openfont    if>rel
+;
+
+: CLOSEFONT() ( font -- )
+    callvoid>abs graphics_lib closefont
+;
+
+: OPENDISKFONT() ( textattr -- font | NULL )
+    call>abs diskfont_lib opendiskfont    if>rel
+;
+
+: SETFONT() ( rp font -- )
+    callvoid>abs graphics_lib setfont
+;
+
+\ Declare Text Attribute for use with GET.FONT
+textattr FONTS-TEXT-ATTR  ( for use with GET.FONT )
+: GET.FONT ( 0name ysize -- font | NULL )
+    >r >abs fonts-text-attr ..! ta_name
+    r> fonts-text-attr ..! ta_ysize
+    fonts-text-attr opendiskfont()
+;
+
+: FreeVPortCopLists()  ( &viewport -- )
+	callvoid>abs graphics_lib FreeVPortCopLists
+;
+: FreeCprList()  ( CPRList -- )
+	callvoid>abs graphics_lib FreeCprList
+;
+
+: FREE.VIEW ( view -- , free CPR list and deallocate )
+	dup s@ v_LOFCprList ?dup
+	IF FreeCprList()
+	THEN
+	dup s@ v_SHFCprList ?dup \ 00002
+	IF FreeCprList()
+	THEN
+	freeblock
+;
+
+\ 00003
+: BltBitMap() ( sbmap sx sy dbmap dx dy w h mterm mask tempa -- )
+	callvoid>abs graphics_lib BltBitMap
+;
+
+: BltMaskBitMapRastPort()
+	callvoid>abs graphics_lib BltMaskBitMapRastPort
+;
+
+

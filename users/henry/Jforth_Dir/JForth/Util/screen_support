@@ -1,0 +1,172 @@
+\ Intuition SCREEN Support
+\
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research
+\
+\ MOD: PLB 6/7/88 Fixed bad INCLUDE?
+\ MOD: PLB 9/20/91 Added BITMAP>SCREEN , SCREEN>BACKWINDOW , SCREEN>VIEW
+\ 00001 PLB 9/25/91 Made default flags for SCREEN>BACKWINDOW.
+\ 00002 PLB 11/24/91 Set MODE in SCREEN>VIEW for LACE and HAM screens.
+\ 00003 PLB 11/24/91 Set offsets in SCREEN>VIEW for overscan.
+\ 00004 PLB 5/29/91 Refuse bitmaps over 8 deep in BITMAP>SCREEN
+\    Thanks to Marty Kees.
+
+getmodule includes
+include? newwindow.setup ju:amiga_graph
+include? bitmap>wh ju:graph_support
+
+ANEW TASK-SCREEN_SUPPORT
+
+decimal
+: NEWSCREEN.SETUP ( NewScreen -- , Set default values )
+    0 over ..! ns_leftedge
+    0 over ..! ns_topedge
+    320 over ..! ns_width  
+    200 over ..! ns_height
+    2 over ..! ns_depth
+    0 over ..! ns_detailpen
+    1 over ..! ns_blockpen
+    NULL over ..! ns_viewmodes
+    CUSTOMSCREEN over ..! ns_type
+    NULL over ..! ns_font
+    0" JForth" >abs over ..! ns_DefaultTitle
+    NULL swap ..! ns_Gadgets
+;
+
+\ Intuition calls related to screens.
+: OPENSCREEN() ( NewScreen -- rel_screen )
+    call>abs intuition_lib OpenScreen if>rel
+;
+
+: CLOSESCREEN() ( rel_screen -- )
+    callvoid>abs intuition_lib CloseScreen
+;
+
+: SHOWTITLE() ( rel_screen flag -- , SHow title bar or not.)
+   callvoid>abs intuition_lib ShowTitle
+;
+
+: MOVESCREEN() ( rel_screen deltax deltay -- )
+    callvoid>abs intuition_lib movescreen
+;
+
+: SCREENTOBACK() ( rel_screen -- , Push to back )
+    callvoid>abs intuition_lib screentoback
+;
+
+: SCREENTOFRONT() ( rel_screen -- , Push to back )
+    callvoid>abs intuition_lib screentofront
+;
+
+: MAKESCREEN() ( rel_screen -- , similar to MakeVport )
+    callvoid>abs intuition_lib makescreen
+;
+
+: RETHINKDISPLAY() ( -- , reconstruct copper list )
+    callvoid intuition_lib rethinkdisplay
+;
+
+: REMAKEDISPLAY() ( -- , remake screens and copper list )
+\ This routine is handy if your screens are being built
+\ badly by intuition.  This can happen if you have several
+\ interlace screens and add a non-interlace screen.
+    callvoid intuition_lib remakedisplay
+;
+
+\ These routines can be used to open screens and windows.
+\ If they don't do exactly what you need, write new versions
+\ that work differently.
+
+: BITMAP>SCREEN ( bitmap viewmode -- screen | NULL, open screen based on Bitmap )
+\ Check for BITMAPS that are too deep. \ 00004
+	over ..@ bm_depth 8 >
+	IF
+		." Bitmap has too many planes!" cr
+		2drop 0 RETURN
+	THEN
+\
+\ Set to default values.
+\ use PAD for NewScreen structure
+    pad NewScreen.Setup
+\
+\ Set viewmode which might have come from CAMG chunk.
+    pad ..! ns_viewmodes
+\
+\ Set screen parameters based on bitmap.
+    >r ( save bitmap )
+    r@ ..@ bm_depth  pad s! ns_depth
+    r@ bitmap>wh  ( -- width height )
+    pad s! ns_height
+    pad s! ns_width
+\
+    0" JForth" pad s! ns_DefaultTitle
+\
+    pad s@ ns_type
+    CUSTOMBITMAP | pad s! ns_type
+    r> pad s! ns_CustomBitMap
+\
+\ Open Screen and store pointer in NewWindow structure.
+    pad openscreen() dup
+    IF 
+\ Sometimes the Amiga can build a bad COPPER list for screens.
+\ This can happen if you have Emacs and Workbench up in INTERLACE
+\ mode and open a NON-INTERLACE screen.
+\ The following calls will correct this problem (hopefully).
+        dup screentoback()
+        RemakeDisplay()
+        dup screentofront()
+    THEN
+;
+
+BACKDROP BORDERLESS | WINDOWCLOSE | REPORTMOUSE | value S>B_FLAGS
+
+CLOSEWINDOW MOUSEBUTTONS |
+VANILLAKEY | MENUPICK |
+GADGETUP | GADGETDOWN | value S>B_IDCMPFLAGS
+	
+: SCREEN>BACKWINDOW ( screen -- window | NULL )
+	pad NewWindow.Setup
+	dup pad s! nw_screen
+\
+\ Set up window.
+	CUSTOMSCREEN   pad s! nw_type
+	0    pad s! nw_TopEdge
+\
+	dup s@ sc_height pad s! nw_Height
+		s@ sc_width pad s! nw_Width
+\
+\ Set default flags
+	s>b_idcmpflags dup 0=
+	IF
+		>newline ." IDCMPFLAGS cannot be 0. Set to CLOSEWINDOW" cr
+		drop CLOSEWINDOW
+	THEN
+	pad s! nw_idcmpflags
+	s>b_flags  pad s! nw_flags
+\
+\ Use NO title to avoid highlighting problem.
+	0 pad s! nw_Title
+	pad gr.opencurw
+;
+.THEN
+
+: SCREEN>VIEW { ascreen | aview -- aview , setup view from displayed screen }
+	MEMF_CLEAR sizeof() View allocblock dup -> aview
+	IF 
+		ascreen ScreenToFront()
+		aview InitView()
+		ascreen .. sc_viewport   aview s! v_viewport
+\ Set MODE so that LACE and HAM screens get built correctly. 00002
+		ascreen .. sc_viewport s@ vp_modes  aview s! v_modes
+\ pull offsets from current screen to keep overscan 00003
+		call intuition_lib ViewAddress >rel
+		dup s@ v_dxoffset  aview s! v_dxoffset
+			s@ v_dyoffset  aview s! v_dyoffset
+\
+		aview ascreen .. sc_viewport MakeVport()
+		aview MrgCop()
+	THEN
+	aview
+;
+
+

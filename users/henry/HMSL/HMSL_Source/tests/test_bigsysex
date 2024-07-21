@@ -1,0 +1,109 @@
+\ Send Big Sysex Message
+\
+\ Author: Phil Burk
+\ Copyright 1990
+
+ANEW TASK-TEST_BIGSYSEX
+
+variable TBX-CHECKSUM
+OB.SHAPE SH-RECV
+OB.SHAPE SH-XMIT
+
+: MIDI.KEY ( -- byte )
+    BEGIN
+        ?terminal IF ." MIDI.KEY " ?quit abort" Aborted!" THEN
+        midi.recv
+    UNTIL
+;
+
+: MIDI.GET.BYTE ( byte -- )
+    midi.key 2dup =
+    IF 2drop
+    ELSE ." Expected " swap . ." , got " . cr abort
+    THEN
+;
+
+: TBX.GET16  ( -- 16bits )
+    midi.key 4 shift  ( highest nibble first )
+    midi.key OR 4 shift
+    midi.key OR 4 shift
+    midi.key OR
+    dup tbx-checksum +!
+;
+: TBX.SEND16  ( 16 bits -- )
+    dup tbx-checksum +!
+    dup $ 0F and swap -4 shift
+    dup $ 0F and swap -4 shift
+    dup $ 0F and swap -4 shift
+    $ 0F and
+    midi.xmit midi.xmit midi.xmit midi.xmit midi.flush
+;
+
+
+: TBX.GETIT  ( vendor -- , receive data from sysex )
+    $ 37 - abort" Invalid vendor code."
+    0 tbx-checksum !
+    tbx.get16  ( elements ) dup
+    tbx.get16  ( #dim )
+    2dup . . cr
+    2dup new: sh-recv
+    * 0
+    DO tbx.get16 i to: sh-recv
+    LOOP
+    tbx-checksum @ $ FFFF and dup
+    tbx.get16 -
+    IF ." Checksums don't match!"
+    THEN
+    $ F7 midi.get.byte
+    ." RECV Checksum = " . cr
+    set.many: sh-recv
+;
+
+: TBX.SENDIT ( -- )
+    midi.start.sysex
+    $ 37 midi.xmit
+    0 tbx-checksum !
+    many: sh-xmit dup tbx.send16
+    dimension: sh-xmit dup tbx.send16
+    * 0
+    DO i at: sh-xmit tbx.send16
+    LOOP
+    tbx-checksum @ $ FFFF and dup
+    tbx.send16
+    midi.end.sysex
+    ." XMIT Checksum = " . cr
+;
+
+5 value TBX_#E
+10 value TBX_#D
+: TBX.INIT  ( -- )
+    tbx_#e tbx_#d new: sh-xmit
+    tbx_#e tbx_#d * 0
+    DO i i to: sh-xmit
+    LOOP
+    tbx_#e set.many: sh-xmit
+;
+
+: TBX.TERM  ( -- )
+    free: sh-recv
+    free: sh-xmit
+;
+if.forgotten tbx.term
+
+: TBX.TEST
+    tbx.init
+    'c tbx.getit mp-sysex-vector !
+    midi.clear
+    tbx.sendit
+;
+
+: TEST.SMALL
+    5 -> tbx_#e
+    tbx.test
+;
+
+: TEST.BIG
+    50 -> tbx_#e
+    tbx.test
+;
+

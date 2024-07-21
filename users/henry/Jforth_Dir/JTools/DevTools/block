@@ -1,0 +1,271 @@
+\ this file defines the following standard forth words...
+\
+\ <BLOCK>  (execution vector for BLOCK)
+\ R/W      LIST   INDEX   EMPTY-BUFFERS  SAVE-BUFFERS (alias SAVE)
+\ FIRST    LIMIT  PREV    .LINE          LOAD
+\ THRU
+\
+\ In addition...several words to open, maintain and close the
+\ current SCR-FILE.
+\
+\ Mike Haas, Delta Research
+\ Changed LOAD to set SCR for each screen, then restore if complete.
+\ added LOAD-UP.  BTD jan 28 87.
+decimal
+
+include? FILESIZE? JU:FILEINFO
+
+: ?SCROPEN  ( -- quit if no file is open )
+  SCR-FILE @ 0=  ?abort" no open SCR-FILE"  ;
+
+
+user SCRNAMECNT  60 user# +!  \ 63 byte buffer for open scr-file name
+: SCRNAME   ( -- addr )     scrnamecnt 1+  ;
+: >SCRNAME  ( addr cnt -- )
+  dup >r
+  scrname dup >r  dup 63 erase
+  swap move
+  r> 1- r> swap c!  ;
+
+user SCR   user #SCRS-ADDED
+
+: #scrs?  ( -- #scrs-in-open-file )  ?SCROPEN
+  scrname filesize? 1024 /   #scrs-added @ +  ;
+
+   1 constant b/scr
+  64 constant C/L
+
+: R/W   ( adr BLK# flag -- , flag=0=write )  ?SCROPEN
+  >r           ( adr BLK -- )   \ save flag 
+  10 shift     ( adr fadr-- )   \ B/BUF *
+  SCR-FILE @ -dup
+  IF    swap  OFFSET_BEGINNING  fseek? drop  ( adr -- )
+        SCR-FILE @  over  1024       ( adr file adr cnt -- )  r
+        IF    fread?       ( adr #read-- )  0=
+              IF   ( at end of file )
+                   dup 1024 bl fill
+              THEN
+        ELSE  fwrite 0<
+              abort" error during screen WRITE"
+        THEN  drop
+  ELSE  abort" attempted R/W with no open SCR-FILE!"
+  THEN  r> drop ;
+
+4 constant #BUF
+
+1024 CONSTANT B/BUF
+
+B/BUF  2 CELLS + CONSTANT B/+BUF
+
+here (first) !
+#BUF B/+BUF * allot
+here (limit) !
+
+: FIRST  ( --- start-of-bffr-area )   (FIRST) @   ;
+
+: LIMIT  ( --- end-of-buffers-area )  (LIMIT) @   ;
+
+variable use    first use !
+
+variable prev   first prev !
+
+: +BUF   ( buf-adr -- next-buf-adr flag )
+  B/+BUF  + dup LIMIT < 0=
+  IF   drop FIRST
+  THEN dup prev @ -   ;
+
+: EMPTY-BUFFERS  ( --- )
+  FIRST LIMIT OVER  -  erase
+  first #buf 0
+  DO    $ 7fff,ffff over !  +BUF  drop
+  LOOP  drop   ;
+empty-buffers
+
+: UPDATE           PREV @ @   $ 80000000 OR  PREV @ !  ;
+
+: SAVE-BUFFERS ( -- ) 
+  ?SCROPEN  LIMIT FIRST
+  DO   I @ 0<  IF I CELL+  I @ $ 7FFFFFFF AND DUP >R  0 R/W
+                  R> I !   THEN
+  B/+BUF +LOOP  ;
+
+: SAVE  save-buffers ;
+
+: <ASSIGN>  ( BLK#---ADDR )
+     USE @ DUP >R
+     BEGIN   +BUF   UNTIL
+     USE !   R @ 0<
+     IF  SAVE-BUFFERS               ( R  CELL+  R @  7FFFFFFF AND  0 R/W )
+     THEN
+     R !
+     R  PREV  !
+     R>  CELL+   ;
+
+\    <ASSIGN>...
+\    1.  RETURNS WITH 1ST ADDR OF BUFF DATA-FIELD
+\    2.  SETS PREV TO ADDR OF BUFF BLOCK#-FIELD
+
+: NOT-IN-BUFFERS?  ( blk# -- blk# true / addr false )
+  true swap  prev @   #buf 0
+  DO   ( flag blk prev@ -- )  2dup @  $ 7fff,ffff and -
+       IF     +BUF drop
+       ELSE   rot drop false -rot  LEAVE
+       THEN
+  LOOP rot
+  IF   drop true
+  ELSE swap drop cell+ false
+  THEN ;
+
+: BUFFER   ( BLK#---ADDR )
+  NOT-IN-BUFFERS?
+  IF   USE @ DUP >R
+       BEGIN   +BUF   UNTIL
+       USE !   R @ 0<
+       IF   SAVE-BUFFERS          ( R  CELL+  R @  7FFFFFFF AND  0 R/W )
+       THEN    R !  R PREV !  R> CELL+
+  ELSE DUP CELL- PREV !
+  THEN ;
+
+\    BUFFER...
+\     1.  RETURNS WITH 1ST ADDR OF BUFF DATA-FIELD
+\     2.  SETS PREV TO ADDR OF BUFF BLOCK#-FIELD
+
+: <BLOCK>  ( BLK#--ADDR )
+  NOT-IN-BUFFERS?
+  IF  >R
+      R <ASSIGN>  DUP CELL- DUP @  ( ADR BUF-ADR BLK# )
+      SWAP DUP $ 7FFFFFFF SWAP !     ( ADR BLK# BUF-ADR )
+      ROT  R  1   R/W              ( BLK# BUF-ADR )
+      DUP >R  ! R>  CELL+          ( ADR )
+      R> DROP
+  THEN  DUP CELL- PREV !  ;
+' <block> is block
+
+
+: LOAD ( scr --- ) ?SCROPEN
+  BLK @ >R   SCR @ >R  DUP SCR !   BLK !
+  >IN @ >R    0 >IN !
+  'TIB @ >r   #TIB @ >r   1024 #TIB !
+  INTERPRET
+  r> #TIB !   r> 'TIB !
+  r> >in !  R> SCR !   r> BLK !      ;
+
+: THRU ( from to --- )
+  1+ SWAP DO I LOAD LOOP ;
+
+: LOAD-UP  ( --- )  SCR @ #SCRS? THRU ;
+
+: -->           BLK @ IF   0 >IN !  1 BLK +!
+                      THEN   ;   IMMEDIATE
+
+: .LINE  ( line# scr# -- )
+  block  swap 6 shift +  64 -trailing type  ;
+
+: INDEX  ( start end -- )
+  ?SCROPEN  #scrs? >r
+  over r > 0=
+  IF   2dup r 1- min  1+ swap
+       DO   cr i 3 .r space
+            0 i .line  ?pause
+       LOOP
+  THEN 2drop cr r> drop  ;
+
+: MORE-SCREENS  ( #scrs -- )
+  ?SCROPEN  scr-file @
+  0 offset_end fseek? drop  ( move to end of file )
+  0 1024 allocblock ?dup    ( allocate a 1k area )
+  IF   dup MARKFREEBLOCK    ( -- #scrs-needed addr )
+       dup 1024 bl fill     ( set it to all 'blanks' )
+       swap 0
+       DO   scr-file @
+            over  1024 fwrite  1024 -
+            IF   .err ." error while adding screens!"  QUIT
+            THEN 1 #scrs-added +!
+       LOOP dup UNMARKFREEBLOCK  FREEBLOCK
+  ELSE .err ." can't allocate memory!" quit
+  THEN ;
+  
+       
+: SEL   ( scr -- )  ?scropen
+  #SCRS?                              ( -- scr #scrs )
+  2dup < not                          ( -- scr #scrs flag )
+  IF   over >r                        ( save desired scr )
+       1- -   \ calcs #needed         ( -- #scrs-needed )
+       cr  dup . dup 1 -
+       IF   ." screens need"
+       ELSE ." screen needs"
+       THEN ."  to be added, OK" y/n
+       IF   more-screens true
+       ELSE drop      false
+       THEN r> swap
+  ELSE drop true
+  THEN
+  IF   dup SCR !
+  THEN drop ;
+  
+: LIST  ( scr-- )  DUP SEL SCR @ -   SCREDING @  OR  0=
+  IF    CR    ." Scr # " scr @ dup . block
+        16 0 DO  CR  I  3 .R  SPACE
+                 ( I SCR @ .LINE )  dup 64 -trailing type  64 +
+             LOOP  drop CR
+  THEN  ;
+
+: CLOSE-SCR  ( -- , closes whats in SCR-FILE )
+  SCR-FILE @  -dup
+  IF   save-buffers  empty-buffers  FCLOSE   scr-file off
+       scrnamecnt 64 erase
+  THEN ;
+
+: <toSCR-FILE>  ( file-pointer -- )
+  SCR-FILE !   dos0 1- count 
+  63 min >SCRNAME  #scrs-added off  ;
+
+: OPEN-SCR  ( -- , eats filename )
+  SCR-FILE @
+  IF     cr ." SCR-FILE contains another file; close it" y/n  dup
+         IF    close-scr
+         THEN
+  ELSE   true
+  THEN   ( -- flag )
+  IF     fopen  -dup
+         IF   <toSCR-file>
+         ELSE cr ." can't find " dos0 1- $type
+              ." , create it" y/n
+              IF   dos0 new (fopen) -dup
+                   IF   fclose  dos0 (fopen)
+                        <toSCR-FILE> 2 more-screens
+                   ELSE .err ." Can't create screen file" quit
+                   THEN
+              ELSE quit
+              THEN
+         THEN
+  ELSE   fileword drop
+  THEN   ;
+
+: \   ( -- , must handle lines with no EOLs in BLOCK mode )
+  BLK @  ( interpreting from screens? )
+  IF   c/l >IN +!
+       >IN @  c/l /  c/l *  >IN !
+  ELSE [compile] \
+  THEN
+;  immediate
+
+: SAVE-FORTH  ( -- , can't save if scr-file is open )
+  SCR-FILE @
+  ?ABORT" can't SAVE-FORTH with an open SCR-FILE, use CLOSE-SCR."
+  SAVE-FORTH  ;
+
+: BYE  ( -- , flush the buffers out to the file )
+  SCR-FILE @
+  IF    save-buffers
+  THEN  BYE  ;
+
+\ cr cr ."   This file initializes several vectors in the kernal, and may"
+\ cr    ." cause problems if it is forgotten."
+\ cr    ."   Start over with a fresh image if you need to 'go below' the"
+\ cr    ." SCREEN interface, and reload this entire file."
+\ cr    ."   We recommend loading this file early, perhaps keeping a 'system'
+\ cr    ." on hand with this utility installed, if you need it."
+\ cr cr
+
+decimal

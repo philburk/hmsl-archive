@@ -1,0 +1,50 @@
+\
+\ 00001 14-may-90 mdh LoadJForth files now in jf:
+
+
+include? $interpret  jf:string-interpret  \ 00001
+include? module jf:module  \ 00001
+
+
+.NEED assem
+      module assem
+.THEN
+
+
+' assem M.LOADED @ .IF
+
+    detachmodule ASSEM
+
+.THEN
+
+
+only FORTH definitions
+
+
+makeass? @
+
+.IF
+
+    40 MakeModule ASSEM
+
+    include jf:ASM.ref  \ 00001
+    include jf:asm  \ 00001
+    include jf:Forward-ASM  \ 00001
+
+    cr ." Writing MOD:ASSEM.MOD" cr cr
+
+    SealModule ASSEM  detachmodule ASSEM
+
+.THEN
+
+\
+\ Module installed, build interface to it...
+\
+
+
+WillGet  ASSEM CODE
+WillGet  ASSEM ;CODE   immediate
+WillGet  ASSEM ASM
+\ WillHide ASSEM ASM
+\ WillHide ASSEM END-CODE
+

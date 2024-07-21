@@ -1,0 +1,64 @@
+\ Try sampling a waveform for playback.
+\
+\ Use HMSL
+\
+\ Copyright 1987 Phil Burk
+
+include? par@ test_par
+
+ANEW TASK-SAMPLE
+
+V: SAMPLE-DELAY
+V: SAMPLE-LEVEL
+
+OB.SAMPLE ADC-SAMPLE
+
+: SAMPLE.WAIT ( value -- , wait until ADC goes over value )
+    BEGIN par@ over >
+          ?terminal or
+    UNTIL drop
+;
+
+: SAMPLE.ACQUIRE  ( -- , get data )
+    sample-level @ sample.wait
+    disable()  ( prevent glitches )
+    par@ drop
+    data.addr: adc-sample
+    limit: adc-sample 0
+    DO par@ over c! 1+
+       sample-delay @ 0 DO LOOP
+    LOOP drop
+    enable()
+    limit: adc-sample set.many: adc-sample
+;
+
+: SAMPLE.BIAS ( -- , offset to Amiga 0 based )
+    data.addr: adc-sample
+    many: adc-sample 0
+    DO dup c@ 128 -
+       over c! 1+
+    LOOP drop
+;
+
+: SAMPLE
+    sample.acquire ." Acquisition Complete, Start Bias." cr
+    sample.bias    ." Bias Complete" cr
+;
+
+OB.SAMPLE COMP-SAMP
+
+: SAMPLE.INIT
+    20000 new: adc-sample
+    20000 new: comp-samp
+    20 sample-delay !
+    150 sample-level !
+    clear: shape-holder
+    adc-sample add: shape-holder
+    comp-samp add: shape-holder
+;
+
+: SAMPLE.TERM
+    free: adc-sample
+    free: comp-samp
+    clear: shape-holder
+;

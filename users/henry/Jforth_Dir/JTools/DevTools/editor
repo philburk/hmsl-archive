@@ -1,0 +1,150 @@
+INCLUDE? .LINE JDEV:BLOCK
+
+ONLY FORTH DEFINITIONS  DECIMAL
+
+1024 constant 1k
+     user help-level  5 help-level !
+
+: cfa ; immediate
+: nfa  >name ;
+: small-case?  ( char -- char flag )  dup ?letter over 20 and and 0= 0= ;
+: both1+  1+ swap 1+ swap ;
+: k 1024 * ;
+: ctl  bl word 1+ c@  $ 1f and [compile] literal  ; immediate
+
+: (LINE)        >R  C/L  B/BUF  */MOD  R>  B/SCR *  +
+                BLOCK  +  C/L  ;
+
+: beep  7 emit ;
+
+hex
+
+: BLANKS  ( addr cnt -- )  BL FILL  ;
+: >PAD   HERE C/L 1+ BLANKS LWORD PAD C/L 1+ MOVE ;
+: LINE   DUP FFFF,FFF0 AND 17 ?ERROR SCR @ (LINE)  DROP ;
+
+VOCABULARY EDITOR HEX
+
+ALSO EDITOR DEFINITIONS
+
+: #LOCATE       R# @ C/L /MOD ;
+: #LEAD         #LOCATE LINE SWAP ;
+: #LAG ( --- ADR CHAR-LEFT )    #LEAD DUP >R + C/L R> - ;
+: -MOVE  LINE C/L MOVE UPDATE ;
+: H             LINE PAD 1+ C/L DUP PAD C! MOVE ;
+: E             LINE C/L BLANKS UPDATE ;
+: S  ( line#-- ) DUP 0F U> 17 ?ERROR 0F OVER -  0E SWAP 0
+  DO    DUP LINE OVER 1+ -MOVE 1-
+  LOOP  DROP E ;
+: D             DUP H 0F DUP ROT DO I 1+ LINE I -MOVE LOOP E ;
+: M   ( #chars-- )  R# +! SCREDING @ 0=
+   IF   CR SPACE #LEAD TYPE 5E EMIT
+        #LAG TYPE #LOCATE . DROP
+   THEN       ;
+: T             DUP C/L * R# ! DUP H 0 M ;
+: L             SCR @ LIST 0 M ;
+: R             PAD 1+ SWAP -MOVE ;
+: P             5E >PAD R ;
+: I             DUP S R ;
+: TOP           0 R# ! ;
+: CLEAR         SEL 10 0 DO  [ FORTH ] I  [ EDITOR ] E LOOP ;
+: COPY          SWAP BLOCK SWAP BUFFER 1K MOVE UPDATE   ;
+: NL   ( --- )  #LAG R# +! DROP ;
+
+: MATCH  ( cursaddr #left $adr $cnt -- flag curs-movement )
+  2 pick >r
+  dup >r  3 pick >r    ( save $cnt & origcursadr  )
+  match?  ( matchadr? / false -- ) dup
+  IF    r> -    ( matchadr-origadr -- )
+        r@ +    ( want to point to end of string )
+        -1 swap ( -- true change )     dup >r ( push a dummy )
+  ELSE  3 xr> -rot dup 3 x>r  ( -- 0 diff-to-end )
+  THEN  3 xr>  3 xdrop  ;
+
+: 1LINE ( ---F) ( scan line with cursor for match to PAD text )
+  ( update cursor, return boolean )
+  #LAG PAD COUNT MATCH R# +! ;
+
+: EFIND          ( string at PAD over full screen, else error )
+  BEGIN 3FF R# @ < 
+        IF    TOP PAD HERE C/L 1+
+              MOVE 0 ERROR
+        THEN  1LINE 
+  UNTIL ;
+
+: DELETE ( #char-to-del --- ) ( backwards at cursor by count-1)
+     >R #LAG + r@ -    ( save blank fill loc)
+     [ editor ]  #LAG R@ NEGATE R# +!     ( backup cursor )
+     [ editor ]  #LEAD + SWAP MOVE R> BLANKS UPDATE ;
+
+: N             ( find next occurence of previous text  )
+  EFIND 0 M ;
+
+: F             ( find occurence of text )
+  5E >PAD N ;
+
+: B             ( back up cursor by text in PAD )
+  PAD C@ NEGATE M ;
+
+: X             ( delete following text )
+  5E >PAD EFIND PAD C@ DELETE 0 M ;
+
+: TILL          ( delete from cursor to text end on this line )
+  #LEAD + 5E >PAD 1LINE 0= 0 ?ERROR
+  #LEAD + SWAP - DELETE 0 M ;
+
+: C             ( spread at cursor and copy in following text )
+  5E >PAD PAD COUNT #LAG ROT OVER
+  MIN >R r@ R# +!
+  R@ - >R DUP HERE R@ MOVE HERE 
+  [ EDITOR ]  #LEAD + R> MOVE
+  R> MOVE UPDATE 0 M ;
+
+
+FORTH DEFINITIONS
+
+: LT  ( scr# -- )   SCR @ LOAD  ;
+
+EDITOR DEFINITIONS
+
+: DUPLS  (  FROML TOL --- )   DUP ROT 1-
+   DO   DUP    [ EDITOR ] H DUP  I  1-
+   LOOP  DROP  ;
+
+: LSPLIT   ( -- )  ( CURSOR AT SPLIT-POINT )
+  R#  @     DUP >R    C/L / 1+ DUP   [ EDITOR ] S
+  ( LINE#+1 ) LINE DUP  ( ADDR ADDR ) C/L BL FILL
+  #LAG ROT SWAP MOVE ( UPDATE)   #LAG BL FILL ( UPDATE)
+  R# @ C/L / 1+  C/L * R# !    L
+   R#  @ R> - PAD C!  ( FOR B ) ;
+
+: CLEAR-TILL   ( -- )  ( <TEXT> ) [ EDITOR ]
+     #LAG   $ 5E >PAD PAD COUNT MATCH  ( FLAG #BYTES--)
+     SWAP 0= 0 ?ERROR  #LEAD +  SWAP  ( ADDR CNT-- )
+     DUP >R BL FILL UPDATE  R> R# +!   0 M  ;
+
+: CTILL CLEAR-TILL ;
+
+: TT   ( LINE#-- )   DUP 1- T DROP  T  ;
+
+: <XC-TILL>  ( dir-flag<1=UP-TO-LOW> --     input: text/\)
+( LC-TILL turns appropriate ASCII-codes to lower case from )
+( cursor-point 'till specified text.  UC-TILL is opposite. )
+  R# @ >R   [ EDITOR ] F
+  SCR @ BLOCK R@ +   ( Calc original address of cursor-- )
+  R# @ R> -          ( calc #chars ...   adr #chars-- )
+  OVER + SWAP
+  DO    [ forth ] I C@ BL OR SMALL-CASE?        ( letter? )  ( f c f-- )
+        IF  OVER NOT      ( and it's LOW-TO-HI? )  ( f c f-- )
+            IF   $ DF AND
+            THEN ( f c-- )  DUP I C! UPDATE
+        THEN DROP
+  LOOP  DROP ;
+
+editor
+: LC-TILL       1 <XC-TILL>  ;     : LCT LC-TILL ;
+: UC-TILL       0 <XC-TILL>  ;     : UCT UC-TILL ;
+
+decimal
+
+only forth definitions

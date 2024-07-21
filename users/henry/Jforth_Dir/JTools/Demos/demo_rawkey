@@ -1,0 +1,152 @@
+\ Test RAWKeyConvert()
+\ Minimal call by opening Console Device
+\
+\ For more advanced usage, see ju:ConsoleSupport
+\
+\ Author: Phil Burk
+\ Copyright 1991  Delta Research
+
+getmodule includes
+include? OpenDevice() ju:Exec_Support
+include? newwindow.setup ju:amiga_graph
+include? isprint ju:char-macros
+\ include? ev.getclass ju:amiga_events
+include? { ju:locals
+
+ANEW TASK-DEMO_RAWKEY
+
+decimal
+IORequest RKC-IORQ
+
+: OPEN.CONSOLE ( -- device | 0 , open console device for CALL )
+	console_lib @ 0=
+	IF
+		0" console.device"
+		-1 \ for just getting device address
+		rkc-iorq
+		0
+		OpenDevice() ?dup
+		IF
+			." OPEN.CONSOLE - Error = " . cr
+			0
+		ELSE
+			rkc-iorq ..@ io_device
+			dup console_lib !
+			if>rel
+		THEN
+	ELSE
+		console_lib @
+	THEN
+;
+
+: CLOSE.CONSOLE ( -- )
+	console_lib @
+	IF
+		rkc-iorq CloseDevice()
+		console_lib off
+	THEN
+;
+
+InputEvent FakeEvt
+
+: RAW.KEY.CONVERT  ( code qualifier buffer -- nchars )
+	>r  \ save buffer
+	console_lib @ 0=
+	abort" RAW.KEY.CONVERT - OPEN.CONSOLE must be called first!"
+\
+\ setup fake input event
+	0 FakeEvt ..! ie_NextEvent
+	IECLASS_RAWKEY FakeEvt ..! ie_Class
+\
+\ use input parameters
+	FakeEvt ..! ie_Qualifier
+	FakeEvt ..! ie_Code
+\
+	FakeEvt >abs
+	r> >abs 32 0
+	call console_lib RawKeyConvert
+;
+
+NewWindow RawKeyWindow   ( Create a template for the new window. )
+
+: DRK.PROCESS.EVENT { class | done? -- done? , process events from IDCMP }
+	false -> done?
+    class
+    CASE 
+        RAWKEY OF   ( check for up or down )
+			ev-last-Code @
+			ev-last-Qualifier @
+			pad raw.key.convert
+\
+\ print result
+			." ----------------------" cr
+			dup 0>
+			IF
+        		." Chars = " dup 0 DO pad i + c@ .hex LOOP cr
+        		." Chars = " 0
+        		DO pad i + c@ dup isprint
+        			IF emit
+        			ELSE drop ." ."
+        			THEN 2 spaces
+        		LOOP cr
+			ELSE
+				drop ." None .. key up or SHIFT or ?" cr
+			THEN
+        ENDOF
+
+        CLOSEWINDOW OF true -> done? ENDOF
+
+    ENDCASE
+    done?
+;
+
+: RawKey.LOOP  ( -- , loop until done )
+    BEGIN
+        gr-curwindow @ ev.wait
+        gr-curwindow @ ev.getclass ?dup
+    	IF
+    		drk.process.event
+    	ELSE
+    		false
+        THEN
+        ?terminal OR
+    UNTIL
+;
+
+: DRK.INIT ( -- ok? )
+	gr.init
+	open.console
+	IF
+		RawKeyWindow NewWindow.Setup      ( Set defaults for window )
+		140 RawKeyWindow s! nw_width
+		60 RawKeyWindow s! nw_height
+		0" RawKey - JForth" RawKeyWindow s! nw_title
+		CLOSEWINDOW RAWKEY |   ( add RAWKEY )
+			RawKeyWindow ..! nw_idcmpflags
+		RawKeyWindow s@ nw_flags ACTIVATE |
+			RawKeyWindow s! nw_flags
+\
+\ Create window from template and make it the current window.
+    	RawKeyWindow gr.opencurw
+	ELSE
+		false
+	THEN
+;
+
+: DRK.TERM
+	gr.closecurw
+	close.console
+	gr.term
+;
+
+: DEMO.RAWKEY  ( -- , Demonstrate Raw Key )
+    drk.init
+    IF
+    	cr ." Hit various keys including ARROWS and FUNCTION keys" cr
+    	RawKey.LOOP
+    THEN
+    drk.term
+;
+
+cr ." Enter:   DEMO.RawKey     for demo!" cr
+

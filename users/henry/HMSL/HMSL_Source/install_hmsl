@@ -1,0 +1,34 @@
+; Install HMSL on a hard disk
+
+
+IF NOT EXISTS HMSL:
+	echo " HMSL: logical volume not found!"
+	echo " Decide where you want HMSL to be installed"
+	echo " then ASSIGN that directory the logical name HMSL:"
+	echo " Then do the same for HWORK:"
+	echo " Here is an example of what you should enter:"
+	echo "  "
+	ECHO "      MAKEDIR Work:HMSL"
+	ECHO "      ASSIGN  HMSL: Work:HMSL"
+	echo "  "
+	ECHO "      MAKEDIR Work:HWORK"
+	ECHO "      ASSIGN  HWORK: Work:HWORK"
+	echo "  "
+	echo " Then reEXECUTE this script."
+ELSE
+
+echo "Copying HMSL_User to HMSL:"
+copy HMSL_Source: HMSL:HMSL_Source all clone
+copy HMSL_Source:assigns_hard HMSL:assigns
+
+echo "Copying HMSL_User to hard disk."
+copy HMSL_User: HMSL:HMSL_User all clone
+
+execute HMSL:HMSL_User/assigns
+execute HMSL:HMSL_Source/assigns
+
+echo "HMSL installation complete."
+
+
+ENDIF
+

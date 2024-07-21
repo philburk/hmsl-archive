@@ -1,0 +1,297 @@
+\ Parse IFF graphics files.
+\
+\ IFF = Interchange File Format
+\ This is the format for Paint Pictures, etc.
+\
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk
+\
+\ MOD: PLB, S. Harmon, 1/19/90 INCLUDE? 'ILBM' instead of 'FORM'
+\ MOD: PLB 12/16/90 Add IFF-WARNINGS variable.
+\ 00001 PLB/ND 10/25/91 Allow non aborting IFF.ERROR in $IFF.OPEN
+\ 00002 PLB 10/29/91 Add IFF-STOP
+\ 00003 PLB 11/14/91 Add proper error handling capability.
+\ 00004 PLB 3/20/91 Fixed error handling in IFF.READ.CHKID
+
+include? 'ILBM' jiff:iff.j  ( 1/19/90 )
+include? { ju:locals
+include? goto.error ju:goto_error
+decimal
+
+ANEW TASK-IFF_SUPPORT
+
+variable IFF-FILEID
+variable IFF-PAD 16 allot
+variable IFF-NESTED
+variable IFF-WARNINGS
+variable IFF-STOP \ variable to tell parser/scanners to stop 00002
+variable IFF-ERROR \ set by parsers if an error is encountered 00003
+
+DEFER IFF.PROCESS.CHUNK
+DEFER IFF.PROCESS.FORM
+DEFER IFF.PROCESS.CAT
+DEFER IFF.PROCESS.LIST
+
+: .CHKID ( 'chkid' -- , print chunk id )
+	pad ! pad 4 type
+;
+
+: IFF.CLOSE ( -- , close any currently open file )
+	iff-fileid @ ?dup
+	IF  fclose
+		0 iff-fileid !
+	THEN
+;
+
+: $IFF.OPEN?  { $filename -- fileid | 0 }
+	iff.close
+	$filename c@ 0=
+	IF ." $IFF.OPEN - No filename given!" cr 0
+	ELSE \ 00001
+		$filename $fopen dup 0=
+		IF
+			." Couldn't open file: " $filename $type cr
+		ELSE \ 00001
+			dup iff-fileid !
+		THEN
+	THEN
+;
+
+: IFF.READ ( addr #bytes -- #bytes , read from open IFF file)
+	iff-fileid @ -rot    fread
+;
+
+: IFF.READ? ( addr #bytes -- error? , read from open IFF file)
+	tuck 
+	iff.read
+	= not
+;
+
+: IFF.READ.CHKID  ( -- size chkid | 0 0 )
+	iff-pad 8 iff.read
+	8 -
+	IF
+\		." Truncated chunk " r> .chkid cr  \ 00004 bogus r>
+		." Truncated chunk " IFF-PAD @ .chkid cr
+		iff-stop on
+		iff-error on
+		0 0
+	ELSE
+		iff-pad cell+ @
+		iff-pad @
+	THEN
+;
+
+: IFF.READ.TYPE  ( -- typeid | 0 )
+	iff-pad 4 iff.read
+	4 -
+	IF ." Truncated type!" cr
+		iff-stop on iff-error on 0
+	ELSE
+		iff-pad @
+	THEN
+;
+
+: IFF.WRITE ( addr #bytes -- #bytes , write to open IFF file)
+	even-up
+	iff-fileid @ -rot    fwrite
+;
+
+: IFF.WRITE? ( addr #bytes -- error? , write to open IFF file or IFF.ERROR)
+	even-up dup>r iff.write r> -
+	IF
+		." IFF.WRITE? failed!" cr
+		TRUE
+	ELSE
+		FALSE
+	THEN
+;
+
+: IFF.WRITE.CHKID?  ( size chkid -- error? , write chunk header )
+	iff-pad !
+	iff-pad cell+ !
+	iff-pad 8 iff.write?
+;
+
+: IFF.WRITE.CHUNK?  { addr size chid -- error? , write complete chunk }
+	size chid iff.write.chkid? 0=
+	IF
+		addr size iff.write?
+	ELSE
+		TRUE
+	THEN
+;
+
+: IFF.WHERE ( -- current_pos , in file )
+	iff-fileid @ 0 offset_current fseek
+;
+
+: IFF.SEEK ( position -- , in file )
+	iff-fileid @ swap offset_beginning fseek drop
+;
+
+: IFF.SCAN ( -- size , read chunk header and doit)
+\ This word leaves the file position just after the chunk data.
+	iff.read.chkid  ( -- size chkid)
+	dup
+	IF
+		iff.where >r
+		over >r
+		iff.process.chunk
+		r> even-up
+		dup r> + iff.seek ( move past chunk)
+	ELSE
+		drop
+	THEN
+;
+
+: IFF.HANDLE.FORM ( size -- , scan chunks in FORM )
+	1 iff-nested +!
+	iff.read.type drop \ .chkid cr
+	4 - ( subtract 4 for type )
+	BEGIN
+		dup 0>
+		iff-stop @ 0= AND  \ check for stop 00002
+	WHILE iff.scan 8 + ( account for header) -
+	REPEAT drop
+	-1 iff-nested +!
+;
+
+: IFF.HANDLE.CAT ( size -- )
+	." CAT chunk found!" cr
+	iff.process.form  ( handle just like form )
+;
+
+: IFF.HANDLE.LIST ( size -- , report LIST found )
+	. ." LIST chunk found but not supported!" cr
+;
+
+' iff.handle.form is iff.process.form
+' iff.handle.cat  is iff.process.cat
+' iff.handle.list is iff.process.list
+
+: IFF.SPECIAL? ( size chkid -- done? )
+	true >r
+	CASE
+	'FORM' OF dup iff.process.form ENDOF
+	'LIST' OF dup iff.process.list ENDOF
+	'CAT'  OF dup iff.process.cat  ENDOF
+		( size ckid -- )
+		rdrop false >r
+	ENDCASE drop r>
+;
+
+: IFF.VALIDATE ( -- ok? , make sure open file is IFF '85 )
+	iff.where
+	0 iff.seek
+	iff.read.type >r
+	r@ 'FORM' =
+	r@ 'CAT'  = OR
+	r> 'LIST' = OR
+	swap iff.seek
+;
+
+: $IFF.DOFILE? ( $filename -- error? , process file using deferred words)
+	0 iff-nested !
+	0 iff-stop ! \ 00002
+	0 iff-error ! \ 00003
+	$iff.open?
+	IF
+		iff.validate
+		IF  iff.scan drop
+			iff-error @
+		ELSE ."  Not an IFF'85 file!" cr
+			TRUE
+		THEN
+		iff.close
+	ELSE
+		TRUE
+	THEN
+;
+
+: $IFF.DOFILE ( $filename -- , process file using deferred words)
+	$iff.dofile? abort" Error in $IFF.DOFILE"
+;
+
+: IFF.DOFILE ( <filename> -- )
+	fileword $iff.dofile
+;
+
+: IFF.PRINT.CHUNK  ( size chkid -- )
+	>newline iff-nested @ 5 * spaces
+	2dup .chkid space .
+	iff.special? drop
+;
+
+: IFF.DUMP.CHUNK  ( size chkid -- )
+	>newline iff-nested @ 5 * spaces
+	2dup .chkid dup>r space .
+	iff.special? not
+	IF pad r@ 128 min iff.read pad swap dump
+	THEN
+	rdrop cr
+;
+
+: IFF.NOT.PROC ( size chkid -- , default for tell if chunk not used)
+	iff-warnings @
+	IF
+		>newline .chkid space . ." not used." cr
+	ELSE
+		2drop
+	THEN
+;
+
+' iff.print.chunk is iff.process.chunk
+
+: IFF.CHECK ( <filename> -- , print chunks )
+	what's iff.process.chunk
+	' iff.print.chunk is iff.process.chunk
+	iff.dofile
+	is iff.process.chunk
+;
+
+: IFF.DUMP ( <filename> -- , print chunks )
+	what's iff.process.chunk
+	' iff.dump.chunk is iff.process.chunk
+	iff.dofile
+	is iff.process.chunk
+;
+
+: IFF.READ.DATA { dsize | daddr -- addr | null , allocate space and read }
+	0 dsize even-up allocblock dup -> daddr
+	IF  daddr dsize iff.read
+		dsize -
+		IF ." IFF.READ.DATA - Truncated Data!" cr
+			daddr freeblock 0 -> daddr
+			goto.error
+		THEN
+	ELSE ." IFF.READ.DATA Could not allocate memory!" cr
+		goto.error
+	THEN
+	daddr
+	exit
+ERROR:
+	iff-stop on
+	iff-error on
+	0
+;
+
+\ Tools for writing an IFF file.
+: IFF.BEGIN.FORM?  ( type -- start-position error? )
+	iff.where
+	0 'FORM' iff.write.chkid? 
+	IF ( -- type sp )
+		nip TRUE
+	ELSE
+		swap iff-pad !
+		iff-pad 4 iff.write?
+	THEN
+;
+
+: IFF.END.FORM? ( start-position -- error? )
+	>r iff.where dup r@ - 8 -  ( size of 'FORM' chunk header )
+	iff-pad ! r> cell+ iff.seek
+	iff-pad 4 iff.write?  ( write size to FORM chuck header )
+	( pos error? )
+	swap iff.seek  ( restore position )
+;

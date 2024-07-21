@@ -1,0 +1,148 @@
+\ Demonstrate access to the Amiga message system.
+\
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research
+
+getmodule includes
+include? exec_libraries_h ji:exec/libraries.j
+include? CreatePort() ju:exec_support
+include? tolower ju:char-macros
+
+ANEW TASK-DEMO_MSG
+decimal
+
+." WARNING - Version 2.0 had a faulty definition for FINDPORT()!" cr
+: FINDPORT()  ( name -- port )
+	if>abs call exec_lib findport if>rel
+;
+
+\ Define a custom message structure.
+:STRUCT JDMessage
+	struct Message jd_msg
+	long  JD_OPCODE   ( tell background to do something )
+	long  JD_DATA1
+	long  JD_DATA2
+;STRUCT
+
+\ Declare an instance of that structure.
+\ Data for foreground task.
+JDMessage JDMSG
+variable PORT-MADE
+variable PORT-FOUND
+
+: MSG.MAKE ( 0name -- , Create a port to )
+	0 CreatePort()   ( -- rel_reply_port )
+	dup port-made !
+	0= abort" MSG.MAKE - Couldn't open port!"
+\
+\ Initialize message structure.
+	NT_MESSAGE jdmsg .. jdmsg .. mn_node ..! ln_type
+	NULL  jdmsg .. jdmsg ..! mn_ReplyPort
+;
+
+: MSG.FINDPORT ( 0name -- )
+	findport() ?dup
+	IF port-found !
+	ELSE ." MSG.FINDPORT couldn't find port!" cr abort
+	THEN
+;
+
+: MSG.SEND ( msg -- , Send message to other task )
+	port-found @ swap putmsg()
+;
+
+: MSG.RECV ( -- msg )
+	port-made @ WaitPort() drop
+	port-made @ GetMsg()
+;
+
+: MSG.TERM ( -- , cleanup )
+	port-made @
+	IF  port-made @ DeletePort()
+		port-made off
+	THEN
+;
+
+\ Send different kinds of messages to background.
+0 constant JD_QUIT  ( tell background to go away )
+1 constant JD_TYPE  ( print a message in data1 )
+2 constant JD_EMIT  ( emit one char )
+3 constant JD_ADD   ( add data1 and data2 and leave result in data1)
+variable MSG-QUIT
+
+: MSG.EXEC  ( msg -- , background acts on message )
+	dup>r ..@ jd_opcode
+	CASE
+		jd_type OF r@ ..@ jd_data1 >rel count type cr ENDOF
+		jd_emit OF r@ ..@ jd_data1 emit flushemit  ENDOF
+		jd_add  OF r@ ..@ jd_data1
+			r@ ..@ jd_data2 + r@ ..! jd_data1
+		ENDOF
+	jd_quit OF msg-quit on ENDOF
+		." Bad opcode! dup .
+	ENDCASE
+	rdrop  ( drop message )
+;
+
+\ You must pass addresses as ABSOLUTE just like when
+\ passing to the Amiga OS
+: MSG.TYPE  ( $string -- )
+	>abs jdmsg ..! jd_data1    ( note >ABS  )
+	jd_type jdmsg ..! jd_opcode
+	jdmsg msg.send msg.recv drop
+;
+
+: MSG.EMIT  ( char -- )
+	jdmsg ..! jd_data1
+	jd_emit jdmsg ..! jd_opcode
+	jdmsg msg.send msg.recv drop
+;
+
+: MSG.ADD ( a b -- a+b )
+	jdmsg ..! jd_data1
+	jdmsg ..! jd_data2
+	jd_add jdmsg ..! jd_opcode
+	jdmsg msg.send msg.recv drop
+	jdmsg ..@ jd_data1
+;
+
+: MSG.QUIT ( -- )
+	jd_quit jdmsg ..! jd_opcode
+	jdmsg msg.send msg.recv drop
+;
+
+: TEST.SEND ( -- )
+\ Make a reply port.
+	0" dmsg_fore" msg.make
+	port-made @  >abs jdmsg .. jdmsg ..! mn_ReplyPort
+\ Find port created by background task.
+	0" dmsg_back" msg.findport
+\ Send messages to background.
+	" Hello!" msg.type
+	" Characters coming from other window!" msg.type
+	3 4 msg.add  ." 3 4 = " . cr
+	." Type here, 'q' to stop." cr
+	BEGIN
+		key dup msg.emit
+		tolower ascii q =
+	UNTIL
+	msg.quit
+	msg.term
+;
+
+: TEST.RECV  ( -- )
+	0" dmsg_back" msg.make
+	msg-quit off
+	BEGIN
+		msg.recv
+		dup msg.exec
+		ReplyMsg()
+		msg-quit @
+	UNTIL
+	msg.term
+;
+
+cr cr
+." Run 2 separate images of JForth! Separate windows." cr
+." In one, enter:         TEST.RECV" cr
+." In the other, enter:   TEST.SEND" cr

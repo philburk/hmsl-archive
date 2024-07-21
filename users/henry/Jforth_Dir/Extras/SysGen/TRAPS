@@ -1,0 +1,201 @@
+\ Trap 68000 Exceptions
+\
+\ Copyright 1986
+\ MOD: PLB 9/4/88 Use AUTO.INIT
+\ MOD: PLB 9/9/88 Use IF.FORGOTTEN
+\ MOD: mdh 12/28/88 Incorporate 68010, 68012 and 68020 CPUs, add extra info
+\
+\ 00001 14-may-90 mdh LoadJForth files now in jf:
+\ 00002 15-aug-91 mdh remove dependancy on modules
+\ 00003 16-aug-91 plb SAVE-FORTH redef not needed, see JF:AUTO
+\ 00004 25-jan-92 mdh turned CR to >NEWLINE
+
+decimal
+
+\ .need eb_AttnFlags    00002
+\   getmodule includes
+\ .then
+
+ONLY FORTH DEFINITIONS 
+DECIMAL
+
+include? comp jf:@bits  \ 00001
+
+: Is68000?  ( -- flag , true if ol' faithful! )
+  exec_lib @ >rel  296 + w@  \ CAN'T CHANGE ---->>>> ..@ eb_AttnFlags 00002
+  [ ( AFF_68010 ) 1    ( AFF_68020 ) 2   or
+    ( AFF_68030 ) 4 or ( AFF_68040 ) 8   or ] literal  and  0=
+;
+
+: GET-TCB  ( --- adr )  0 CALL EXEC_LIB FINDTASK  >rel  ;
+
+: GET-TRAP   ( trap=number --- flag ) CALL EXEC_LIB ALLOCTRAP  ;
+: FREE-TRAP  ( TRAP-NUMBER --- FLAG ) CALL EXEC_LIB FREETRAP  ;
+
+: NO-EMULATION   ." A or F line instruction"  ;
+DEFER 1010-EMULATE
+' no-emulation is 1010-emulate
+DEFER 1111-EMULATE
+' no-emulation is 1111-emulate
+
+DEFER DO-TRACE 
+: <DO-TRACE>  ( ---- )  ( 680xx-stack-frame raddr --r-- ) rdrop 
+    ." trace "  rte ; 
+' <DO-TRACE> IS DO-TRACE
+
+.need AND-TO-SR
+: AND-TO-SR  [  $ 40c0,c087 ,  $ 2e1e,46c0 ,  ]  both ;
+.then
+
+max-inline @   20 max-inline !
+: <USER-QUIT> ( --- ) 
+  [ 0 DECIMAL 13 SET-BIT COMP ] LITERAL AND-TO-SR
+  r> drop
+\ $ 2000 0 call exec_lib setsr  drop  
+  ' (quit) >abs >r  ;
+max-inline !
+
+: .Ret  ( addr amt-to-add -- )
+  ."  at $" swap 2+ @ + >rel  .hex
+;
+
+DECIMAL
+
+: AdrErrSize  ( -- #bytes )
+  [  9 2* ] literal   \ 68000 size is 7 words + 2 for retadr
+  Is68000? 0= IF
+     [ 22 2* ] literal  +   \ other cpus stack 22 more words
+  THEN
+;
+
+: TrapFrameSize  ( -- #bytes )
+  [ 5 2* ] literal   \ 68000 size is 3 words + 2 for retadr
+  Is68000? 0= IF
+     \
+     ( -r- ?? fmt/vec16 pc/lo/16 pc/hi/16 statreg/16 ret/lo/16 ret/hi/16 )
+     ( -r- ??        cell2             cell1                cell0        )
+     \
+     2 rpick   $ f000,0000 and  $ 8000,0000 =  IF
+        [ 26 2* ] literal  +   \ other cpus stack 26 more words
+     THEN
+  THEN
+;
+
+\ 18 CONSTANT AdrErrSize68k
+\ AdrErrSize68k 22 2* ( words ) + constant AdrErrSize68k+
+\ 10 CONSTANT TRAP-FRAME-SIZE
+
+: <trap>  ( --- )  ( 680xx-stack-frame exception# --R-- ??? ) SAVE-CPU
+  R> CR DUP  decimal ." TRAP " .  ." : "
+  CASE
+    3  OF ." Address error, instruction at $"  
+          rp@ 6 + w@  ( -- inst )
+          rp@ $ 0a + @ >rel  ( -- inst pc )
+          BEGIN
+             2- 2dup w@ =
+          UNTIL
+          nip  .hex   ." accessing $"
+          rp@ 2+ @ >rel .hex
+          AdrErrSize  RP+!  <USER-QUIT>     ENDOF
+    4  OF ." ILLEGAL instruction" rp@ 0 .Ret   ENDOF
+    5  OF ." Divide by zero by instruction" rp@ -2 .Ret ENDOF
+    6  OF ." CHK instruction" rp@ -4 .Ret ENDOF
+    7  OF ." TRAPV instruction" rp@ -2 .Ret ENDOF 
+    8  OF ." Privilege violation" rp@ 0 .Ret ENDOF
+    9  OF DO-TRACE  ENDOF
+    10 OF 1010-EMULATE rp@ 0 .Ret ENDOF
+    11 OF 1111-EMULATE rp@ 0 .Ret ENDOF 
+           ." unrecognized EXCEPTION trap" . CR  RTE
+  ENDCASE
+  TrapFrameSize RP+! <USER-QUIT>    ; 
+
+.NEED +field
+: +FIELD  ( OFFSET SIZE --- FOFSET+SIZE ) CREATE OVER , + 
+      DOES>  ( ADR <BODY> --- ADR+ )   @ +  ;
+.THEN
+
+.NEED +NODE-SIZE
+0
+4 +field suc
+4 +field pre
+1 +field typ
+1 +field pri
+4 +field nam
+0 +field +node-size 
+drop
+
+0 
++node-size 
+1 +field +FLAGS 
+1 +field +STATE
+1 +field +IDNestCnt
+1 +field +TDNestCnt
+
+4 +field +SigAlloc
+4 +field +SigWait
+4 +field +SigRecvd
+4 +field +SigExcept
+
+2 +field +TrapAlloc
+2 +field +TrapAble
+
+4 +field +ExceptData
+4 +field +ExcpetCode
+4 +field +TrapData
+4 +field +TrapCode
+constant rest
+.THEN
+
+variable was_trapcode
+
+DECIMAL
+: TRAPS   ( -- ) >newline
+  get-tcb +trapcode @  ' <trap> >abs  = not
+  IF  get-tcb +trapcode @ was_trapcode !
+      5 GET-TRAP 0<  ?ABORT" TRAP TAKEN"
+      ' <trap> >abs get-tcb +trapcode ! 
+         ." TRAPS installed."
+  ELSE   ." TRAPS already installed."
+  THEN cr
+;
+
+: NOTRAPS  ( -- )
+  get-tcb +trapcode @  ' <trap> >abs =
+  IF   was_trapcode @  get-tcb +trapcode !
+       5 free-trap  drop
+  ELSE >newline ( 00004 )  ." TRAPS not installed." cr
+  THEN ;
+
+
+FALSE .IF 
+DECIMAL
+: REAL  ( --- )   11 3 
+   DO  I GET-TRAP 0< 
+       IF  I . "  TRAP TAKEN" CR 
+       THEN
+   LOOP     ' say >abs get-tcb +trapcode !  ; 
+.THEN
+
+\ 00003
+\ : SAVE-FORTH   ( -- , remove traps before saving image )
+\   get-tcb +trapcode @  ' <trap> >abs =
+\   IF   NOTRAPS true
+\   ELSE false
+\   THEN save-forth
+\   IF   TRAPS
+\   THEN ;
+
+\ Try using AUTO.INIT for turning on traps.
+EXISTS? AUTO.INIT .IF
+: AUTO.INIT
+    traps
+    auto.init
+;
+: AUTO.TERM
+    auto.term
+    notraps
+;
+.THEN
+
+\ Turn off traps if this code is forgotten.
+IF.FORGOTTEN NOTRAPS

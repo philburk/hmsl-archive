@@ -1,0 +1,5 @@
+include? par@ test_par
+include? scope scope
+include? sample sample
+include? playsamp playsamp
+include? task-flags flags

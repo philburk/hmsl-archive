@@ -1,0 +1,11 @@
+\ Set Version Number
+ANEW TASK-HMSL_VERSION
+
+
+\ Set both Version Number and Title string.
+419 value HMSL_VERSION#
+
+: (HMSL.TITLE)  ( -- $string )
+    HOST" HMSL V4.19"
+;
+'c (HMSL.TITLE) is HMSL.TITLE

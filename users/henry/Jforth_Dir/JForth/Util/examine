@@ -1,0 +1,27 @@
+
+\ examine and display the fileinfoblock for a file or directory
+\
+\ Usage:  EXAMINE <file-or-dir-name>
+\
+\ Mike Haas, Delta Research
+
+include? fib ju:fileinfo
+
+: examine ( eats filename from input stream )
+  fileword count >dos
+  dos0 lockr  ?dup
+  IF   dup examine-fib
+       cr ." Disk Key       = "  fib fib/diskkey @ .
+       cr ." Dir Entry Type = "  fib fib/direntrytype @ .
+       cr ." Filename       = "  fib fib/filename 0type
+       cr ." Protection     = "  fib fib/protection @ .
+       cr ." Entry Type     = "  fib fib/entrytype @ .
+       cr ." Size           = "  fib fib/size @ .
+       cr ." Num of Blocks  = "  fib fib/numblocks @ .
+       cr ." Date Stamp     = "  fib fib/datestamp
+                                 dup @ u. cell+ dup @ u. cell+ @ u.
+       cr ." Comment        = "  fib fib/comment 0type
+       callUnlock
+  ELSE .err ." can't Lock " dos0 1- $type  quit
+  THEN cr
+;

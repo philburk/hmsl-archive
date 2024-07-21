@@ -1,0 +1,81 @@
+\ "Circle Square"
+\ Generate color patterns by plotting bit fields from
+\ polynomial functions of x and y.
+\
+\ The patterns can be changed by using new functions.
+\ Write a word with the following stack diagram
+\     ( x y -- f[x,y] )
+\ and plug it in to CS-FUNC using IS.
+\     ' myword IS CS-FUNC
+\
+\ Change the zoom factor by adjusting CS-SHIFT .
+\
+\ Author: Phil Burk
+\ Copyright 1986  Delta Research
+
+include? gr.init ju:amiga_graph
+include? ev.getclass ju:amiga_events
+
+ANEW TASK-DEMO_CIRCSQ
+
+: GR.POINT ( x y -- , set point )
+	gr-currport @ -rot
+	call graphics_lib writepixel drop
+;
+
+: SQUARE ( X -- X**2 )
+	dup *
+;
+
+VARIABLE CS-SHIFT   ( effective 'zoom' factor )
+-8 CS-SHIFT !
+
+defer CS-FUNC   ( vectored function to calculate polynomial )
+: SUM.SQUARES  ( i j -- i**2+j**2 )
+	square swap square +
+;
+
+: DIFF.SQUARES ( i j -- j**2-i**2 )
+	square swap square -
+;
+
+: CS.FUNC1  ( i j -- [i-1]*i*j )
+	over 1- * *   ( works well with cs-shift = -12 )
+;
+
+' sum.squares is cs-func
+
+: CIRCSQ.DRAW  ( xmax ymax -- )
+	0 DO ( next row )
+		dup 0 DO ( next point )
+			i j cs-func
+			cs-shift @  ashift
+			3 AND  gr.color!
+			i j gr.point
+		LOOP
+		?closebox IF leave THEN
+	LOOP drop
+;
+
+: CIRCSQ.INIT   ( -- )
+	cr ." CIRCSQ - Hit CLOSE BOX to interrupt!" cr
+	gr.init            ( Initialize graphics system. )
+	gr.opentest        ( Open test window. )
+;
+
+VARIABLE CS-XMAX
+VARIABLE CS-YMAX
+
+512 CS-XMAX !
+150 CS-YMAX !
+
+: CIRCSQ ( -- )
+	circsq.init
+	cs-xmax @ cs-ymax @ circsq.draw
+	." Hit key to continue." cr
+	key drop  ( pause at end to view )
+	gr.closecurw
+	gr.term
+;
+
+cr ." Enter:    CIRCSQ   to see pattern.  Please read file." cr

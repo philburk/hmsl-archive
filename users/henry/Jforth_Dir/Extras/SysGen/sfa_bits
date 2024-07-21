@@ -1,0 +1,6 @@
+\ currently, these bits are used in the SIZE-FILEDS...
+
+$ 8000,0000 constant INLINE_BIT
+$ 4000,0000 constant CALLED_BIT
+$ 2000,0000 constant USED_BIT    ( used in ju:unused )
+$ 1000,0000 constant MODULE_BIT  ( marks a module header )

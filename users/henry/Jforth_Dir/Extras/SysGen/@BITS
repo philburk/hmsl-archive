@@ -1,0 +1,19 @@
+ 
+\ @BITS !BITS
+
+EXISTS? COMP  NOT
+.IF   : COMP  -1 XOR ;
+.THEN
+
+: @BITS ( n offset bits --- bit-of-n )
+     >R -SHIFT  -1 R> +SHIFT  COMP AND ;
+
+: !BITS  ( n n1 offset bits --- n'-or-bits-of-n1  )
+   2 X>R   -1 2 RPICK  +SHIFT DUP >R COMP AND
+   2 RPICK  +SHIFT
+   ( n  n1-bits-in-position  )  ( bits offset bits-of-0's -R-)
+   SWAP  R> COMP R> +SHIFT COMP AND OR RDROP ;
+
+\  all work BTD. 3/29/85
+\  it would be faster to look up the mask in a table.
+

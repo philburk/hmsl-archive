@@ -1,0 +1,36 @@
+HMSL version 3.12 differs from version 3.10 in
+the following ways.
+
+* Unimplemented pull down menu items have been removed.
+
+* H:HMSL_TOP has been split into:
+    h:ajf_open
+    h:ajf_top
+    h:hmsl_top
+    h:ajf_startup
+  in order to isolate host dependancies better.
+
+* The REVERSE: method for SHAPES has been changed so
+  that it doesn't use such huge ammounts of stack space.
+  In the past, this occasionally resulted in stack overflows
+  into the dictionary when reversing large SHAPES.
+
+* DEBUG.TYPE added to HO:UTILS
+
+* Version number now prints at startup. Available
+  as a constant named HMSL_VERSION# .
+
+Last minute BUG report:
+
+- A shape with an ON dimension will get out of sync if
+  an ON time of zero is in the shape.  The PLAYER will
+  mess up the time.
+  ( Now Fixed! )
+
+---- Amiga Specific ------------
+
+** Incorrect values in the bottom two octaves of TUNING-EQUAL
+  have been fixed.
+
+** References to JO: in H:LOAD_HMSL changed to HO: so
+  that the new version of ODE gets loaded.

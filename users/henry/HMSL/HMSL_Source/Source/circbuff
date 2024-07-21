@@ -1,0 +1,161 @@
+\ Circular Buffers
+\ These will be used for MIDI I/O
+\
+\ Author: Phil Burk
+\ Copyright 1989 Phil Burk
+
+ANEW TASK-CIRCBUFF
+
+:STRUCT CIRCULAR.BUFFER
+    long cb_base  ( ABSOLUTE base address of buffer )
+    long cb_size  ( number of bytes allocated )
+    long cb_count ( number of bytes in )
+    long cb_in    ( index of next empty byte )
+    long cb_out   ( index of next byte out
+    byte cb_overflowed  ( true if over )
+    byte cb_underflowed ( true if underflowed )
+    byte cb_overrun     ( true if buffer overrun )
+    byte cb_pad
+;STRUCT
+
+: CB.INIT ( addr size cb -- )
+    >r
+    r@ ..! cb_size
+    >abs r@ ..! cb_base
+    0 r@ ..! cb_in
+    0 r@ ..! cb_out
+    0 r@ ..! cb_underflowed
+    0 r@ ..! cb_overflowed
+    0 r@ ..! cb_overrun
+    0 r@ ..! cb_count
+    rdrop
+;
+
+false .IF    \ High level versions
+: CB.IN  ( byte cb -- )
+    >r
+    r@ ..@ cb_base
+    r@ ..@ cb_in dup>r   +  absc!
+    r> 1+ ( -- in )
+    dup r@ ..@ cb_size >=
+    IF drop 0 ( wraparound )
+    THEN  r@ ..! cb_in  ( update pointer )
+    r@ ..@ cb_count r@ ..@ cb_size <
+    IF   1 r@ .. cb_count +!
+    ELSE true r@ ..! cb_overflowed
+    THEN
+    rdrop
+;
+
+: CB.OUT  ( cb -- byte )
+    >r
+    r@ ..@ cb_base
+    r@ ..@ cb_out dup>r   +  absc@
+    r> 1+ ( -- byte out )
+    dup r@ ..@ cb_size >=
+    IF drop 0 ( wraparound )
+    THEN  r@ ..! cb_out  ( update pointer )
+    -1 r@ .. cb_count +!
+    rdrop
+;
+
+.ELSE
+
+ASM CB.LL.IN ( D0:byte A0:cb_abs -- )
+\ D0 = data byte
+\ D1 = index
+\ A0 = cb_absolute
+\ A1 = scratch address
+    move.l  [cb_base](a0),a1    ; ABS base address of data
+    move.l  [cb_in](a0),d1      ; index-offset to next slot
+    move.b  d0,$0(a1,d1)        ; store byte
+    addq.l  #1,d1               ; incr offset
+    cmp.l   [cb_size](a0),d1    ; wrap around if past end
+    blt     1$
+    moveq.l #0,d1
+1$: move.l  d1,[cb_in](a0)      ; update in pointer
+    move.l  [cb_count](a0),d0   ; check for overflow
+    cmp.l   [cb_size](a0),d0 
+    bge     2$
+    addi.l  #1,[cb_count](a0)   ; incr count if room
+    bra     3$
+2$: move.b  #$FF,[cb_overflowed](a0)
+    move.l  d1,[cb_out](a0)     ; bump out to get latest data
+3$: rts
+end-code
+
+ASM STACK>A0 ( a0 -- , stuff into registers )
+    move.l  tos,A0
+    move.l  (dsp)+,tos
+    forth{ inline }
+end-code
+
+ASM D0>STACK ( -- d0 , stuff into registers )
+    move.l  tos,-(dsp)
+    move.l  d0,tos
+    forth{ inline }
+end-code
+
+ASM STACK>D0/A0 ( d0 a0 -- , stuff into registers )
+    move.l  tos,A0
+    move.l  (dsp)+,d0
+    move.l  (dsp)+,tos
+    forth{ inline }
+end-code
+
+: CB.IN ( data cb -- )
+    >abs stack>d0/a0
+    cb.ll.in
+;
+
+ASM CB.LL.OUT ( A0:cb_abs -- D0:byte )
+\ D0 = data byte
+\ D1 = index
+\ A0 = cb_absolute
+\ A1 = scratch address
+    move.l  [cb_base](a0),a1  \ base of data
+    move.l  [cb_out](a0),d1   \ index to byte to be read
+    moveq.l #0,d0             \ clear reg
+    move.b  $0(a1,d1),d0      \ read byte to d0
+    addq.l  #1,d1             \ increment index
+    cmp.l   [cb_size](a0),d1  \ wrap around ?
+    blt     1$
+    moveq.l #0,d1             \ wrap to zero if at end
+1$: move.l  d1,[cb_out](a0)   \ update out
+    subi.l  #1,[cb_count](a0) \ decrement count
+end-code
+
+
+: CB.OUT ( cb -- data )
+    >abs stack>a0
+    cb.ll.out
+    d0>stack
+;
+.THEN
+
+true .IF  \ testing
+256 constant cb_tsize
+CREATE  CB-DATA  cb_tsize 8 + allot
+circular.buffer mycb
+
+: TEST.INIT
+    cb-data cb_tsize mycb cb.init
+;
+
+: CB.TADD
+    11 mycb cb.in
+    22 mycb cb.in
+    mycb cb.out .
+    mycb cb.out .
+\    mycb dst circular.buffer
+;
+
+: BENCH.CB  test.init
+    0 DO 
+      11 mycb cb.in
+      22 mycb cb.in
+      mycb cb.out drop
+      mycb cb.out drop
+    LOOP
+;
+.THEN

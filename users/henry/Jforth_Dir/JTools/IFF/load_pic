@@ -1,0 +1,16 @@
+\ Load Pictures system.
+\ General purpose code
+include? gr.init ju:amiga_graph
+include? ?closebox ju:amiga_events
+include? task-screen_support ju:screen_support
+include? task-graph_support ju:graph_support
+
+\ IFF specific code
+include? unpackrow jiff:unpacking
+include? task-packing jiff:packing
+include? task-iff_support jiff:iff_support
+include? task-ilbm_parser jiff:ilbm_parser
+include? task-ilbm_maker jiff:ilbm_maker
+include? task-show_iff jiff:show_iff
+include? task-pictures jiff:pictures
+include? task-pic_effects jiff:pic_effects

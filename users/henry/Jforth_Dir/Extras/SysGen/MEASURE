@@ -1,0 +1,94 @@
+\ usage:   MEASURE vlist
+\
+\ for simple measurements of 1 line of keyboard input.
+\
+\ A BENCH utility can be used to correct for a known timing component
+\ (such as DO-LOOP times).  To set the correction value:
+\
+\          BENCH.WITH xxx   ( where xxx is a word to measure and )
+\                           ( subsequently factor out. )
+\ followed by:
+\
+\          BENCH yyy        ( where yyy is a word containing xxx )
+\                           ( this prints the total, correction, and )
+\                           ( actual times measured. )
+\
+\ Example:
+\
+\    : DO-LOOPS    10,000 0 DO LOOP ;
+\    BENCH.WITH  DO-LOOPS
+\    : DO-PLUSSES  10,000 0 DO 23 45 + drop LOOP ;
+\    BENCH  DO-PLUSSES
+\
+\ Copyright 1986 Delta Research
+
+include? $interpret jf:string-interpret
+
+decimal
+
+variable istime  0 , 0 ,
+variable wastime 0 , 0 ,
+variable correct-ticks
+
+: loadtime  ( adr -- , fills buffer from dos )
+  >abs call dos_lib datestamp  drop   ;
+
+: .timediff  ( hundreths secs -- )
+  base @ >r decimal
+  3600 /mod -dup
+  IF   dup 1 .r ."  hour"  1 >
+       IF   ascii s emit
+       THEN ." , "
+  THEN
+  60 /mod -dup
+  IF   dup 1 .r ."  minute"  1 >
+       IF   ascii s emit
+       THEN ." , "
+  THEN
+  1 .r   ascii . emit
+  dup 10 <
+  IF    ascii 0 emit
+  THEN  -dup
+  IF    1 .r  
+  THEN  r> base ! ."  seconds" space ;
+
+: .results
+  >newline ." That took "   .timediff  ;
+
+: >secs   ( #ticks -- #hundreths seconds )
+  50 /mod  swap 2* swap   ;
+
+: >ticks    ( #tick0 #min0 #tick1 #min1 -- #total-ticks-passed )
+  swap >r   ( #t0 #m0 #m1 -- )   \ save #tick1
+  swap -  3000 *  ( #ticks from minutes )  ( #t0 #mticks -- )  ( #t1 -r- )
+  r> rot - +    ( #ticks passed )
+;
+
+: .dif  ( d1 d2 -- , print difference in double numbers as time ) 
+  >ticks >secs  .results       \ calc and display the difference
+;
+
+: <MEAS-INTERP>  ( -- , parse & process 1 line of input input )
+  wastime loadtime          \ get the current time (start of 'return')
+  eol word pad 128 + $move
+  pad 128 +  count $interpret
+  istime  loadtime          \ load the time we are at now (20 msec ticks)
+  [ wastime cell+ ] literal d@  \ put the two 'times' on the stack
+  [ istime  cell+ ] literal d@
+;
+
+: measure  ( -- , execute command line, measure time )
+  <meas-interp>  .dif
+;
+
+: BENCH.WITH  ( -- , eats name of routine to correct for )
+  <meas-interp>  ( -- d1 d2 )
+  >ticks   correct-ticks !    ;
+
+: BENCH  ( -- , measure and correct with 'correct-ticks' for true time )
+  <meas-interp>  ( -- d1 d2 )
+  >ticks dup    >newline ." Total time   = " >secs .timediff
+  correct-ticks @ dup cr ." T(BENCH.WITH)= " >secs .timediff
+  -             cr       ." Actual time  = " >secs .timediff
+;
+  

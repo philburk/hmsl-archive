@@ -1,0 +1,131 @@
+\ A RECORDER is a morph that records incoming MIDI information
+\ as raw data in a shape.  The data can be stored in several
+\ ways: 1) Note on only. Monophonic, no note duration control.
+\       2) Note on with duration. Still monophonic.
+\       3) Note on and off. Offs have 0 velocity. Polyphonic.
+\
+\ Author: Phil Burk
+\ Copyright 1987 Phil Burk, Larry Polansky, David Rosenboom
+\ All Rights Reserved.
+\
+\ MOD: PLB 9/2/87 Add STOP: here, should be in OB.MORPH
+\ MOD: PLB 8/31/89 Updated to new system.
+
+ANEW TASK-RECORDER
+
+METHOD EXTRACT.MONO:
+
+:CLASS OB.RECORDER <SUPER OB.SHAPE
+    IV.LONG IV-RC-STARTTIME
+    IV.LONG IV-RC-LASTTIME
+    IV.LONG IV-RC-LASTDUR
+    IV.LONG IV-RC-LASTNOTE
+    IV.LONG IV-RC-LASTVEL
+    IV.LONG IV-RC-LASTON
+    IV.LONG IV-RC-SHAPE
+
+:M NEW:  ( -- allocate 3 wide )
+    3 new: super
+;M
+
+:M STOP: ( -- )
+;M
+
+:M NOTE.ON:  ( note velocity -- , records in shape as absolute data)
+    midi.time@ -rot
+    add: self
+;M
+
+: RC.WRITE.NOTE  ( shape -- , write note info to shape )
+    >r iv-rc-laston ( use ON time until duration can be calculated)
+    iv-rc-lastnote iv-rc-lastvel iv-rc-laston
+    r> add: []
+;
+
+: RC.NEXT.EVENT ( abs_time note vel -- , process note event )
+    dup 0=
+    IF  ( Note off message )
+        drop iv-rc-lastnote =
+        IF  iv-rc-lasttime -  ( -- ON_time )
+            iv=> iv-rc-laston
+        ELSE drop
+        THEN
+    ELSE
+        iv-rc-lastnote 0 >=  ( previous notes )
+        IF  iv-rc-shape rc.write.note
+            iv=> iv-rc-lastvel
+            iv=> iv-rc-lastnote
+            dup iv-rc-lasttime - ( calc. duration of previous note )
+            swap iv=> iv-rc-lasttime
+            iv-rc-laston 0<
+            IF  ( previous note still sounding, set legato)
+                dup 2+ iv-rc-shape many: [] 1- 3 iv-rc-shape ed.to: []
+            THEN
+            iv-rc-shape many: [] 1- 0 iv-rc-shape ed.to: []
+            -1 iv=> iv-rc-laston
+        ELSE
+            iv=> iv-rc-lastvel
+            iv=> iv-rc-lastnote
+            iv=> iv-rc-lasttime
+        THEN                
+    THEN
+;
+
+:M EXTRACT.MONO:  ( shape -- , extract notes from raw data )
+    iv=> iv-rc-shape
+    many: self 8 + 4 iv-rc-shape new: []  ( make space in shape )
+    many: self
+    IF  reset: self
+       -1 iv=> iv-rc-lastnote
+       0 0 ed.at: self dup iv=> iv-rc-lasttime  ( set time )
+       iv-rc-starttime - ?dup
+       IF 0 0 1 iv-rc-shape add: []  ( add rest at start if needed )
+       THEN
+       BEGIN  ( scan recorder )
+           manyleft: self
+       WHILE
+           next: self  ( -- abs_time note vel )
+           rc.next.event
+       REPEAT
+       iv-rc-shape rc.write.note
+    THEN
+;M
+
+:M NOTE.OFF:  ( note velocity -- , records in shape )
+    drop 0 note.on: self
+;M
+
+:M ?EXECUTE: ( time raddr -- time true | false, set start time )
+    put.invoker: self
+    dup iv=> iv-rc-lasttime
+    iv=> iv-rc-starttime
+    0 iv=> iv-rc-laston
+    limit: self 4 >
+    IF  clear: self
+    ELSE " ?EXECUTE: RECORDER" " No Room"
+         er_fatal er.report
+    THEN
+    false
+;M
+
+;CLASS
+
+\ Interpreters to use with recorded MIDI data.
+: USE.PLAYBACK.INTERP  ( instrument -- )
+    'c interp.el.on over put.on.function: []
+    'c 3drop swap put.off.function: []
+;
+
+true .IF
+ob.recorder R1
+: TEST.RC
+    20 new: R1
+     start: r1
+     5 40 50 add: r1
+    10 40  0 add: r1
+    15 41 50 add: r1
+    20 42 90 add: r1
+    22 41  0 add: r1
+    30 42  0 add: r1
+;
+.THEN

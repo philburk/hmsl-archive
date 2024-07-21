@@ -1,0 +1,168 @@
+\ Define all 15 resident libs...
+\
+\ 06/12/88 mdh added rehash, changed name to :Library
+\ MOD: PLB 1/11/89 Changed MathIEESingBas to MathIEEEDoubTrans
+\ MOD: PLB/MDH 1/19/90 Removed CONSOLE, TIMER and POTGO since they
+\      are not libraries.
+\ 00003 09-feb-91 mdh  Allowed LIB? to not QUIT if open fail, if
+\                      new variable LIB_QUIT is false (default true)
+\                      (caller should check ???_LIB var upon return)
+\ 00004 15-aug-91 mdh/plb added 2.0 libs
+\ 00005 13-jan-92 mdh     changed wb to workbench
+
+
+: :Library   ( -- , build a JForth Library structure for handling calls )
+  bl word  ( here -- ) >r  unword
+  $" _LIB"  count r>  $append   here find swap drop 0=
+  IF     skip-word  [compile] variable ( globals )
+  THEN
+  bl word  ( here -- ) >r  unword
+  $" _NAME" count r>  $append   [compile] ((create))
+  COMPILE ($")  bl word  ( Put string into dictionary. )  >r
+  r 1+  r c@ 0           ( switch string to lower case )
+  DO   dup c@ ?letter
+       IF  dup c@   bl or over c!
+       THEN  1+
+  LOOP drop
+  0" .library" 1-  count  r@  $append
+  r>   c@ 1+ even-up allot   compile 1+
+$ 4e75 w,  unsmudge  [compile] [
+  last-sfa   $ 4000,0000  or  swap !  rehash  ;
+
+:Library exec
+:Library clist
+:Library graphics
+:Library layers
+:Library intuition
+:Library mathffp
+:Library mathtrans
+:Library mathieeedoubbas
+:Library dos
+:Library translator
+:Library icon
+:Library diskfont
+:Library mathieeedoubtrans
+
+:Library asl
+:Library battclock
+:Library battmem
+:Library commodities
+:Library romboot
+:Library cstrings
+:Library misc
+:Library rexxsyslib
+:Library utility
+:Library disk
+:Library gadtools
+:Library input
+:Library keymap
+:Library mathieeesingtrans
+:Library ramdrive
+:Library workbench   \ 00005
+:Library expansion
+:Library iffparse
+:Library mathieeesingbas
+
+\ -------------- words to open/close libs convieniently ------------
+
+user LibVersion
+
+: openlib   ( name_addr -- pointer/false )
+  >abs  LibVersion @  ( absadr version -- )  call exec_lib openlibrary
+  LibVersion off   ;
+
+: closelib  ( lib_pointer -- 0 )
+  call exec_lib  closelibrary          ;
+
+variable Lib_Quit  Lib_Quit On  \ 00003
+
+: lib?   ( _NAME-adr _LIB-adr -- , insures lib is open and var is set )
+  dup @ 0=  ( -- name lib flag )
+  IF    over  openlib  -dup
+        IF    ( name-adr lib-adr lib-pointer -- )   over !
+        ELSE  drop >r .err ." Can't open any version of "
+              r>  1- $type cr  Lib_Quit @ \ 00003
+              IF   quit                   \   "
+              ELSE Lib_Quit On  exit      \   "
+              THEN                        \ 00003
+        THEN
+  THEN  2drop  Lib_Quit On ;
+
+: exec? ;          \ always open in JForth
+: dos?  ;          \ always open in JForth
+: clist?           ( -- )  clist_NAME            clist_LIB            lib?  ;
+: graphics?        ( -- )  graphics_NAME         graphics_LIB         lib?  ;
+: layers?          ( -- )  layers_NAME           layers_LIB           lib?  ;
+: intuition?       ( -- )  intuition_NAME        intuition_LIB        lib?  ;
+: mathffp?         ( -- )  mathffp_NAME          mathffp_LIB          lib?  ;
+: mathtrans?       ( -- )  mathtrans_NAME        mathtrans_LIB        lib?  ;
+: mathieeedoubbas? ( -- )  mathieeedoubbas_NAME  mathieeedoubbas_LIB  lib?  ;
+: translator?      ( -- )  translator_NAME       translator_LIB       lib?  ;
+: icon?            ( -- )  icon_NAME             icon_LIB             lib?  ;
+: diskfont?        ( -- )  diskfont_NAME         diskfont_LIB         lib?  ;
+: mathieeedoubtrans? ( -- )  mathieeedoubtrans_NAME
+      mathieeedoubtrans_LIB  lib?  ;
+
+
+: asl? ( -- ) asl_name asl_lib lib? ;
+: battclock? ( -- ) battclock_name battclock_lib lib? ;
+: battmem? ( -- ) battmem_name battmem_lib lib? ;
+: commodities? ( -- ) commodities_name commodities_lib lib? ;
+: romboot? ( -- ) romboot_name romboot_lib lib? ;
+: cstrings? ( -- ) cstrings_name cstrings_lib lib? ;
+: misc? ( -- ) misc_name misc_lib lib? ;
+: rexxsyslib? ( -- ) rexxsyslib_name rexxsyslib_lib lib? ;
+: utility? ( -- ) utility_name utility_lib lib? ;
+: disk? ( -- ) disk_name disk_lib lib? ;
+: gadtools? ( -- ) gadtools_name gadtools_lib lib? ;
+: input? ( -- ) input_name input_lib lib? ;
+: keymap? ( -- ) keymap_name keymap_lib lib? ;
+: mathieeesingtrans? ( -- ) mathieeesingtrans_name mathieeesingtrans_lib lib? ;
+: ramdrive? ( -- ) ramdrive_name ramdrive_lib lib? ;
+: workbench? ( -- ) workbench_name workbench_lib lib? ;   \ 00005
+: mathieeesingbas? ( -- ) mathieeesingbas_name mathieeesingbas_lib lib? ;
+: expansion? ( -- ) expansion_name expansion_lib lib? ;
+: iffparse? ( -- ) iffparse_name iffparse_lib lib? ;
+
+
+: -lib   ( _LIB-adr -- )
+  dup @ -dup
+  IF    call exec_lib closelibrary  ( -- retcode ) drop
+        0 over !
+  THEN  drop   ;
+
+
+: -exec  ;         \ error to close exec in JForth
+: -dos   ;         \ error to close dos  in JForth
+: -clist           ( -- )  clist_LIB            -lib  ;
+: -graphics        ( -- )  graphics_LIB         -lib  ;
+: -layers          ( -- )  layers_LIB           -lib  ;
+: -intuition       ( -- )  intuition_LIB        -lib  ;
+: -mathffp         ( -- )  mathffp_LIB          -lib  ;
+: -mathtrans       ( -- )  mathtrans_LIB        -lib  ;
+: -mathieeedoubbas ( -- )  mathieeedoubbas_LIB  -lib  ;
+: -translator      ( -- )  translator_LIB       -lib  ;
+: -icon            ( -- )  icon_LIB             -lib  ;
+: -diskfont        ( -- )  diskfont_LIB         -lib  ;
+: -mathieeedoubtrans ( -- )  mathieeedoubtrans_LIB  -lib  ;
+
+: -asl ( -- ) asl_lib -lib ;
+: -battclock ( -- ) battclock_lib -lib ;
+: -battmem ( -- ) battmem_lib -lib ;
+: -commodities ( -- ) commodities_lib -lib ;
+: -romboot ( -- ) romboot_lib -lib ;
+: -cstrings ( -- ) cstrings_lib -lib ;
+: -misc ( -- ) misc_lib -lib ;
+: -rexxsyslib ( -- ) rexxsyslib_lib -lib ;
+: -utility ( -- ) utility_lib -lib ;
+: -disk ( -- ) disk_lib -lib ;
+: -gadtools ( -- ) gadtools_lib -lib ;
+: -input ( -- ) input_lib -lib ;
+: -keymap ( -- ) keymap_lib -lib ;
+: -mathieeesingtrans ( -- ) mathieeesingtrans_lib -lib ;
+: -ramdrive ( -- ) ramdrive_lib -lib ;
+: -workbench ( -- ) workbench_lib -lib ;  \ 00005
+: -mathieeesingbas ( -- )  mathieeesingbas_lib -lib ;
+: -expansion ( -- )  expansion_lib -lib ;
+: -iffparse ( -- )  iffparse_lib -lib ;
+

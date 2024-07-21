@@ -1,0 +1,27 @@
+\ btd changed sive to work the same way as the "C" benchmark and forth 
+\ benchmarks  listed in Byte. They print diferently.
+
+\ mdh 2/12/87 names changed to prevent redefinition of BENCH.
+
+( SIEVE )
+
+DECIMAL 8190 CONSTANT TSIZE
+
+VARIABLE FLAGS TSIZE ALLOT
+
+: <SIEVE>  ( --- #primes )  FLAGS TSIZE 1 FILL
+ 0  TSIZE 0
+ DO   ( n )  I FLAGS + C@
+      IF    I  DUP +  3 +   DUP I +  (  I2*+3 I3*+3 )
+           BEGIN  DUP TSIZE <  ( same flag )
+           WHILE  0 OVER FLAGS + C! (  i' i'' )   OVER +
+           REPEAT 2DROP  1+
+      THEN
+ LOOP       ;
+
+: SIEVE  ." 10 iterations " CR  0   10 0 
+  DO     <SIEVE> swap drop 
+  LOOP   . ." primes " CR ;
+
+\ 31.0 sec  8.00 Mhz  42 sec w/ MMU --- HK Multibus, HKDOS, Indirect-threaded
+\ 21.5 sec  Amiga Multi-Forth  Indirect Threaded

@@ -1,0 +1,145 @@
+\ JForth support for IDCMP events.
+\
+\ This is meant as an example of using the IDCMP event
+\ system.  It is not intended to meet everyone's needs
+\ because everyone has different needs.  It will suffice
+\ for most applications, and for the demos so here it is.
+
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research
+\
+\ MOD: PLB 1/16/87 Added INCLUDE?s
+\      MDH 4/16/87 Split off EV.GETCLASS into GET.PORT.MSG and added the
+\                  EV-LAST-WINDOW variable and its init from im_IDCMPWindow
+\ MOD: PLB 8/6/88 Add getmodule includes.
+\          Use Intuition DoubleCLick for EV.2CLICK?
+\          Only save times from clicks.
+
+
+exists? includes
+exists? wd_userport not and
+.IF getmodule includes
+.THEN
+
+
+\ WARNING! This uses the small version of INTUITION to avoid
+\ massive loading of structures. Simply load the complete
+\ file, JI:INTUITION/INTUITION.J , before this file, if you
+\ need it. Don't forget JU:C_STRUCT
+INCLUDE? wd_UserPort JI:INTUITION/INT_SMALL.J
+
+INCLUDE? GR-CURWINDOW JU:AMIGA_GRAPH
+
+ANEW TASK-AMIGA_EVENTS
+
+\ To use this code, pass a relative window address to EV.GETCLASS
+\ You can then get specific event values from
+\ the following user variables:
+USER EV-LAST-CODE
+USER EV-LAST-IADDRESS
+USER EV-LAST-MOUSEX
+USER EV-LAST-MOUSEY
+USER EV-LAST-MICROS   \ Saved for detecting double clicks.
+USER EV-LAST-SECONDS
+USER EV-PREV-MICROS
+USER EV-PREV-SECONDS
+USER EV-CUR-MICROS
+USER EV-CUR-SECONDS
+USER EV-LAST-WINDOW
+USER EV-LAST-QUALIFIER
+
+: PARSE.PORT.MSG  ( relmessage -- , save contents )
+\ Save old times if mouse click for double click detection.
+    dup ..@ im_class MOUSEBUTTONS =
+    IF  dup ..@ im_code SELECTDOWN =
+        IF  ev-cur-micros @  ev-prev-micros !
+            ev-cur-seconds @ ev-prev-seconds !
+            dup ..@ im_micros   ev-cur-micros !
+            dup ..@ im_seconds  ev-cur-seconds !
+        THEN
+    THEN
+\
+    dup ..@ im_IDCMPWindow >rel ev-last-window !
+    dup ..@ im_code     ev-last-code !
+    dup ..@ im_iaddress ev-last-iaddress !
+    dup ..@ im_qualifier ev-last-qualifier !
+    dup ..@ im_mouseX   ev-last-mouseX !
+    dup ..@ im_mouseY   ev-last-mouseY !
+    dup ..@ im_micros   ev-last-micros !
+    ..@ im_seconds  ev-last-seconds !
+;
+
+: (GET.PORT.MSG)   ( relport -- message | 0 )
+    >abs  call exec_lib GetMsg dup
+    IF   >rel   ( Save particulars. )
+         dup parse.port.msg
+    THEN
+;
+
+.NEED ReplyMsg()
+: ReplyMsg() ( message -- )
+    callvoid>abs exec_lib ReplyMsg
+;
+.THEN
+
+: GET.PORT.MSG   ( relport -- class / 0 )
+    (get.port.msg) dup
+    IF dup ..@ im_class
+       swap ReplyMsg()
+    THEN
+;
+
+: EV.GETCLASS ( window -- class , get message class for window, 0 if none )
+    ..@ wd_userport  >rel Get.Port.Msg
+;
+
+.NEED WaitPort()  \ Also Defined in EXEC_SUPPORT
+: WaitPort() ( port -- message )
+    call>abs exec_lib WaitPort if>rel
+;
+.THEN
+
+: EV.WAIT  ( window -- , wait for a message first, leaves in queue )
+    ..@ wd_userport >rel WaitPort() drop
+;
+ 
+: EV.2CLICK?  ( -- flag , true if last was double click. )
+\ Call immediately after a mouse click.
+    ev-prev-seconds @ ev-prev-micros @
+    ev-cur-seconds @  ev-cur-micros @
+    call intuition_lib DoubleClick
+;
+
+: EV.GETXY  ( -- x y , get X,Y from previous mouse event)
+    ev-last-mousex @  ev-last-mousey @
+;
+
+\ Correct mouse position from GIMMEZERO
+-6 constant GR%_XFUDGE
+-12 constant GR%_YFUDGE
+
+: EV.GETXY00 ( -- x y , adjusted for GIMMEZEROZERO )
+      ev.getxy gr%_yfudge +
+      swap gr%_xfudge + swap
+;
+
+: EV.FLUSH  ( -- flush events from queue )
+    BEGIN 
+       gr-curwindow @ ev.getclass NOT
+    UNTIL
+;
+
+\ Commonly used word in demos, etc.
+: ?CLOSEBOX  ( -- flag , true if closebox hit )
+\ Scan all pending events. WARNING - eats events you might want.
+    gr-curwindow @
+    IF BEGIN
+         gr-curwindow @ ev.getclass
+         ?dup 0=
+         IF  false true  ( quit loop flag )
+         ELSE CLOSEWINDOW = ?dup ( true and quit, or false )
+         THEN
+       UNTIL
+    ELSE false
+    THEN
+;

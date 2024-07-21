@@ -1,0 +1,109 @@
+\ Easy access to AutoRequest
+\
+\ Author: Phil Burk
+\ Copyright 1988 Delta Research
+
+getmodule includes
+include? intuitext ji:intuition/intuition.j
+include? ib_activewindow ji:intuition/intuitionbase.j
+
+ANEW TASK-AUTO_REQUEST
+
+Intuitext Bodytext
+Intuitext Positext
+Intuitext Negatext
+
+\ Create holding areas for text.
+64 constant AR_MAX_CHARS
+create AR-BODY-CHARS ar_max_chars allot 
+create AR-POSI-CHARS ar_max_chars allot 
+create AR-NEGA-CHARS ar_max_chars allot 
+
+: ACTIVE-WINDOW ( -- active-window )
+    intuition_lib @ >rel
+    ..@ ib_activewindow >rel
+;
+
+: AR.IT.SETUP  ( 0string intuitext -- )
+    >r ( save intuitext on return stack )
+    3 r@    ..! it_frontpen
+    1 r@    ..! it_backpen
+    JAM1 r@ ..! it_drawmode
+    8 r@    ..! it_leftedge
+    3 r@    ..! it_topedge
+    NULL r@ ..! it_itextfont
+    >abs r@ ..! it_itext ( eat text )
+    NULL r> ..! it_NextText
+;
+
+: AR.INIT ( 0body 0posi 0nega -- )
+    negatext ar.it.setup
+    positext ar.it.setup
+    bodytext ar.it.setup
+    10 bodytext ..! it_topedge
+    intuition?
+;
+
+: 0AUTO.REQUEST ( 0body 0posi 0nega -- flag )
+    ar.init
+    active-window
+    bodytext
+    positext
+    negatext
+    0 0 400 80
+    call>abs intuition_lib autorequest
+;
+
+: AR.GET.TEXT ( $string holder -- )
+    swap count ar_max_chars 2- min ( -- h a c )
+    >r over r@ cmove
+    0 swap r> + c!
+;
+
+: $AUTO.REQUEST  ( $body $posi $nega -- flag )
+    ar-nega-chars ar.get.text
+    ar-posi-chars ar.get.text
+    ar-body-chars ar.get.text
+    ar-body-chars ar-posi-chars ar-nega-chars
+    0auto.request
+;
+
+: AR.TEST ( -- flag )
+    " Do you want to bite monkeys?"
+    " Yes, I would!!" 
+    " No!"
+    $auto.request
+;
+
+.NEED .'
+: .' ( <string>' -- , print ' terminated string )
+    ?comp compile ($") ascii ' $,
+    compile $type
+; IMMEDIATE
+.THEN
+
+: PRINT.USAGE ( -- , print help about QUIZ )
+    ." QUIZ - by Phil Burk, written using JForth." cr
+    .' USAGE:  QUIZ "question" {"answer1"} {"answer2"}' cr
+    ." QUIZ will put up a requestor then return 0 or 5." cr
+    ." Use  IF WARN  to control command-files." cr
+;
+
+: QUIZ ( <question> {answer1} {answer2} -- )
+    fileword dup c@ 0=
+    IF print.usage
+       abort
+    THEN ar-body-chars ar.get.text
+\
+    fileword dup c@ 0=
+    IF drop "  Yes!"
+    THEN  ar-posi-chars ar.get.text
+\
+    fileword dup c@ 0=
+    IF drop "  No!"
+    THEN  ar-nega-chars ar.get.text
+\
+    ar-body-chars ar-posi-chars ar-nega-chars
+    0auto.request
+    5 * retcode !
+;

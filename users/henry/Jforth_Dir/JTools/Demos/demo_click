@@ -1,0 +1,89 @@
+\ Demonstrate double click detection.
+\ Change rectangle color if double click.
+\
+\ Author: Phil Burk
+\ Copyright 1988  Delta Research
+
+include? newwindow.setup ju:amiga_graph
+include? ev.getclass ju:amiga_events
+
+ANEW TASK-DEMO_CLICK
+
+NewWindow ClickWindow   ( Create a template for the new window. )
+
+: NEXT.COLOR  ( -- , paint rectangle next color )
+	gr.color@ 3 mod 1+ gr.color! ( use colors 1,2,3,1,2,3,1,2,3 ... )
+	0 0 300 100 gr.rect
+;
+
+\ Set up your own previous time for better control.
+VARIABLE PREVIOUS-MICROS
+VARIABLE PREVIOUS-SECONDS
+
+\ This flag is used to prevent the first click after a
+\ double click to be checked for double clicking.
+\ Otherwise, three fast clicks would be treated as
+\ two double clicks!
+VARIABLE IF-DOUBLED        ( true if last click was double )
+VARIABLE IQUIT
+
+\ The Intuition routine DoubleClick checks the value set in
+\ preferences for Double Click minimum timing.
+: CHECK.DOUBLE  ( -- flag , test timing against preferences )
+	previous-seconds @ previous-micros @
+	ev-last-seconds @ ev-last-micros @
+	call intuition_lib doubleclick
+;
+
+: PROCESS.EVENT ( class -- done? , process events from IDCMP )
+	false iquit !
+	CASE
+		MOUSEBUTTONS OF   ( check for up or down )
+			ev-last-code @ SELECTDOWN =  ( down stroke? )
+			IF  if-doubled @     ( first click after double? )
+				IF  false if-doubled !   ( turn off flag )
+				ELSE check.double
+					dup if-doubled !
+					IF  next.color
+					THEN
+				THEN
+\ Save time of this DOWN event.
+				ev-last-micros @ previous-micros !
+				ev-last-seconds @ previous-seconds !
+			THEN
+		ENDOF
+
+\ Quit if close box hit.
+		CLOSEWINDOW OF true iquit ! ENDOF
+
+		warning" CLICK.LOOP -- Unrecognized event!"
+	ENDCASE
+	iquit @
+;
+
+: CLICK.LOOP  ( -- , loop until done )
+	BEGIN
+		gr-curwindow @ ev.getclass dup
+		IF process.event
+		THEN
+	UNTIL
+;
+
+: CLICK  ( -- , Demonstrate double click. )
+	gr.init
+	." Click - Hit CLOSEBOX to stop!" cr
+	." Double click in window to change color." cr
+	ClickWindow NewWindow.Setup      ( Set defaults for window )
+	0" JClick!" >abs  ClickWindow ..! nw_title
+	CLOSEWINDOW MOUSEBUTTONS |
+	ClickWindow ..! nw_idcmpflags
+\
+\ Create window from template and make it the current window.
+	ClickWindow gr.openwindow gr.set.curwindow
+	click.loop
+\
+	gr.closecurw
+	gr.term
+;
+
+cr ." Enter:   CLICK     for demo!" cr

@@ -1,0 +1,337 @@
+
+\ OpenConsole( writereq, readreq, window )
+\
+\   This file provides support for the programmer to open the Console
+\ Device.  It defines the primitives originally presented in 'C' in
+\ the 'ROM Kernel Manual, Part III, Chapter 4, "Console Device"'.
+\
+\ Mike Haas, Mikes Software.
+
+
+
+include? OpenDevice()   ju:Exec_Support
+
+
+ANEW TASK-ConsoleSupport
+
+
+decimal
+
+
+
+\ ----------------------------------------------------------------------
+\
+\ These routines are functionally identical with their 'C'
+\ counterparts except all addresses are, of course, JForth relative.
+
+
+: OpenConsole()   ( wreq rreq window -- status , 0=success )
+\
+\ This function returns a value of 0 if the console device opened
+\ correctly and a non-zero value (the error returned from OpenDevice()
+\ if there was an error.
+\
+  dup -1 -
+  IF
+    >abs
+  THEN  2 pick      ( -- wreq rreq windowabs wreq ) ..! io_Data
+  sizeof() window   ( -- wreq rreq size )  2 pick   ..! io_Length
+  0" console.device"  0
+                    ( -- wreq rreq 0$adr 0 )
+  3 pick  0         ( -- wreq rreq 0$adr 0 wreq 0 )
+  OpenDevice() >r   ( -- wreq rreq )    ( -r- err? )
+  over ..@ io_Device   over ..! io_Device
+  over ..@ io_Unit     over ..! io_Unit
+  2drop r>
+;
+
+
+: ConPutChar()  ( request char -- )
+\
+\ Output a single character to a specified console.
+\
+  swap >r     ( -- char )    ( -r- req )
+  CMD_WRITE            r@ ..! io_Command
+  \
+  \ Following is JForth-specific...
+  \
+  0  sp@ 3 +  >abs     r@ ..! io_Data
+  1                    r@ ..! io_Length
+  r> DoIO() drop
+  2drop
+;
+
+
+: ConWrite()  ( request string length -- )
+\
+\ Output a stream of known length to the console.
+\
+  rot  >r     ( -- $ len )    ( -r- req )
+  CMD_WRITE     r@ ..! io_Command
+  ( -- $ len )  r@ ..! io_Length
+  >abs          r@ ..! io_Data
+  r> DoIO() drop
+;
+
+
+: ConPutStr()  ( req 0$ -- )
+\
+\ Output a NULL-terminated string of characters to the console.
+\
+  swap >r     ( -- 0$ )    ( -r- req )
+  CMD_WRITE     r@ ..! io_Command
+  ( -- $ ) -1   r@ ..! io_Length
+  >abs          r@ ..! io_Data
+  r> DoIO() drop
+;
+
+
+\ ----------------------------------------------------------------------
+\
+\    The 'Queue' system here has been modified slightly, to allow
+\ your typical Forth 'primitive' definition...in this case, allowing
+\ a Queue to be posted for more than one character.
+\
+\ ----------------------------------------------------------------------
+
+
+: QueueReads()  ( req whereto maxlen -- )
+\
+\ Queue up a read request,  tell where to put the characters when
+\ ready to be returned.  Most efficient if this is called right after
+\ the console is opened.
+\
+  rot >r     ( -- whereto maxlen )    ( -r- req )
+  CMD_READ      r@ ..! io_Command
+  ( -- a # )    r@ ..! io_Length
+  >abs          r@ ..! io_Data
+  r> SendIO() drop
+;
+
+
+: QueueRead()  ( req whereto -- )
+\
+\ Queue up a read request,  tell where to put the character when
+\ ready to be returned.  Most efficient if this is called right after
+\ the console is opened.
+\
+  1 QueueReads()
+;
+
+
+: ConMayGetChar()   ( req reqPort whereto -- char OR -1 )
+\
+\ See if there is a character to read.  If none, don't wait,
+\ come back with a value of -1.
+\
+  over GetMsg()  NULL =
+  IF
+     drop 2drop   -1
+  ELSE
+     ( -- req reqPort whereto )  dup c@ >r
+     rot swap QueueRead()
+     drop  r>
+  THEN
+;
+
+
+: ConGetChar()  ( consolePort req whereto -- char )
+\
+\ Go and get a character, put the task to sleep if one is not
+\ ready.
+\
+  2 pick  GetMsg()  NULL -
+  IF
+     2 pick WaitPort()
+  THEN
+  ( -- reqPort req whereto )  dup c@ >r  QueueRead()
+  drop  r>
+;
+
+
+\
+\ ----------------------------------------------------------------------
+\
+\ And, new for AmigaDOS 1.2 ...
+
+variable NumConverted
+
+: RawKeyConvert(+)  ( event buffer len keymap consoledevice -- )
+\
+\ NOTE: the (+) in the above name indicates that this word takes additional
+\ arguments than its direct Amiga counterpart (in this case, it being the
+\ address of the ConsoleDevice, which can be gotten from a related
+\ IOReqBlock's io_Device field after 'OpenConsole()'.
+\
+\ The above note also applies to DeadKeyConvert(+), below...
+\
+\ KeyMap may be 0 to use the default keymap.
+\
+\ 'NumConverted' reflects the number of characters returned or -1
+\ if the passed in buffer was too small.
+\ 
+\ convert appropriate addresses...
+\
+  4 x>r   ( -- event )
+  >abs  r> >abs  2 xr>  if>abs  r> >abs
+\
+\ Save the runtime contents of CONSOLE_LIB, set it to the dev adr...
+\
+  console_lib @ >r
+  console_lib !
+\
+\ 'compile time' ... turn of library error-checking...
+\
+  [ verify-libs @   verify-libs off ]
+\
+\ call the device-specific-function...
+\
+  call console_lib RawKeyConvert   NumConverted !
+\
+\ restore the lib verification criteria...
+\
+  [ verify-libs ! ]
+\
+\ AND the original contents of the CONSOLE_LIB variable...
+\
+  r> console_lib !
+;
+
+: DeadKeyConvert(+)  ( event buffer len keymap consoledevice -- )
+  \
+  \ NumConverted, upon return, is set to:
+  \ -1, buffer too small
+  \ -2, message is not a RAW_KEY event
+  \  0, was KEY_UP event, nothing to do
+  \
+  4 pick  ( event ) dup  ..@ im_Class  RAWKEY -
+  IF
+     \ not RAWKEY
+     \
+     drop   -2 NumConverted !
+  ELSE
+     ( event ) ..@ im_Code   IECODE_UP_PREFIX  and
+     IF
+        NumConverted off
+     ELSE
+        \
+        \ build a local 'InputEvent' structure on the return stack
+        \ (the following references to RP@ must be compiled inline!)
+        \
+        [ max-inline @  20 max-inline !  ]
+        rp@   [ sizeof() InputEvent even-up ] literal  -  set-rp
+        \
+        \ Initialize obvious fields...
+        \
+        0 rp@ ..! ie_NextEvent
+        0 rp@ ..! ie_SubClass
+        IECLASS_RAWKEY rp@ ..! ie_Class
+        4 pick  ( event )  dup ..@ im_Code   rp@ ..! ie_Code
+        ( event )  dup ..@ im_Qualifier  rp@ ..! ie_Qualifier
+        \
+        \ Get previous codes from location pointed to by im_IAddress.
+        \ This "magic" pointer is valid until the IntuiMessage is
+        \ replied.
+        \
+        ( event )  ..@ im_IAddress  rp@ ..! ie_addr
+        ( event buffer len keymap consoledevice )
+        rp@  4 pick  4 pick  4 pick  4 pick   RawKeyConvert(+)
+        \
+        \
+        rp@   [ sizeof() InputEvent even-up ] literal +  set-rp
+        [ max-inline ! ]
+     THEN
+  THEN
+  5 xdrop
+;
+
+
+\ ----------------------------------------------------------------------
+\
+\ Finally, a high-level interface for JForth...
+
+
+.NEED null$
+    variable null$
+.THEN
+
+
+: AttachStdIO   ( port -- port IOBlk true / port false )
+  ( -- port ) dup  CreateStdIO()  dup
+  IF
+      ( -- ReplyPort IOreq )  true
+  ELSE
+      drop \ DeletePort()
+      false
+  THEN
+;
+
+
+: @ConsoleIO  ( -- ReplyPort IOBlk true / 0 )
+\
+\ Build a ReplyPort and an StdIO structure.
+\
+  null$  0  CreatePort() dup
+  IF
+     ( -- port )  AttachStdIO ?dup 0=
+     IF
+        DeletePort() false
+     THEN
+  THEN
+;
+
+
+: DeleteConsoleIO   ( wport wio rport rio -- )
+  2 0
+  DO
+     DeleteStdIO()  DeletePort()
+  LOOP
+;
+
+
+: GetConsole()  ( window -- wreply wioblk rreply rioblk true / false )
+  >r
+  @ConsoleIO
+  IF
+     @ConsoleIO
+     IF
+        ( -- wrp wio rrp rio )
+        2 pick over  r@ OpenConsole()
+        IF
+           DeleteConsoleIO
+           false
+        ELSE
+           true
+        THEN
+     ELSE
+        DeleteStdIO()  DeletePort()  false
+     THEN
+  ELSE
+     false
+  THEN
+  rdrop
+;
+
+
+.NEED AbortIO()
+
+: AbortIO()   ( ioreqblk -- )
+  >abs  call exec_lib AbortIO drop
+;
+
+.THEN
+
+
+: ReleaseConsole()  ( wport wio rport rio -- )
+\
+\ Cancel any pending requests, close the console and delete structures.
+\
+  dup  CheckIO()  0=
+  IF
+     dup  AbortIO()
+     over WaitPort() drop
+     over GetMsg()   drop
+  THEN
+  2 pick CloseDevice()
+  DeleteConsoleIO
+;

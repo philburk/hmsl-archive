@@ -1,0 +1,232 @@
+\ Packing Routines needed by IFF files
+\
+\ Packs Bitmap into Run-Length-Encoded data.
+\ Can be used to Pack IFF data in "cmpByteRun1" form.
+\
+\ Technique:
+\   Normal Data is stored as a positive count followed
+\      by N+1 bytes of data.
+\   Redundant data is stored as a negative count
+\      followed by the byte to be repeated 1-N times.
+\
+\ MODIFIED packing coding in original Phil Burk file
+\ uses ASM parser to analyze data
+\ with about 4 times speed increase
+\ Author: Martin Kees
+\ Copyright 1991 Martin Kees
+\ All Rights reserved
+\
+\ 00001 PLB 1/26/92 Changed stack diagram of ILBM.MAKE.BODY to match 2.0
+\
+decimal
+exists? includes
+.IF  getmodule includes
+.ELSE include? bm_rows ji:graphics/gfx.j
+.THEN
+include? { ju:locals
+
+ANEW TASK-PACKING
+
+
+.need cmoveq
+ASM cmoveq  ( from to len --- , LEN must be less than 32768 )
+	move.l  (dsp)+,a0
+	move.l  (dsp)+,a1
+	add.l   org,a0
+	add.l   org,a1
+	bra.s   2$
+1$: move.b  (a1)+,(a0)+
+2$: dbra.w  tos,1$
+	move.l  (dsp)+,tos
+	forth{  both }
+end-code
+.THEN
+
+\ SameCount = # identical to first byte in buff
+
+\ Diffcount considers a run of length 2 as different bytes if bounded
+\ at end by diffs
+
+ASM CountSD ( buff length -- SameCount DiffCount )
+	move.l  (dsp),a0
+	adda.l  a4,a0       \ buffabsaddr in a0
+	subq.l  #1,d7       \ len-1 to d7
+	move.l  d7,d0       \       and  d0
+	move.l  d0,d1       \       and  d1
+	moveq.l #0,d2
+	move.b  (a0),d4           \ get first byte in d4
+1$: addq.l  #1,d2             \ bump same cnt in d2
+	cmp.b   0(a0,d2.w),d4
+	dbne.w  d0,1$             \ if same as first byte then loop to 1$
+	cmp.l   #1,d2
+	beq.s   7$
+	moveq.l #1,d7
+	bra.s   5$                \ if sames > 1 then exit with diff=1
+7$: moveq.l #1,d7             \ init diffcount to 1 again to set ne flag
+	bra.s   6$
+2$: move.b  0(a0,d7.w),d3
+	addq.l  #1,d7
+	cmp.b   d3,d4
+	exg.l   d3,d4
+6$: dbeq.w  d1,2$
+	bne.s   5$               \ ne means at max so done
+	tst.l   d1
+	bne.s   3$               \ ne means NOT at last byte
+	bra.s   5$               \ last 2 were = so include in diff run cnt
+3$: cmp.b   0(a0,d7.w),d4    \ is it just a 2 run?
+	bne.s   6$               \ ne means yeah it was just 2
+	subq.l  #2,d7            \ oops counted 2 too many
+5$: move.l  d2,(dsp)
+END-CODE
+
+
+0 value vbuffsize
+0 value vbuff
+0 value vfile
+
+: vflush ( -- ) \ does NOT reset vbuff pointers just writes
+	\ current contents
+	vfile vbuff dup freebyte fwrite drop
+;
+
+: vemit ( byte -- )
+	vbuff freebyte vbuffsize <
+	IF  vbuff dup freebyte + c!
+		1 vbuff freebytea +!
+	ELSE
+		vflush
+		vbuff c!
+		1 vbuff freebytea !
+	THEN
+;
+
+: vwrite { addr cnt -- }
+	vbuff freebyte cnt + vbuffsize <
+	IF addr vbuff dup freebyte + cnt cmoveq
+		cnt vbuff freebytea +!
+	ELSE
+		vflush
+		addr vbuff cnt cmoveq
+		cnt vbuff freebytea !
+	THEN
+;
+
+: vclose ( -- )
+	vflush
+	vbuff freeblock
+	0 -> vbuff
+;
+
+: vopen ( openedfilehandle buffsize -- Flag )
+	dup -> vbuffsize
+	memf_public swap allocblock
+	-> vbuff
+	-> vfile
+	vbuff
+;
+
+\ vopen is called prior to this and vclose after last row
+: vpackrow { row len -- }
+	BEGIN
+		len
+	WHILE
+		row len 128 min countsd
+		ddup
+		> IF  \ do a dups run
+
+			drop
+			dup>r 1- negate 255 and vemit
+			row c@ vemit
+		ELSE \ do a diff run
+			nip
+			dup>r 1- vemit
+			row r@ vwrite
+		THEN
+		row r@ + -> row
+		len r> - -> len
+	REPEAT
+;
+
+: vcopyrow ( row len -- )
+	even-up vwrite
+;
+
+
+\ Compression = 1 is Run length encoded.
+\ Compression = 0 is uncompressed.
+
+: WRITE.BITMAP.BODY  { bmap ifffile compr | bodystart -- bodysize | error=0 }
+	compr 0= compr 1 = OR 0=
+	IF ." Illegal compression = " compr . 0 exit
+	THEN
+	ifffile 2048 vopen
+	IF
+	ifffile 0 offset_current fseek -> bodystart
+	bmap ..@ bm_rows 0  ( for each row )
+	DO bmap ..@ bm_depth 0 ( for each plane )
+	DO
+\ next plane base
+		bmap .. bm_planes i cells + @ >rel ( src )
+\ offset to row
+		j bmap ..@ bm_bytesperrow * +
+		bmap ..@ bm_bytesperrow
+		( cur-row-addr  width -- )
+			compr 0=
+			IF   vcopyrow
+			ELSE vpackrow
+			THEN
+		LOOP
+		LOOP
+		vclose
+		ifffile 0 offset_current fseek bodystart -
+	ELSE
+		0  \ Couldn't allocate vbuff
+	THEN
+;
+
+\ This  word is used if you want access to packed BODY data
+\ Writing files uses WRITE.BITMAP.BODY
+: ILBM.MAKE.BODY ( bmap compr --  bodyptr bodysize | -1 )
+{ bmap compr | bfile bodysize bodyptr --  bodyptr bodysize | -1 }
+	new " ram:tempbmap" $fopen -> bfile
+	bfile
+	IF
+		bmap bfile compr write.bitmap.body
+		dup -> bodysize
+		IF
+			memf_public bodysize
+			allocblock dup -> bodyptr
+			IF
+				bfile 0 offset_begining fseek drop
+				bfile bodyptr bodysize fread drop
+				bodyptr bodysize
+			ELSE
+				-1
+			THEN
+		ELSE
+			-1
+		THEN
+		bfile fclose
+		" delete ram:tempbmap quiet" $dos
+	ELSE
+		-1
+	THEN
+;
+
+\ This is the same as in PACKING_OLD
+: CTABLE>CMAP { ctable cmap #entries -- , pack }
+\ Convert Color Table data (2 bytes/RGB) to colorMap.
+	#entries 0
+	DO  ( -- ct cm )
+		ctable w@    ( next ctable value )
+		2 ctable + -> ctable
+	3 0
+	DO  dup
+		$ 0F and
+	4 ashift cmap 2 i - + c!
+		-4 ashift
+	LOOP drop
+	3 cmap + -> cmap
+	LOOP
+;
+

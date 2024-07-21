@@ -1,0 +1,112 @@
+\ Use Mouse as a pseudo-Theremin
+\
+\ Click in a large control that represents
+\ pitch versus loudness.
+\ The Grid will be overlaid with lines that show
+\ where the "notes" in a given tuning are.
+\
+\ It will use an Amiga Instrument as a holder of the Tuning,
+\ Waveform, and Gamut to be used.
+\
+\ Part 0 = X = Pitch
+\ Part 1 = Y = Loudness
+
+include? ob.xy.controller h:ctrl_xy
+
+ANEW TASK-THEREMIN
+
+OB.XY.CONTROLLER  CG-THEREMIN
+OB.SCREEN   SCR-THEREMIN
+
+4 value THR_START_I
+17 value THR_END_I
+ratios-slendro value THR-TUNING
+
+: THR.DRAW { | hi_y lo_y -- , draw lines }
+    1 gr.color!
+    0 get.rect: cg-theremin
+    -> hi_y drop -> lo_y drop
+    thr_end_i 1+ thr_start_i
+    DO  i thr-tuning many: [] mod 0=
+        IF 3 ELSE 2 THEN gr.color!
+        thr_start_i thr-tuning translate: []
+        i thr-tuning translate: [] -
+        value>x: cg-theremin
+        dup lo_y gr.move
+        hi_y gr.draw
+    LOOP
+;
+FALSE .IF
+: THR.NOTE.MOVE { xvalue yvalue | indx loval hival -- }
+    yvalue 0 max da.loudness!
+    xvalue thr_shift negate shift dup -> indx
+    thr-tuning translate: [] -> loval
+    indx 1+ thr-tuning translate: []  -> hival
+    xvalue  indx thr_shift shift -  ( calc delta )
+    thr_shift shift  hival loval - /  ( interpolate )
+    loval +
+    da.period!
+;
+.ELSE
+: THR.NOTE.MOVE ( xpitch yloud -- )
+    0 max da.loudness!
+    thr_start_i thr-tuning translate: [] swap -
+    da.period!
+;
+.THEN
+
+: THR.NOTE.ON ( xvalue yvalue -- )
+    thr.note.move
+    da.start
+;
+
+
+: THR.NOTE.OFF  ( xvalue yvalue -- )
+    2drop da.stop
+;
+
+: THR.CG.INIT  ( -- , setup theremin control )
+    new: cg-theremin
+    3800 2000 put.wh: cg-theremin
+    'c thr.draw put.draw.function: cg-theremin
+\
+\ Set Pitch Range, invert so increases to right.
+    0 0 put.min: cg-theremin
+    thr_start_i thr-tuning translate: []
+    thr_end_i thr-tuning translate: [] -
+    0 put.max: cg-theremin
+\
+\ Set Loudness range
+    -10 1 put.min: cg-theremin
+    64 1 put.max: cg-theremin
+\
+    0 0 put.knob.size: cg-theremin
+    'c thr.note.on put.down.function: cg-theremin
+    'c thr.note.move put.move.function: cg-theremin
+    'c thr.note.off put.up.function: cg-theremin
+;
+
+: THR.INIT ( -- )
+    0 scg.selnt
+    thr.cg.init
+    4 3 new: scr-theremin
+    cg-theremin 40 300 add: scr-theremin
+    " Theremin" put.title: scr-theremin
+    ascii T put.key: scr-theremin
+;
+
+: THR.TERM  ( -- )
+    freeall: scr-theremin
+    free: scr-theremin
+;
+
+: THEREMIN  ( -- )
+    thr.init
+    hmsl
+    thr.term
+;
+
+if.forgotten thr.term
+
+cr ." Enter: THEREMIN   and select that screen." cr
+

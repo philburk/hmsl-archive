@@ -1,0 +1,220 @@
+\ DX-7 system exclusive drivers
+\ Carter Scholz 
+\ rev. 24 Dec 89
+
+anew task-dx7sysex
+
+67 constant yamahaID
+
+: dx7.sysex ( value param -- )
+	dup 255 > if 1 else 0 then ( val param subgroup -- )
+	240 midi.xmit
+	yamahaID midi.data.xmit
+	midi-channel @ 1- 16 + midi.data.xmit
+	midi.data.xmit ( val param -- )
+	midi.data.xmit ( val -- )
+	midi.data.xmit ( -- )
+	247 midi.xmit
+	midi.flush
+;
+
+\ voice params are parameters that can be changed per-operator
+\ all other sysex params are global
+\ most global parameters are >255 i.e. have bit 8 set high
+
+: dx7.voice.param ( op param value -- )
+	swap rot ( value param op -- )
+	6 swap - 21 * + ( value param -- )
+	dx7.sysex
+;
+
+: dx7.f.coarse ( op value  -- )
+\	swap 1 6 clipto swap
+\	0 31 clipto
+	18 swap ( op param value -- )
+	dx7.voice.param
+;
+
+: dx7.f.fine ( op value -- )
+	swap 1 6 clipto swap
+	0 99 clipto
+	19 swap ( op param value -- )
+	dx7.voice.param
+;
+
+: dx7.f.detune ( op value -- , value is +/-7 )
+	swap 1 6 clipto swap
+	-7 7 clipto
+	20 swap 7 + ( op param value+7 -- )
+	dx7.voice.param
+;
+
+: dx7.f.fix/rat ( op 0|1 -- , 0=ratio 1=fixed )
+	swap 0 1 clipto swap
+	17 swap
+	dx7.voice.param	
+;
+
+: dx7.eg.rate.1 ( op value -- )
+	swap 1 6 clipto swap
+	0 99 clipto
+	0 swap ( op param value -- )
+	dx7.voice.param
+;
+
+: dx7.eg.rate.2 ( op value -- )
+	swap 1 6 clipto swap
+	0 99 clipto
+	1 swap ( op param value -- )
+	dx7.voice.param
+;
+
+: dx7.eg.rate.3 ( op value -- )
+	0 99 clipto
+	2 swap ( op param value -- )
+	dx7.voice.param
+;
+
+: dx7.eg.rate.4 ( op value -- )
+	swap 1 6 clipto swap
+	0 99 clipto
+	3 swap ( op param value -- )
+	dx7.voice.param
+;
+
+: dx7.eg.level.1 ( op value -- )
+	swap 1 6 clipto swap
+	0 99 clipto
+	4 swap ( op param value -- )
+	dx7.voice.param
+;
+
+: dx7.eg.level.2 ( op value -- )
+	swap 1 6 clipto swap
+	0 99 clipto
+	5 swap ( op param value -- )
+	dx7.voice.param
+;
+
+: dx7.eg.level.3 ( op value -- )
+	swap 1 6 clipto swap
+	0 99 clipto
+	6 swap ( op param value -- )
+	dx7.voice.param
+;
+
+: dx7.eg.level.4 ( op value -- )
+	swap 1 6 clipto swap
+	0 99 clipto
+	7 swap ( op param value -- )
+	dx7.voice.param
+;
+
+\ takes effect at next note-on
+: dx7.out.level ( op value -- )
+	swap 1 6 clipto swap
+	0 99 clipto
+	16 swap ( op param value -- )
+	dx7.voice.param
+;
+
+\ --------- global params
+
+: dx7.algo ( algo -- , 1-32 )
+	1 32 clipto 
+	1- 6 256 + dx7.sysex
+;
+
+: dx7.feedback ( fb -- , 0-7 )
+	0 7 clipto
+	7 256 + dx7.sysex
+;
+
+: dx7.sync ( keysync -- , 0|1 )
+	0 1 clipto
+	8 256 + dx7.sysex
+;
+
+: dx7.lfo.speed ( val -- , 0-99 )
+	0 99 clipto
+	9 256 + dx7.sysex
+;
+
+: dx7.lfo.delay ( val -- , 0-99 )
+	0 99 clipto
+	10 256 + dx7.sysex
+;
+
+: dx7.lfo.pmd ( pitchmoddepth -- , 0-99 )
+	0 99 clipto
+	11 256 + dx7.sysex
+;
+
+: dx7.lfo.amd ( ampmoddepth -- , 0-99 )
+	0 99 clipto
+	12 256 + dx7.sysex
+;
+
+: dx7.lfo.sync ( val -- , 0-99 )
+	0 99 clipto
+	13 256 + dx7.sysex
+;
+
+: dx7.lfo.wave ( val -- , tri sawdwn sawup sqr sin s/h )
+	0 5 clipto
+	14 256 + dx7.sysex
+;
+
+: dx7.lfo.pmsens ( pitchmodsens -- , 0-7 )
+	0 7 clipto
+	15 256 + dx7.sysex
+;
+
+: dx7.transpose ( val -- , 0-30 )
+	0 30 clipto
+	16 256 + dx7.sysex
+;
+
+: dx7.ops.onoff ( op1 op2 op3 op4 op5 op6 -- )
+\ no error checking -- 1 is on, 0 is off
+	0 6 0 do over i ashift + nip loop
+	0 63 clipto
+	27 256 + dx7.sysex
+;
+
+\ ==============
+
+: init.voice
+	32 dx7.algo
+	1 1 1 1 1 1 dx7.ops.onoff
+	7 1 do i 
+		dup 99 dx7.out.level
+		dup 99 dx7.eg.rate.1
+		dup 99 dx7.eg.rate.2
+		dup 99 dx7.eg.rate.3
+		dup 99 dx7.eg.rate.4
+		dup 99 dx7.eg.level.1
+		dup 99 dx7.eg.level.2
+		dup 99 dx7.eg.level.3
+		dup 0 dx7.eg.level.4
+		dup 1 dx7.f.coarse
+		dup 0 dx7.f.fine
+		dup 0 dx7.f.detune
+		dup 0 dx7.f.fix/rat
+		drop
+	loop
+;
+
+: dx.test
+	init.voice
+100 msec
+36 64 midi.noteon
+midi.flush
+	100 0 do
+	  7 1 do
+	    i 24 choose dx7.f.coarse
+\	    1 60 99 wchoose dx7.out.level 
+	  loop
+	loop
+	  36 0 midi.noteon
+;

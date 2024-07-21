@@ -1,0 +1,205 @@
+\ Various utilities to be loaded from Buildsys
+\
+\  9/14/86 mdh -- made 'off' & 'on' inline.
+\ MOD: PLB 8/8/88 Coded XRDROP
+\ MOD: PLB 2/5/89 Made TIMES set #TIMES to 1
+\ 00001 PLB 11/20/91 Made RETURN and ?RETURN compile EXIT
+\       Had to change <RETURN> and <?RETURN> as well.
+\ 00002 PLB 12/31/91 Added FREEVAR and FCLOSEVAR
+\ 00003 mdh 26-jan-92 Fixed CR-NAME? stack depth when calling ?PAUSE
+
+\ Copyright 1986 Delta Research
+
+: CNT>RANGE  ( FROM CNT --- TO FROM )  OVER + SWAP ;
+
+: [']  ( --- 'adr )  ( word --in-- )  ?COMP [compile] '   ; IMMEDIATE
+
+: '>BODY  ( 'ADR --- BODY-ADR )   ; IMMEDIATE
+  ( This might be expanded to know about create-does> words ) 
+: '>NAME  ( 'ADR --- NAME-ADR )   >NAME   ;
+
+BASE @ HEX
+: IMMEDIATE?  ( NAME-ADR --- FLAG )  C@  40 AND ; 
+BASE ! 
+
+: ALIAS ( --- ) ( new-name OLD-NAME  --in-- )
+   [] ' >R CREATE  R> , 
+   DOES>   ( ??? <PFA> --- ??? )  @  INTERPRETING?
+   IF    RDROP EXECUTE 
+   ELSE  DUP  '>NAME  IMMEDIATE?
+         IF    RDROP EXECUTE
+         ELSE  CFA, ( Should check the SIZE and act correctly ) 
+         THEN  
+   THEN ;
+
+\ 'alias' looks like a good word, but why sacrifice 'inline' speed? ...
+\ ALIAS 2DUP    DDUP
+\ ALIAS DSWAP   2SWAP
+\ ALIAS 2DROP   DDROP
+\ ALIAS D@      2@
+\ ALIAS D!      2! 
+
+max-inline @  32 max-inline !   \ 00002
+: ddup   2dup     both ;
+: 2swap  dswap    both ;
+: ddrop  2drop    both ;
+: 2@     d@       both ;
+: 2!     d!       both ;
+max-inline !
+
+EXISTS? XRDROP NOT
+.IF
+\ : XRDROP  ( X --- )  ( XN ... --R-- )
+\      R> SWAP
+\      BEGIN  ( RADDR CNT )  DUP 0 > 
+\      WHILE  1- RDROP
+\      REPEAT DROP >R ;
+\ XRDROP should be code that adds to RP
+\ Now it is!
+: XRDROP ( X -- ) ( XN . . X1 --R-- , drop from return stack )
+    [ $ E587 w,   \ asl.l   #2,tos   ( cell*)
+      $ DFC7 w,   \ adda.l  tos,a7
+      $ 2E1E w,   \ move.l  (a6)+,tos
+    ] INLINE
+;
+.THEN
+
+EXISTS? LOOP-DROP NOT
+.IF
+: LOOP-DROP [ BASE @ HEX 4CDF W, 60 W,  BASE ! ] INLINE ;
+     ( MOVEM RP@+,D5,D6  ) 
+.THEN 
+
+EXISTS? BINARY  NOT
+.IF  : BINARY  2 BASE ! ;
+.THEN
+
+: <RETURN>  ( --- )  ( N-CELLS --LOOP-- )  ( N --INLINE-- )
+\ Warning: this used to return TWO levels up but this caused
+\ problems with locals so we changed it in V3.0    00001
+    inline@ @ ( so that XRDROP never gets 0 )
+    r> cell+ swap \ get return address after inline data
+    xrdrop
+    loop-drop
+    >r  \ return to where we came from
+;
+
+\ EXISTS? USP@ NOT
+\ .IF 
+: USP@  ( --- ADR )  USP @ ; 
+\ .THEN 
+
+: US-DEPTH  ( --- CELLS )  USP cell- USP@ - CELL/ ;
+: US-PICK   ( N --- NTH-CELL-OF-USER-STACK ) CELLS USP@ + @ ;
+
+: DO-LOOP-NEST  ( --- CELLS )  US-DEPTH 1+
+    0  SWAP  1 
+    DO   I US-PICK DO_FLAG  = 
+         IF  1+
+         THEN 
+    LOOP 2* ( #OF CELLS/LOOP )  ;
+
+: RETURN  ( --- )
+	do-loop-nest  ( #loop-cells ) dup
+    IF   compile <return> 2- ,
+    ELSE drop
+    THEN
+\ always compile exit so we can trap EXIT in CFA,     00001
+    compile EXIT
+; IMMEDIATE
+
+: <?RETURN>  ( FLAG --- flag )  ( N-CELLS --LOOP-- )  ( N --INLINE-- ) 
+     dup  \ save flag for ?exit   00001
+     IF
+     	inline@  @
+     	r> cell+ swap  \ return past inline data 00001
+     	xrdrop loop-drop >r
+     ELSE  CELL INLINE+ 
+     THEN   ;  ( N Must not be zero! ) 
+
+: ?EXIT   ( FLAG --- )  ( RADDR --R-- RADDR | )   ( exit if true ) 
+     IF  RDROP EXIT
+     THEN ;  ( MUST BE CALLED ) 
+     
+: ?RETURN  ( flag -runtime- ) ( -compiletime- )
+	do-loop-nest  ( #loop-cells ) dup
+	IF   compile <?return> 2- , 
+	ELSE drop
+	THEN
+	compile  ?EXIT \ 00001
+; IMMEDIATE
+  
+\ : OFF  ( ADDR --- )  ( SET ADR VAL TO FALSE )  FALSE  SWAP ! inline ;
+\ : ON   ( ADDR --- )  ( SET ADR VAL TO FALSE )  TRUE   SWAP ! inline ;
+   
+\ VARIABLE #TIMES
+: TIMES  ( N --- ) #TIMES @ > 
+   IF   1 #TIMES +!  >IN  OFF
+   ELSE 1 #TIMES !  
+   THEN ;
+
+\ All tested by BTD , sept 2 86
+
+
+
+\ to provide a generic 'ID.' for LISTS of words, like VLIST, WORDS-LIKE, etc.
+
+
+variable #WORDS   variable LISTINDENT
+
+: CR-NAME?  ( NFA --- )
+  linelimit @ ( C/L )  OUT @ - ( nfa diff )  dup $ 0f <= >r ( -r- flag )
+  SWAP C@    ( diff nfac@ )
+  $ 1F AND [ 2 CELLS ] LITERAL + <           r> or  ( -- flag )
+  IF    ( - 00003  2 x>r )
+        ?pause
+        ( - 00003  2 xr> )
+        CR    LISTINDENT @  out @ -  0 max spaces
+  THEN   ;
+
+: .#WORDS  ( --- )  #WORDS @ >newline 5 .R ."  words " cr ;
+
+: NEXTLISTCOL  ( -- )
+  linelimit @ out @ - $ 0f >
+  IF
+     out @  LISTINDENT @ -
+     $ ffff,fff0 and  $ 10 +
+     LISTINDENT @ +  out @ - spaces
+  THEN
+;
+
+
+: ID.LIST  ( NFA --- )
+  DUP>r  CR-NAME? r> ID. NEXTLISTCOL
+  1 #WORDS +!  ;
+
+
+\ : ID.TAB?  ( nfa flag -- , if non-zero, print 'listing' fashion )
+\   IF
+\      ID.LIST
+\   ELSE
+\      ID.
+\   THEN
+\ ;
+
+
+: NFACount   ( nfa -- name count , like 'count' but limits to 31 )
+  dup 1+ swap c@ $ 1f and
+;
+
+\ -------------- Added 12/31/91 , 00002
+
+: FREEVAR ( cell-addr -- , free memory pointed to in variable )
+    dup @ ?dup
+    IF freeblock
+    THEN
+    off
+;
+
+: FCLOSEVAR ( cell-addr -- , close file pointed to in variable )
+    dup @ ?dup
+    IF fclose
+    THEN
+    off
+;
+

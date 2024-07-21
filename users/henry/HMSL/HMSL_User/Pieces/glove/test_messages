@@ -1,0 +1,38 @@
+\ Test glove messages
+
+\ Author: rnm 12/2/91
+\ Copyright (©) Robert Marsanyi 1991
+
+include? msg.make message_support
+anew task-test_messages
+
+GloveMessage GlMsg			( the message structure )
+
+: MSG.DO  ( opcode -- )
+    GlMsg ..! gl_opcode
+    Glmsg msg.send msg.recv drop
+;
+
+: TEST.INIT ( -- )
+\ Make a reply port.
+    0" glmsg_fore" msg.make
+    GlMsg msg.init
+    port-made @  >abs GlMsg .. Gl_Msg ..! mn_ReplyPort
+\ Find port created by background task.
+    0" glmsg_back" msg.findport
+;
+
+: test.term
+    msg.term
+;
+
+cr
+." To try out gt: run gt from a CLI, and then type" cr
+."      test.init <cr>" cr
+." then send messages GL_RESET, GL_START, GL_STOP, GL_POLL or GL_KILL" cr
+." using the form:    GL_RESET msg.do <cr>" cr
+." To terminate gt, send a kill message." cr
+." To terminate this test, type" cr
+."      test.term <cr>" cr
+cr
+

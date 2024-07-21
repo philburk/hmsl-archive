@@ -1,0 +1,54 @@
+\ Host Dependant Dictionary support.
+\
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research 
+\
+ANEW TASK-AJF_DICT
+
+\ Select HOST by setting appropriate constant to true.
+TRUE constant #HOST_AMIGA_JFORTH
+FALSE constant #HOST_MAC_MACH2
+
+#HOST_AMIGA_JFORTH .IF
+    FALSE constant #FORTH_F79
+    FALSE constant #FORTH_FIG
+    TRUE  constant #FORTH-F83
+.THEN 
+
+: 'C  ( <WORD> -- CFA , Gets CFA of a word )
+    [compile] '
+;  immediate
+
+\ Many FORTHS differ in the way that they implement -FIND
+\ ' CFA PFA etc.  These words are fairly unambiguous.
+\ The PFA is defined, in this case, as the address of data
+\ in a CREATE DOES> word.
+: PFA->NFA   ( pfa -- nfa  )
+    do-does-size - >name
+;
+
+: CFA->PFA  ( cfa -- pfa )
+    do-does-size +
+;
+
+: HO.FIND.PFA   ( -- , pfa flag , look for word in dict. )
+\ Return address of parameter data.
+     32 word find
+     IF  cfa->pfa true
+     ELSE drop false
+     THEN
+;
+: HO.FIND.CFA   ( -- , cfa flag , look for word in dict. )
+\ Return address of identifying address
+     32 word find
+     IF true
+     ELSE drop false
+     THEN
+;
+
+.NEED c,
+  : C, ( byte -- , compile into dictionary )
+      dp @ c!   ( always use an even number of these!! )
+      1 dp +!
+  ;
+.THEN

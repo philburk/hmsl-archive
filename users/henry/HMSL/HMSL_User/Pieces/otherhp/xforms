@@ -1,0 +1,257 @@
+\ This piece uses three tracks.
+\ Track one repeats a simple 5 note theme.
+\ This sounds good on a bass or tuned drum preset.
+\ The second track grabs the theme and slowly transforms it
+\ by adding or removing notes, transposing notes, etc.
+\ This sounds nice on a flute like preset.
+\ The third track periodically grabs a copy of the second
+\ track and plays it. Sometimes the playing is delayed.
+\ This third track is sometimes slowed down by 2.
+\
+\ Composer Phil Burk
+\ Copyright 1987 Phil Burk
+
+include? { ju:locals
+
+ANEW TASK-XFORMS
+
+OB.PRODUCTION PRODUCTION-5
+
+\ Play theme on drum or bass. ---------------------------------
+VARIABLE XF-MEASURE   ( length of a measure ) 
+: XF.BUILD.THEME   ( -- theme in shape-1 )
+        20 3  new: SHAPE-1
+      16      14     100 add: SHAPE-1
+      32      12      80 add: SHAPE-1
+      16       6      90 add: SHAPE-1
+      16      15      80 add: SHAPE-1
+      16       9      70 add: SHAPE-1
+  ( ---- )
+      16 6 * xf-measure !
+;
+
+
+: XF.INIT.THEME ( -- )
+    xf.build.theme
+    0 shape-1 0stuff: player-1
+\ Use the current key, the default is D minor.
+    tr-current-key put.gamut: ins-midi-1
+    ins-midi-1 put.instrument: player-1
+    20 put.offset: ins-midi-1
+;
+
+\ ------------------------------------------------------------
+\ Develop theme by adding, removing and changing notes. ------
+\ Played on Pan Flute.
+\ These Forth words support this motific development.
+: COPY.SHAPE { shape1 shape2 -- , copy contents of shape }
+    shape2 empty: []
+    shape1 many: [] 0
+    DO i shape1 get: []
+       shape2 add: []
+    LOOP
+;
+
+2 constant XF_SMALLEST_DUR
+
+: INSERT.NOTE   { shape | elmnt  dur -- , place new note in shape }
+\ Find notes to subdivide with sufficient duration.
+\ This could hang if it can't find room, thus the ?terminal
+\ provides an escape route.
+    BEGIN
+        shape many: [] 1- choose    -> elmnt
+        elmnt 0 shape ed.at: []   ( get duration )
+        dup -> dur xf_smallest_dur >
+        ?terminal OR
+    UNTIL
+\ Fit two notes in duration of existing note.
+    elmnt 1 shape stretch: []        ( copy element )
+    dur 2/ dup elmnt 0 shape ed.to: []    ( 1/2 duration )
+    dur swap - elmnt 1+ 0 shape ed.to: [] ( remainder )
+\ The new note is placed between two existing notes
+\ with a random displacement from their average.
+\ This "Midpoint Subdivision" method is common in computer
+\ graphics where it is used to generate fractal landscapes.
+    elmnt 1 shape ed.at: []     ( get note )
+    elmnt 2+ 1 shape ed.at: []  ( get next note )
+    + 2/    ( average and displace )
+    5 choose 2- +
+    elmnt 1+ 1 shape ed.to: []
+;
+
+
+\ This is a set of mods that can work in a production.
+: XF.MODIFY ( -- , randomly execute a function )
+    many: production-3 choose
+    exec: production-3
+;
+
+: XF.INSERT.NOTE  ( - )
+   shape-2 insert.note  \ ." I"
+;
+
+: XF.TRANSPOSE ( -- , random walk offset of MIDI instrument.) 
+    get.offset: ins-midi-2
+    9 choose 4 - +   20 40 clipto
+    put.offset: ins-midi-2  \ ." T"
+;
+
+: XF.REMOVE ( -- , remove note and lengthen previous note )
+\ This maintains original total length.
+    many: shape-2 dup 2 >
+    IF 1- choose ( -- elmnt )
+       dup 1+ 0 ed.at: shape-2 ( -- elmnt dur2 )
+       over 0 ed.at: shape-2 + ( -- elmnt new_dur )
+       over 0 ed.to: shape-2
+       1+ remove: shape-2
+    ELSE drop
+    THEN \ ." R"
+;
+
+: XF.CHANGE.NOTE ( -- , change one of the notes )
+    many: shape-2 choose dup
+    1 ed.at: shape-2       ( get note )
+    11 choose 5 - + 1 25 clipto   ( move up or down )
+    swap 1 ed.to: shape-2
+    \ ." C"
+;
+
+    
+: XF.COPY.SHAPE ( -- , make copy )
+    shape-1 shape-2 copy.shape
+    27 put.offset: ins-midi-2
+    \ CR
+;
+
+: XF.INIT.DEVEL ( -- , setup objects to develop theme )
+    40 3 new: shape-2
+    0 shape-2 0stuff: player-2
+    tr-current-key put.gamut: ins-midi-2
+    ins-midi-2 put.instrument: player-2
+    shape-1 shape-2 copy.shape
+\
+\ Production-3 holds functions that are randomly executed
+\ from Production-1
+    0 'c xf.modify 0stuff: production-1
+\
+    0 'c xf.insert.note
+      'c xf.insert.note
+      'c xf.insert.note
+      'c xf.transpose
+      'c xf.remove
+      'c xf.change.note
+      'c xf.change.note
+    0stuff: production-3
+\
+    0 production-1 player-2 0stuff: coll-s-1
+;
+
+\ ---------------------------------------------------------
+\ Third track which embellishes piece. --------------------
+: XF.COPY.S2-S3 ( -- )
+    shape-2 shape-3 copy.shape
+;
+
+: XF.PROLONG.S3  ( -- , multiply durations by 2 )
+    many: shape-3 0
+    DO i 0 ed.at: shape-3 2*
+       i 0 ed.to: shape-3
+    LOOP
+;
+    
+: XF.INIT.FLUFF ( -- )
+\
+\ Build measure long rest for pauses
+    1 3 new: shape-4
+    xf-measure @ 0 0 add: shape-4
+    ins-midi-4 put.instrument: player-4
+    0 shape-4 0stuff: player-4
+\
+\ Build productions.
+    0 'c xf.copy.s2-s3 0stuff: production-4
+    0 'c xf.prolong.s3 0stuff: production-5
+\
+\ Set up player for shape-3
+    0 shape-3 0stuff: player-3
+    3 3 put.channel.range: ins-midi-3
+    ins-midi-3 put.instrument: player-3
+    tr-current-key put.gamut: ins-midi-3
+\
+\ This structure will randomly select between
+\ various developmental productions and the
+\ playing of the shape that they develop.
+\
+\ Some morphs are duplicated to increase their probability
+\ of execution.
+    'c bh.random put.behavior: struct-1
+    200 put.repeat: struct-1
+    0 player-4    player-4    player-4
+      production-4    production-4
+      production-5
+      player-3    player-3
+    0stuff: struct-1
+\
+    40 3 new: shape-3
+    shape-1 shape-3 copy.shape
+;
+
+\ ------------------------------------------------------
+\ Tie everything together. -----------------------------
+: XF.INIT  ( -- )
+    xf.init.theme
+    xf.init.devel
+    xf.init.fluff
+\
+    0 shape-4 0stuff: player-5
+    2 put.repeat: player-5
+    ins-midi-5 put.instrument: player-5
+\
+    2 new: production-2
+    'c xf.copy.shape add: production-2
+    0 player-5 ( 2 measure rest at start )
+      production-2
+      coll-s-1
+    0stuff: coll-s-2 
+\
+\
+\ Overall collection.
+    0 coll-s-2
+      player-1
+      struct-1
+    0stuff: coll-p-1
+\
+    1 put.repeat: production-1
+    1 put.repeat: player-2
+    8 put.repeat: coll-s-1       ( 1 development )
+    84 put.repeat: player-1      ( Theme )
+    8 put.repeat: coll-s-2       ( development track )
+    1 put.repeat: coll-p-1
+\
+    clear: shape-holder
+    shape-1 add: shape-holder
+    shape-2 add: shape-holder
+\
+    print.hierarchy: coll-p-1
+;
+
+: XF.TERM  ( -- )
+    free: production-3
+    default.hierarchy: coll-p-1
+    free.hierarchy: coll-p-1
+;
+
+: XF.PLAY  ( -- , play piece )
+    cls
+    xf.init
+    cr ." Seed = " rand-seed ? cr
+    coll-p-1 hmsl.play
+    xf.term 
+;
+
+: XF.RAND  ( seed -- , provide seed for repeatable performance )
+    depth 1 <
+    abort" Supply seed for random function."
+    rand-seed !
+    xf.play
+;
+cr ." Enter:  XF.PLAY     or    seed XF.RAND" cr

@@ -1,0 +1,23 @@
+\ test stop delay
+ANEW TASK-TEST_STOPDEL
+
+ob.collection col1
+ob.player pl1
+ob.player pl2
+
+: STOPPED  name: [] ."  stopped at " vtime@ . cr
+;
+
+: SETUP  ( -- )
+	prefab: pl1
+	prefab: pl2
+	stuff{ pl1 pl2 }stuff: col1
+	'c stopped put.stop.function: pl1
+	120 put.stop.delay: pl1
+;
+
+: CLEANUP
+	cleanup: col1
+;
+
+if.forgotten cleanup

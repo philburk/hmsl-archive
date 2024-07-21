@@ -1,0 +1,5 @@
+##bias 6
+AddICRVector(iCRBit,interrupt)(D0,A1)
+RemICRVector(iCRBit,interrupt)(D0,A1)
+AbleICR(mask)(D0)
+SetICR(mask)(D0)

@@ -1,0 +1,379 @@
+\ interpret an amiga binary file.  ---  22-aug-86,  Mike Haas, Delta Research
+\ (Refer to AmigaDOS Technical Reference Manual, Section 2)
+\
+\ hunk numbers cover 3e7-3f3 (999-1011) and 3f5, 3f6 (1013, 1014)
+\
+\ 12/02/86 - fixed conditional compilation of
+\ 00002 26-dec-91 mdh     Allow showhunks to use DISASSEM.MOD...
+\                         (dism changed too)
+\ 00003 PLB 1/25/92 Changed USER to VARIABLE
+
+decimal
+
+anew task-ShowHunks    \ must be here, otherwise loading jf:dism on
+                       \ REcompile doesn't work
+exists? disassem .IF
+detachmodule DISASSEM
+.THEN
+
+.NEED  IncludeDISM
+variable IncludeDISM
+variable DoDISM
+.THEN
+
+IncludeDISM off
+DoDISM on
+
+cr
+EXISTS? DISM-WORD? ( 00002 )  NOT
+.IF
+   s0 @  here -  25 1024 *  >
+   .IF
+         ." jf:DISM may now be compiled if you want to display disassembled"
+      cr ." 68000 code, but using it will prevent this program from"
+      cr ." CLONEing.  Include jf:DISM?"  y/n dup IncludeDISM ! DoDISM !
+   .ELSE
+         ." jf:DISM must be compiled if you want to display disassembled"
+      cr ." 68000 code.  You do not have sufficient free space in your"
+      cr ." dictionary (at least 25k) to compile jf:DISM along with"
+      cr ." JU:SHOWHUNKS.  For information on INCREASING your dictionary"
+      cr ." area, refer to your JForth manual."
+      cr
+      DoDISM off
+   .THEN
+.ELSE
+      ." The JForth Diassembler is available for disassembling CODE,"
+   cr ." but use of it will prevent this program from CLONEing."
+   cr ." Use it?" y/n DoDISM ! 
+.THEN
+cr
+
+IncludeDISM @
+.IF
+    include jf:DISM
+.THEN
+
+: SHQuit  ( -- , cleanup )
+  >newline tempfile @ ?dup
+  IF
+     dup unmarkfclose fclose  tempfile off
+  THEN  quit
+;
+
+: ?cancel  CancelKey?
+  IF
+     >newline ." BREAK"   SHQuit
+  THEN
+;
+
+\ globals .............................................
+
+: <.namef>  ( long-count -- )
+  cells  dup here c!  here 1+ swap
+  tempfile @ -rot fread?  drop
+  here count         ( remove trailing nulls...1 or 2 )
+  2dup + 2- c@
+  IF
+     1-
+  ELSE
+     2-
+  THEN
+  type  ;
+
+: <.name_field>  ( longcount -- , file-pointer at text )  -dup
+  IF   ." name=" <.namef>
+  ELSE ." unnamed"
+  THEN   ;
+
+: .name_field  ( -- , file-pointer at longcnt )
+  tempfile @ f@,?  <.name_field>  ;
+
+: .hunk_title  ( addr cnt -- )
+  type  space  $ 2e 16 emit-to-column  space  ;
+
+: .hunk_length ( -- length , file-pointer incs past length field )
+  ." length=" tempfile @ f@,? dup . ." cells"  ;
+
+: .hunk_relocs ( -- , file-pointer at #offsets field )
+  0
+  BEGIN  tempfile @ f@,? -dup
+  WHILE  dup >r +
+         tempfile @  r> cells cell+   offset_current fseek? drop
+  REPEAT dup . ." relocation"  1 -
+  IF   $ 73 emit
+  THEN  ;
+
+: .value  ( -- , file-pointer at value-field, incs past it )
+  tempfile @ f@,? ." value="   base @ swap  dup
+  decimal 1 .r  $ 28 emit  hex 1 .r  $ 29 emit
+  base !  ;
+
+: nexthunk  ( cells -- ) cells offset_current tempfile @ -rot fseek? drop  ;
+
+\ symbol_data_units are 'unique' enough to need support words! ......
+
+: .symbol_refs ( -- , file-pointer at #offsets field )
+  tempfile @ f@,?  dup .  ." reference"   dup 1-
+  IF   $ 73 emit
+  THEN
+  ( #refs -- )  >newline base @ >r  hex  0
+  DO
+      out @  55 >
+      IF
+         ?cancel cr 
+      THEN  tempfile @ f@,?  15 .r
+  LOOP
+  r> base !   ( nexthunk ) ;
+
+: .common  ( -- )
+  ." size="  tempfile @ f@,? 1 .r 2 spaces
+  tempfile @  f@,? dup . ." sym refs"
+  nexthunk  ;
+  
+: .symbol_data_unit   ( type<hibyte>/NameLen-- )
+  ?pause ?cancel
+  cr  3 spaces  dup -24 shift  swap $ ff,ffff and <.name_field>
+  ."   type="
+  CASE    0 OF ." ext_symb  "   .value        ENDOF
+          1 OF ." ext_def  "    .value        ENDOF
+          2 OF ." ext_abs  "    .value        ENDOF
+          3 OF ." ext_res  "    .value        ENDOF
+        129 OF ." ext_ref32  "  .symbol_refs  ENDOF
+        130 OF ." ext_common  " .common       ENDOF
+        131 OF ." ext_ref16  "  .symbol_refs  ENDOF
+        132 OF ." ext_ref8  "   .symbol_refs  ENDOF
+        ." UNDEFINED symbol_data_unit type!" SHQuit
+  ENDCASE  ;
+
+: .symbol_data_units  ( -- )
+  BEGIN  tempfile @ f@,? -dup
+  WHILE  .symbol_data_unit
+  REPEAT ;
+
+
+DoDISM @  \ 00002
+.if
+: dismarea   ( adr cnt -- )  \ ( 00002 commented out ) [ also uncode ] 
+  dism-origin @ >r
+  .regnames? off   show-cycles off
+  ( adr cnt -- )  over dism-origin !  over init-dism
+  over + 1- swap    ( end start -- )
+  begin dism-word?
+        drop  2dup  <
+  until 2drop   r> dism-origin !
+  \ ( 00002 commented out )  [ previous ]
+;
+.then
+
+\ a support word to print the following as names at runtime, minus the 'list_'
+
+: .me  ( stradr -- )
+\  compile ?pause
+\  compile cr
+\  latest  dup cell+ 2+ [compile] literal 
+\  c@ $ 1f and  5 -     [compile] literal
+\  compile .hunk_title  ;
+\ immediate
+\
+  ?pause >newline ?cancel count .hunk_title
+;
+
+\ individual hunk-type operators.......................
+
+: list_hunk_unit  ( -- )
+  " HUNK_UNIT" .me
+  .name_field ;
+
+: list_hunk_name  ( -- )
+  " HUNK_NAME" .me
+  .name_field ;
+
+variable code_limit    100,000 code_limit ! \ 00003
+
+
+DoDISM @  \ 00002
+.IF   \ ------------------  if dism is loaded ...
+
+: list_hunk_code  ( -- )
+  " HUNK_CODE" .me
+  .hunk_length   dup code_limit @ <
+  IF   -dup
+       IF
+            dup  cells ( cells bytes -- ) MEMF_PUBLIC over allocblock -dup
+            IF   ( cells bytes addr -- ) dup markfreeblock
+                 2dup swap  tempfile @ -rot fread  0<
+                 IF   .err  ." error during file read"  quit
+                 THEN ( cells bytes adr -- )  2dup swap dismarea
+                 dup unmarkfreeblock  freeblock   2drop  ( -- )
+            ELSE cr ." can't allocate DISM memory...dumping hex code..."
+                 drop  dup
+                 IF    cr
+                 THEN  base @ >r  hex 0
+                 DO   tempfile @ f@,   35 ?wrap 0  11 d.r
+                 LOOP r> base !
+            THEN
+       THEN
+  ELSE ."  (won't display, code_limit="
+       code_limit @ 1 .r  $ 29 emit
+       nexthunk
+  THEN  ;
+
+.ELSE   \ ----------------  dism is not there, just dump cells ...
+
+: list_hunk_code  ( -- )
+  " HUNK_CODE" .me
+  .hunk_length   dup code_limit @ <
+  IF   dup
+       IF    cr ?cancel
+       THEN  base @ >r  hex 0
+       DO   tempfile @ f@,   35 ?wrap 0  11 d.r  ?cancel
+       LOOP r> base !
+  ELSE ."  (won't display, code_limit="
+       code_limit @ 1 .r  $ 29 emit
+       nexthunk
+  THEN  ;
+
+.THEN   \ ----------------  end of conditional compilation
+
+
+: list_hunk_data  ( -- )
+  " HUNK_DATA" .me
+  .hunk_length nexthunk ;
+
+: list_hunk_bss   ( -- )
+  " HUNK_BSS" .me
+  .hunk_length  drop  ;
+
+: list_hunk_reloc32   ( -- )
+  " HUNK_RELOC32" .me
+  .hunk_relocs  ;
+
+: list_hunk_reloc16   ( -- )
+  " HUNK_RELOC16" .me
+  .hunk_relocs  ;
+
+: list_hunk_reloc8    ( -- )
+  " HUNK_RELOC8" .me
+  .hunk_relocs  ;
+
+: list_hunk_ext   ( -- )
+  " HUNK_EXT" .me
+  .symbol_data_units  ;
+
+: list_hunk_symbol   ( -- )
+  " HUNK_SYMBOL" .me
+  .symbol_data_units  ;
+
+: list_hunk_debug  ( -- )
+  " HUNK_DEBUG" .me
+  .hunk_length  nexthunk  ;
+
+: list_hunk_end    ( -- )
+  " HUNK_END" .me  ;
+
+\ these hunks deal with 'load files' ....................
+
+: list_hunk_header  ( -- )
+  " HUNK_HEADER" .me   tempfile @ f@,? -dup
+  IF  ." opens:" <.namef>
+      BEGIN  tempfile @ f@,? -dup
+      WHILE  $ 2c emit <.namef>
+      REPEAT 2 spaces
+  THEN
+  ." table size=" tempfile @ f@,? 1 .r 2 spaces
+  tempfile @ f@,?   tempfile @ f@,?  swap - 1+  dup . ." hunks"
+  nexthunk  ;
+
+: list_hunk_overlay  ( -- )
+  " HUNK_OVERLAY" .me
+  .hunk_length  nexthunk  ;
+
+: list_hunk_break  ( -- )
+  " HUNK_BREAK" .me  ;
+
+
+
+\ the execution array ...............................
+
+16 array ListActions
+
+: badhunk  ( hunk# -- ) cr ." illegal hunk: "
+  base @ swap hex . base !  SHQuit  ;
+
+: 3f4bad   ( -- )  $ 3f4 badhunk ;
+
+: hunk>index  ( hunk_value -- array-index )
+  dup  $ ffff and swap $ ffff,0000 and -dup
+  IF   ?pause cr  ." NOTE: hunk_code high word not 0, found "
+       -16 shift   base @ hex swap 0 1 d.r  base !
+  THEN
+  dup  $ 3e7 $ 3f3 within? >r
+  dup  $ 3f5 $ 3f6 within? r> or
+  IF   $ 3e7 -
+  ELSE badhunk
+  THEN ;
+
+
+
+
+\ the actual word to process the file ..................
+
+variable ActionsArray
+
+: ProcessHunks   ( -- , grabs filename )
+  tempfile off   fopen -dup
+  IF   dup markfclose  dup tempfile !
+       f@,  $ 3e7  $ 3f6 within?   \ valid hunk?
+       IF   tempfile @  0 OFFSET_BEGINNING  fseek? drop    ( rewind )
+            BEGIN   tempfile @ f@, ferror @ 0=
+            WHILE   hunk>index    cells ActionsArray @ +   @execute
+            REPEAT  0 ferror !   drop
+       ELSE cr ." Sorry, '" dosstring 1+ count type
+            ." ' is not my kinda file (Amiga Binary)."
+       THEN cr
+       tempfile @ dup unmarkfclose fclose  tempfile off
+  ELSE cr ." ProcessHunks: error while opening file." cr quit
+  THEN ;
+
+: ShowHunks   ( <filename> -- )
+[ DoDISM @  IncludeDISM @ 0= and  exists? DISASSEM and   .IF ]   \ 00002
+  ' disassem (getmodule)
+[ .THEN ]
+  ' list_hunk_unit     $ 3e7 hunk>index ListActions !
+  ' list_hunk_name     $ 3e8 hunk>index ListActions !
+  ' list_hunk_code     $ 3e9 hunk>index ListActions !
+  ' list_hunk_data     $ 3ea hunk>index ListActions !
+  ' list_hunk_bss      $ 3eb hunk>index ListActions !
+  ' list_hunk_reloc32  $ 3ec hunk>index ListActions !
+  ' list_hunk_reloc16  $ 3ed hunk>index ListActions !
+  ' list_hunk_reloc8   $ 3ee hunk>index ListActions !
+  ' list_hunk_ext      $ 3ef hunk>index ListActions !
+  ' list_hunk_symbol   $ 3f0 hunk>index ListActions !
+  ' list_hunk_debug    $ 3f1 hunk>index ListActions !
+  ' list_hunk_end      $ 3f2 hunk>index ListActions !
+  ' list_hunk_header   $ 3f3 hunk>index ListActions !
+  ' 3f4bad             [ $ 3f4 $ 3e7 - ] literal   ListActions !
+  ' list_hunk_overlay  $ 3f5 hunk>index ListActions !
+  ' list_hunk_break    $ 3f6 hunk>index ListActions !
+  0 ListActions  ActionsArray !
+  ProcessHunks  ;
+
+DoDISM @ 0=
+.IF
+   cr ." NOTE: The CLONEable version of 'showhunks' is 'SH.clone'"
+   cr ." USAGE:  sh.clone <filename> [<code_limit>, defaults to 0]" cr cr
+: SH.clone  ( -- , <file> [<code_limit>] )
+  >in @   fileword drop  bl word c@
+  IF
+     hex here number? decimal
+     IF
+        drop
+     ELSE
+        0
+     THEN
+  ELSE
+     0
+  THEN  code_limit !
+  >in !   ShowHunks
+;
+.THEN

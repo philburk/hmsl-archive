@@ -1,0 +1,45 @@
+
+\ Mike Haas, Delta Research
+
+\ this word has come in handy ... it take the ( adr cnt -- )
+\ of a forth-string-style pathname, and returns  ( -- adr cnt )
+\ of just the filename.  If there is just a filename to start,
+\ the string arguments are untouched.
+\
+\ 10/17/87 mdh Added 'Strip-Filename'
+\ MOD: PLB 8/29/90 Fixed STRIP-PATHNAME which used to look past
+\      end of string.  This now works.
+\      " RAM:TEST/" COUNT 1- STRIP-PATHNAME TYPE
+
+: STRIP-PATHNAME  ( addr cnt -- addr' cnt' , strip any additional 'pathname' )
+  2dup
+  2dup +     ( -- adr cnt adr cnt LastAdr+1 ) 1- swap 0
+  DO ( -- adr cnt adr LastAdr )
+       dup c@  dup ascii / =   ( -- adr cnt adr LASTadr char flag )
+       swap ascii : =  or
+       IF LEAVE
+       ELSE 1-
+       THEN
+  LOOP ( -- adr cnt adr FinalAdr )  swap -  1+ >r
+  r@ -  swap  r> + swap
+;
+
+
+: STRIP-FILENAME  ( adr cnt -- adr cnt' )
+\
+\ Remove the trailing name, and the '/' if remaining string ends in a dir...
+\ If no obvious volume or dirname is seen, returned count = 0.
+\
+\ Examples:   JForth:util/asm    returns    JForth:util
+\             JForth:util        returns    JForth:
+\             util/              returns    util
+\             util               returns
+\
+  2dup  Strip-Pathname  swap drop   -   dup
+  IF
+     ( -- adr cnt )  2dup 1- + c@ ascii / =
+     IF
+        1-
+     THEN
+  THEN
+;

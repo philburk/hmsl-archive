@@ -1,0 +1,74 @@
+\ Demonstrate simple graphics operations using JForth.
+\ This demo is a similar to the BOXES demo.
+\
+\ Focusses activty in rectanglular blocks.
+\
+\ Author: Phil Burk
+\ Copyright 1986  Delta Research
+
+include? newwindow.setup ju:amiga_graph
+include? ?closebox ju:amiga_events
+include? choose ju:random
+
+ANEW TASK-DEMO_RAIN
+
+VARIABLE XCENT
+VARIABLE YCENT
+
+: RAINDROP ( w   -- , draw random star in rect, in current color)
+	dup choose -2 ashift 1+ swap  ( -- rh w )
+	-2 ashift over - 1+ swap  ( -- sw-rh rh )
+\    choose -2 ashift 1+ swap  ( -- rw rh , scaled random width and height )
+	xcent @ 2 pick -
+	ycent @ 2 pick -   ( -- rw rh topx lefty)
+	xcent @ 4 pick +
+	ycent @ 4 pick +   ( -- rw rh topx lefty botx righty , corners )
+	gr.rect  ( Draw filled rectangle. )
+	2drop
+;
+
+VARIABLE IF-CYCLE
+VARIABLE #R/DIAM
+7 #R/DIAM !
+
+: RANDOM.RAIN ( -- , draw raindrops in multiple colors )
+	BEGIN
+		gr-curwindow @  ..@ wd_width choose    xcent !
+		gr-curwindow @  ..@ wd_height choose   ycent !
+		#R/DIAM @ 0 DO
+			if-cycle @
+			IF gr.color@ 1+ 3 and gr.color!  ( Cycle colors. )
+			THEN
+\ Stay within bounds of current window.
+\ Access window structure. ( In 'C':   gr_currentw->width )
+			gr-curwindow @  ..@ wd_height
+			raindrop
+		LOOP
+\ Alternate between solid and mixed color diamonds.
+		if-cycle @ not if-cycle !
+\
+\ Occasionally draw in XOR Mode
+		5 choose 2 =
+		IF    gr_xor_mode gr.mode! ( Toggle drawing mode. )
+		ELSE  gr_insert_mode gr.mode! ( Back to normal drawing mode. )
+		THEN
+		?closebox
+	UNTIL
+	gr_insert_mode gr.mode! ( Back to normal drawing mode. )
+;
+
+NewWindow BoxWindow   ( Create a template for the new window. )
+
+: RAIN  ( -- , Demonstrate raindrops )
+	gr.init
+	cr ." RAIN - Hit CLOSE BOX to stop!" cr
+	BoxWindow NewWindow.Setup   ( Set defaults for window )
+\ Create window from template and make it the current window.
+	BoxWindow gr.opencurw
+	IF random.rain
+		gr.closecurw
+	THEN
+	gr.term
+;
+
+cr ." Enter:   RAIN     for demo!" cr

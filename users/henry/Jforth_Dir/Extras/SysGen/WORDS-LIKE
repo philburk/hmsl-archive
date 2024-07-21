@@ -1,0 +1,50 @@
+
+\ BTD SEPT 30/86. Changed WORDS-LIKE to check all vocabularies. also
+\ added new word ALL-WORDS . which displays all words in all vocabularies.
+\ this file can replace the VLIST and WORDS definitions found in VOCS .
+\ NOTE: It is also a completely general way of scanning one or all 
+\ vocabularies.  
+\ COMPILED SIZE: 1010 bytes.
+
+\ 00001 PLB 9/16/91 Added FLUSHEMIT so we don't have to wait as long.
+\ 00002 mdh 26-jan-92 fixed stack depth when calling ?PAUSE in ID.LIST
+
+DECIMAL
+ONLY FORTH DEFINITIONS
+.NEED .NAME
+: .NAME ID. ;
+.THEN
+
+: STARS  ( N --- )  0 DO ASCII * EMIT LOOP ;
+
+: .THIS-VOC     ( VOC-LINK --- ) ?pause CR CR 20 STARS ."  IN VOCABULARY: "
+    VLINK>' '>NAME .NAME SPACE 20 STARS CR  ; 
+
+BASE @ 
+HEX
+
+.NEED WORDS
+: WORDS   ( --- )   #WORDS OFF  
+     [ ' <WORDS> ] LITERAL  IS  WHEN-SCANNED  SCAN-WORDS .#WORDS  ;
+.THEN
+
+: ALL-WORDS  ( --- )  #WORDS OFF
+       [ ' ID.LIST   ] LITERAL  IS  WHEN-SCANNED  
+       [ ' .THIS-VOC ] LITERAL  IS  WHEN-VOC-SCANNED 
+       SCAN-ALL-VOCS .#WORDS  ;
+
+CREATE LIKE-PAD DECIMAL 32 ALLOT HEX UNSMUDGE  \ This could use alloc
+
+: <WORDS-LIKE>  ( NFA --- )  ( SUB-STRING AT HERE ) 
+      DUP COUNT  1F AND LIKE-PAD COUNT MATCH?    
+      IF    DUP>r ( 00002 )  ID.LIST r> flushemit \ 00001
+      THEN  DROP ;
+BASE ! 
+
+: WORDS-LIKE ( --- )  ( <SUB-STRING> --IN-- )  #WORDS OFF 
+     BL WORD  LIKE-PAD  $MOVE
+    [ ' <WORDS-LIKE>  ] LITERAL IS WHEN-SCANNED 
+    [ ' .THIS-VOC     ] LITERAL IS WHEN-VOC-SCANNED 
+   SCAN-ALL-VOCS .#WORDS  ;
+
+: WL  words-like  ;

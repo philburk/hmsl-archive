@@ -1,0 +1,149 @@
+\ Define basic text STRING class.
+\
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research
+\
+\ MOD: PLB 12/15/87 Fix stack diagram in APPEND:
+\ MOD: PLB 9/13/88 Remove MRESET
+
+ANEW TASK-OBJ_STRING
+
+METHOD TYPE:
+METHOD READLINE:
+METHOD WRITELINE:
+.NEED LOAD:    METHOD LOAD:    .THEN
+METHOD COPYSUB:
+METHOD APPEND:
+METHOD COUNT:
+METHOD TOUPPER:
+METHOD TOLOWER:
+METHOD SMART.WORD:
+METHOD WORD:
+METHOD STRIP:
+METHOD ?NOW.AT:
+METHOD GOTO:
+
+:CLASS OB.STRING <SUPER OB.ELMNTS
+
+:M INIT: ( -- , set to byte width )
+	init: super
+	1 set.width: self
+;M
+
+:M NEW: ( #chars -- allocate storage )
+	1 new: super
+;M
+
+:M ?NOW.AT: ( -- e# , current element number )
+	iv-current
+;M
+
+:M GOTO: ( e# -- , set current element number )
+	dup 0 ed2i: self range: self
+	iv=> iv-current
+;M
+
+:M COUNT: ( -- addr count , return address and count of characters )
+	data.addr: self many: self
+;M
+
+:M TYPE: ( -- , Type contents. )
+	count: self type
+;M
+
+:M TOUPPER: ( -- , Convert string to upper case )
+	many: self 0
+	DO i at: self toupper i to: self
+	LOOP
+;M
+
+:M TOLOWER: ( -- , Convert string to lower case )
+	many: self 0
+	DO i at: self tolower i to: self
+	LOOP
+;M
+
+:M LOAD: ( addr count -- , load with characters )
+	dup limit: self >
+	IF " LOAD: OB.STRING" " Not enough room"
+		er_fatal ob.report.error
+	THEN
+	clear: self
+	0 DO
+		dup c@ add: self
+		1+
+	LOOP drop
+;M
+
+:M READLINE: ( fileptr -- #chars | -1 , Read using pad )
+	clear: self
+	BEGIN
+		dup fkey
+		dup EOL = NOT
+		over EOF = NOT AND
+	WHILE
+		add: self
+	REPEAT
+	nip  EOF =
+	IF -1
+	ELSE many: self
+	THEN
+	reset: self
+;M
+
+:M WRITELINE: ( fileptr -- , write characters to file )
+	dup count: self fwrite 0<
+	IF " WRITELINE: OB.STRING" " Write failed!"
+		er_fatal ob.report.error
+	THEN
+	$ 0A femit   ( line terminator )
+;M
+
+:M COPY: ( elmobj -- , copy elements )
+	clear: self
+	dup many: [] 0
+	DO i over get: []
+		add: self
+	LOOP drop
+;M
+
+:M APPEND: ( addr count -- , Add string )
+	0
+	DO  dup c@ add: self 1+
+	LOOP  drop
+;M
+
+:M WORD: ( char -- addr , test characters until match )
+	manyleft: self 0
+	DO
+		next: self dup 2 pick83 =
+		IF drop leave
+		ELSE pad 1+ i + c!
+			i 1+ pad c!
+		THEN
+	LOOP
+	drop pad
+;M
+
+:M SMART.WORD: ( cfa -- addr , test characters against cfa until true )
+	manyleft: self 0
+	DO
+		next: self dup 2 pick83 execute
+		IF drop leave
+		ELSE pad 1+ i + c!
+			i 1+ pad c!
+		THEN
+	LOOP
+	drop pad
+;M
+
+:M STRIP: ( char -- , strip character out of string )
+	BEGIN
+		dup indexof: self
+	WHILE
+		remove: self
+	REPEAT
+	drop
+;M
+
+;CLASS

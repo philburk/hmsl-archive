@@ -1,0 +1,99 @@
+
+\ run-time creation of ansi arguments
+
+include? ConWrite()     ju:ConsoleSupport
+
+
+ANEW task-AnsiSupport
+
+
+decimal
+
+\   These utilities facilitate applications building 
+\   ANSI strings to drive the Amiga Console Device.
+\
+\   The strings are built at here, integer-to-text conversion
+\   takes place below pad, with the standard number printing
+\   utilities (observing BASE and (COMMAS)).
+
+
+: CInsert1     " @"   ;
+: CCurs^1      " A"   ;
+: CCursV1      " B"   ;
+: CCurs>1      " C"   ;
+: CCurs<1      " D"   ;
+: CCursCR1     " E"   ;
+: CCursUnCR1   " F"   ;
+: CCursXY2     " H"   ;
+: CEraseEOD    " J"   ;
+: CEraseEOL    " K"   ;
+: CInsertLine  " L"   ;
+: CDeleteLine  " M"   ;
+: CDeleteChar1 " P"   ;
+: CScroll^1    " S"   ;
+: CScrollV1    " T"   ;
+: CSetMode1    " h"   ;
+: CResetMode1  " l"   ;
+: CStatus      " n"   ;
+: CRender3     " m"   ;
+
+: CPageLength1 " t"   ;
+: CLineLength1 " u"   ;
+: CLeftOffset1 " x"   ;
+: CTopOffset1  " y"   ;
+: CCursOff     " 0 p" ;
+: CCursOn      "  p"  ;
+: CWStatus     " q"   ;
+
+
+: N>ANSI  ( n1 -- , insure DECIMAL and NO-COMMAS, append to string at here )
+  here c@   here +  c@   dup ascii ; = swap $ 9b = or 0=
+  IF
+     " ;" count here $append
+  THEN
+  base     @ >r  decimal
+  (commas) @ >r  no-commas
+  N>Text here $append
+  r> (commas) !
+  r> base !
+;
+
+
+: CSI>ANSI  ( -- , start command sequence )
+  here 1+ c@  $ 9b -
+  IF
+     $ 019b0000 here !
+  THEN
+;
+
+
+: #>ANSI  ( nN ... n2 n1 N -- , add strings delim'd w/ ';' )
+  CSI>ANSI
+  sp@  ( JForth Specific! )    ( nN ... n2 n1 N sp@ )
+  over cells +  swap dup >r  0
+  DO
+       ( nN ... n2 n1 &item+cell )
+       cell- dup @  N>ANSI
+  LOOP
+  ( nN ... n2 n1 &item+cell )  drop r> xdrop
+;
+
+
+: >ANSI  ( argN ... arg1 N $cmd -- )
+  >r  here off
+  #>ANSI
+  r> count here $append
+\  here 10 dump
+  here $type
+;
+
+
+: >ANSIDEVICE  ( argN ... arg1 N $cmd IOReqBlk -- )
+  >r >r  here off
+  #>ANSI
+  r> count here $append
+  r> here count  ConWrite()
+;
+
+
+\ : tx  ( style fg bg -- )  3 CRender3  >ansi  ;

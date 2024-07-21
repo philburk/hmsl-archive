@@ -1,0 +1,79 @@
+\ Please note that CLONE should be used in place of TURNKEY
+\ whenever possible!
+
+\ provide TURNKEY utility ... Mike Haas, Delta Research  10-jan-87
+\
+\
+\
+\ ------------------ IMPORTANT LEGAL NOTICE ------------------------
+\
+\
+\ NOTE: the application may not execute any part of the
+\       JForth compiler once the image has been TURNKEYED!
+\
+\       The agreement between you and Delta Research, made
+\       when you began to use JForth, specifically does NOT
+\       permit the use of the JForth compiler algorithms (any
+\       code-producing component of the JForth development
+\       environment) in any program produced and release
+\       to any group or individual.
+\
+\
+\
+\ ----------- SEE THE TURNKEY DOCUMENT IN THE DOC: DRAWER ----------
+\
+\
+\
+\ Usage:   TURNKEY start-application-word   'quit'-word   filename
+\
+\ where:
+\
+\ start-application-word ...
+\
+\ the topmost word in the 'turnkeyed application, must do
+\ ALL Amiga init stuff ... open windows, libraries ('cept for
+\ EXEC and DOS), etc.  Forth engine will be initialized
+\ for you.  
+\
+\ 'quit'-word ...
+\
+\ the word that will be placed in the 'QUIT' vector; it should
+\ initialize the application such that it may either recover from
+\ the indicated error OR execute BYE, returning to the CLI environment.
+\
+\   EXAMPLE:   Turnkey  MyGame Bye df1:TheGameFile
+\
+\
+
+.need doscode
+tib 26 - constant doscode
+.then
+
+
+\ This program may not be modified and MUST be executed in its entirity
+\ before an application written in JForth may be released!
+
+
+: DELETE-HEADERS ( -- , you MUST EXECUTE this before releasing an appl )
+  FORTH  ' ::::keyboard >name
+  BEGIN  dup n>link  >r
+         dup c@  31 and  swap 1+ swap erase
+         r>  @  ?dup 0=
+  UNTIL  
+  ' (cfa,)     dup cell- @ $ ffff and erase
+  ' calladr,   dup cell- @ $ ffff and erase  ;
+
+
+: turnkey   ( -- , startup-word  quit-word  filename )
+  [compile] '
+  [compile] '    ( -- startup quit )
+  new fopen   -dup
+  IF    
+        delete-headers
+        save-forth-to !
+        is quit
+        is turnkeyed
+        save-forth
+        bye
+  ELSE  2drop .err ." can't open TURNKEYed image file for writing!"
+  THEN  ;

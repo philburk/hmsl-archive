@@ -1,0 +1,198 @@
+\ Cache recently enterred words for quick retrieval.
+\ Only words longer then 3 characters are cached.
+\
+\ Wedge commands under F9 and F10 to complete a partially
+\ typed word if found in cache.
+\
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk
+
+ANEW TASK-WORDCACHE
+
+128 constant WC_MAX_NFAS
+
+wc_max_nfas array NFA-CACHE
+
+create WC-PAD 34 allot
+
+variable WC-START-I
+variable WC-COUNT
+variable WC-LAST-SPAN
+variable WC-AGAIN-OK
+
+: WC.MATCH?  ( $part-name nfa -- match? , can this be part )
+	2dup c@ 31 and  ( length of word )
+	swap c@ ( -- $p nfa #nfa #$ ) >
+	IF
+		>r count r> 1+
+		text=?
+	ELSE 2drop false
+	THEN
+;
+
+: WC.SEARCH ( $part-name -- index true | 0 )
+	false swap  ( default flag )
+	wc_max_nfas wc-start-i @
+	DO	dup i nfa-cache @
+		wc.match?
+		IF
+			>r drop i true r>
+			LEAVE
+		THEN
+	LOOP
+	drop
+;
+
+: WC.ADD.NAME ( nfa -- , add or move to beginning )
+	0 nfa-cache @  ( nfa nfasafe )
+	wc_max_nfas 1
+	DO  \ move down until match
+		2dup =
+		IF LEAVE
+		THEN
+		i nfa-cache dup @ >r ( nfa nfaprev addr )
+		! r>
+	LOOP
+	drop
+	0 nfa-cache !
+;
+
+defer wc.old.find
+what's find is wc.old.find
+
+: WC.FIND ( $word -- cfa true | $word false )
+	wc.old.find
+	2dup
+	IF
+		>name dup c@ 31 and 3 >  ( add if more then 3 chars )
+		IF
+			wc.add.name
+		ELSE
+			drop
+		THEN
+	ELSE drop
+	THEN
+	wc-again-ok off
+;
+
+: WC.PRINT ( n -- )
+	>newline
+	wc_max_nfas min 0
+	DO i 4 .r 3 spaces
+		i nfa-cache @ id. ?pause cr
+	LOOP
+;
+
+variable wc-if-on
+
+: WC.SCAN.BACK  ( -- index , of first char of last word )
+\ scan backwards for space, return index of char after
+	0
+	span @ 1
+	DO
+		span @ 1- i - kh-address @ + c@
+		BL =
+		IF drop span @ i - LEAVE
+		THEN
+	LOOP
+;
+
+: WC.SEARCH+INS
+	wc-pad wc.search
+	IF
+		dup 1+ wc-start-i !
+		nfa-cache @ count 31 and
+		wc-pad c@ - swap
+		wc-pad c@ + swap
+		dup wc-count !
+		text>expect
+		span @ wc-last-span !
+	ELSE
+		0 wc-count !
+		0 wc-start-i !
+	THEN
+;
+
+: WC.COMPLETE  ( -- , complete word where cursor is )
+	kh-cursor @ span @ =
+	IF
+		wc.scan.back dup>r
+		kh-address @ +  ( index addr )
+		span @ r> - ( addr count )
+		dup 32 <
+		IF
+			wc-pad off wc-pad $append
+			0 wc-start-i !
+			wc.search+ins
+		THEN
+		wc-again-ok on
+	ELSE ." Not at EOL!"
+	THEN
+;
+
+: (WC.TRY.AGAIN) ( -- , try a different completion )
+	span @ wc-last-span @  -
+	wc-count @ + dup 0<
+	IF
+		drop
+	ELSE
+		0
+		DO kh.backspace
+		LOOP
+		wc.search+ins
+	THEN
+;
+
+: WC.TRY.AGAIN ( -- )
+	wc-again-ok @
+	IF (wc.try.again)
+	THEN
+;
+
+: WORD.CACHE.ON
+	wc-if-on @ 0=
+	IF
+		what's find is wc.old.find
+		' wc.find is find
+		' wc.complete 9 fkey-vectors !
+		>newline ." <F9> to complete words." cr
+		' wc.try.again 10 fkey-vectors !
+		." <F10> to try another match." cr
+\
+		wc_max_nfas 0
+		DO
+			' swap >name i nfa-cache !
+		LOOP
+\
+		wc-if-on on
+	THEN
+;
+
+: WORD.CACHE.OFF
+	wc-if-on @
+	IF
+		what's wc.old.find is find
+		' noop 9 fkey-vectors !
+		' noop 10 fkey-vectors !
+		wc-if-on off
+	THEN
+;
+
+: [FORGET]  ( -- , remove forgotten nfas )
+	[forget]
+	' swap >name
+	wc_max_nfas 0
+	DO
+		i nfa-cache @ latest >
+		IF  dup i nfa-cache !
+		THEN
+	LOOP
+	drop
+;
+
+if.forgotten word.cache.off
+
+: AUTO.INIT auto.init word.cache.on ;
+: AUTO.TERM word.cache.off auto.term ;
+
+cr ." Enter:  WORD.CACHE.ON     to activate word cache!" cr

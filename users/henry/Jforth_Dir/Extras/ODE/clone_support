@@ -1,0 +1,68 @@
+
+ANEW Task-Clone_Support
+
+
+\ This file...
+\
+\ 1. Defines a word that, given the beginning of the CFA table,
+\    return the #of methods in that class.  It then initializes
+\    a predefined DEFERed word (from JF:BUILDSYS) that is
+\    referenced by CLONE.   mdh 7/7/88
+\
+\ 2. Defines a word that, given the pfa of the :CLASS definition,
+\    returns the address of the CFATable.  mdh 7/15/88
+\
+\ 3. Define three words for traversing the IVAR DEFINITION structure
+\    mdh 7/16/88
+
+
+\ =============================== #1 ==============================
+
+
+: (>#Methods)   ( &cfa0 -- #methods )
+	[ ob_cfas ob_#methods - ] literal    - @
+;
+
+' (>#Methods) is >#METHODS
+
+
+\ =============================== #2 ==============================
+
+
+: (>CFATable)  ( pfa -- CFATable )
+	[ do-does-size ob_cfas + ] literal  +
+;
+
+' (>CFATable) is >CFATable
+
+
+\ =============================== #3 ==============================
+
+
+: (>LASTIVAR)   ( classcfa -- last_ivar_field )
+	[ do-does-size ob_last_ivar + ] literal  +
+;
+
+' (>LASTIVAR) is >LASTIVAR
+
+: (>PREVIVAR)   ( ivarcfa -- prev_ivar_field )
+	[ do-does-size obi_previous + ] literal  +
+;
+
+' (>PREVIVAR) is >PREVIVAR
+
+: (>IVARCLASS)   ( ivarcfa -- ivar_class_field )
+	[ do-does-size obi_rel_class + ] literal  +
+;
+
+' (>IVARCLASS) is >IVARCLASS
+
+.need CFATABLE>
+defer CFATABLE>
+.then
+
+: (CFATABLE>)   ( &cfatable -- $classtablebase )
+	[ do-does-size ob_cfas + ] literal -
+;
+
+' (CFATABLE>) is CFATABLE>

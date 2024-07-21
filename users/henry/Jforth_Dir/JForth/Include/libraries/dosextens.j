@@ -1,0 +1,9 @@
+\ AMIGA JForth Include file.
+decimal
+EXISTS? LIBRARIES_DOSEXTENS_H NOT .IF
+: LIBRARIES_DOSEXTENS_H ;
+EXISTS? DOS_DOSEXTENS_H NOT .IF
+include ji:dos/dosextens.j
+.THEN
+
+.THEN

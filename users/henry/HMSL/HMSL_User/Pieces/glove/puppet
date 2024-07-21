@@ -1,0 +1,60 @@
+\ UFORCEd me into it!
+\ 
+include? _Uforce_data Uforce1
+anew task-Pup
+
+
+\ waken the uforce
+\ initialize 
+v: die
+
+: Pup.init
+gr.init  ( just to make sure )
+
+WindowTemplate  NewWindow.Setup
+200 WindowTemplate ..! nw_Height
+150 WindowTemplate ..! nw_Width
+WindowTemplate  gr.opencurw 0= abort" GR.OPENTEST aborted!"
+
+test.init
+;
+
+
+\ draw a puppet based on uforce parms
+: pup.draw
+gr.clear
+1 gr.color!
+
+
+;
+
+
+: Pup.play
+die off
+begin
+ 16 msec
+gl_poll msg.do
+
+
+
+
+ uf.btn1 0= if die on then
+
+?terminal die @ or until
+;
+
+
+: Pup.term
+gr.closecurw
+test.term
+da.kill
+da.term
+;
+
+
+: pup
+Pup.init
+Pup.play
+Pup.term
+;
+." Pup is what you want!" cr

@@ -1,0 +1,131 @@
+\ Provide support for handling Amiga EXEC lists.
+\
+\ Author: Phil Burk
+\ Copyright 1987 Phil Burk
+\ All Rights Reserved
+\
+\ MOD: Removed DUP from LIST.IFEMPTY()
+\ 00002 29-jul-91 mdh    added .NEED to forbid/permit
+\ 00003 1/24/92 Added LIST.REMOVE() - removed hex and .r from DUMP.LIST
+
+include? list ji:exec/lists.j
+decimal
+
+ANEW TASK-EXEC_LISTS
+
+.NEED forbid()  \ 00002
+
+\ When you are handling lists you must forbid others from tinkering.
+: FORBID() ( -- )
+    call exec_lib forbid drop
+;
+: PERMIT() ( -- )
+    call exec_lib permit drop
+;
+
+.THEN  \ 00002
+
+\ List handling macros.
+\ These pass all JForth relative addresses
+\ But store them in absolute form.
+
+: NODE.INIT  ( type priority 0name node -- , initialize node )
+    >r ( save node address )
+    NULL r@ s! ln_succ
+    NULL r@ s! ln_pred
+    r@ s! ln_name
+    r@ s! ln_pri
+    r> s! ln_type
+;
+
+: NEWLIST() ( list -- , Initialize list header.)
+    dup .. lh_Tail over s! lh_Head
+    dup .. lh_Head over s! lh_TailPred
+    NULL swap s! lh_Tail
+;
+
+: LIST.IFEMPTY() ( list -- flag , true if empty )
+    s@ lh_head s@ ln_succ 0=
+;
+
+: LIST.FIRST() ( list -- first_node , get first node in list )
+    s@ lh_head
+;
+
+: NODE.SUCC() ( node -- succeeding_node )
+    s@ ln_succ
+;
+: NODE.PREV() ( node -- previous_node )
+    s@ ln_pred
+;
+
+: NODE.AFTER  ( node1 node0 -- , connect node1 after node0)
+    2dup swap ( -- n1 n0 n0 n1 ) s! ln_pred
+    ( -- n1 n0 ) s! ln_succ
+;
+
+: LIST.ADDTAIL() ( list node -- )
+    swap 2dup s@ lh_tailpred  ( -- n l n lastn )
+    node.after
+    .. lh_tail swap node.after
+;
+
+: LIST.REMOVE() ( node -- , remove from list 00003 )
+	dup s@ ln_succ
+	over s@ ln_pred
+	node.after
+	0 over s! ln_succ
+	0 swap s! ln_pred
+;
+
+: DUMP.NODE  ( node -- , dump contents )
+	>newline
+    dup s@ ln_type ."   Type = " 4 .r
+    dup s@ ln_pri ."   Pri = " 4 .r 3 spaces
+    s@ ln_name ." Node: " 0count
+    dup 32 > abort" Invalid node name!"
+    type cr  ?pause
+;
+
+DEFER DUMP.NODE.FUNCTION
+' dump.node is dump.node.function
+
+: DUMP.LIST ( list -- , dump nodes of list )
+    forbid()
+    list.first()
+    BEGIN
+        dup node.succ() ?dup
+    WHILE swap
+        dump.node.function
+    REPEAT drop
+    permit()
+;
+
+\ Test code
+false .IF
+list LIST1
+node NODE1
+node NODE2
+node NODE3
+
+: TEL.INIT
+    list1 newlist()
+    1 1 0" node #1" node1 node.init
+    2 2 0" node #2" node2 node.init
+    3 3 0" node #3" node3 node.init
+;
+
+: TEL.LINK
+    list1 node1 list.addtail()
+    list1 node2 list.addtail()
+    list1 node3 list.addtail()
+;
+
+: TEL.TEST
+	tel.init
+	tel.link
+	list1 dump.list
+	node2 list.remove() \ 00003
+	list1 dump.list
+;
+.THEN

@@ -1,0 +1,589 @@
+\ Demonstrate the use of Amiga Intuition Gadgets.
+\
+\ This program uses all of the main types of
+\ gadgets in a very simple context.
+\ The gadgets are built using the simple "SETUP"
+\ words provided in the file ju:gadget_support.
+\
+\ Since gadgets are so flexible, we do not provide a
+\ simplified interface like the EZMenu system.
+\ This program is, therefore, offered as an example
+\ of a gadget program that works.  Study it
+\ and enjoy writing your own gadget programs.
+\
+\ A window is opened and the gadgets drawn.
+\ You can draw in the window using the mouse.
+\ The Color gadget toggles the drawing color.
+\ The Clear gadget clears the window, redraws the
+\ gadgets, and reports the state of the two
+\ string gadgets.
+\
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk
+
+\ MOD: 02/28/90 - mdh, enhanced to put up a requester with
+\                 a string gadget in it.
+\ MOD: PLB 12/16/90 Add mutual exclude gadgets example.
+\ 00001 PLB 1/6/92 Added drops after RemoveGList() and AddGList()
+
+include? boolean.setup ju:gadget_support
+include? gr.init ju:amiga_graph
+include? ev.getclass ju:amiga_events
+include? msec ju:msec
+include? { ju:locals
+getmodule includes
+
+ANEW TASK-DEMO_GADGET
+decimal
+
+variable LAST-GADGET
+: LINK.GADGET  ( gadget -- link this to the previous gadget )
+	last-gadget @ ?dup
+	IF	over swap s! gg_nextgadget
+	THEN
+	last-gadget !
+;
+
+\ Declare Gadget Structures
+\ Color checkbox
+gadget CHECKG
+intuitext CHECKG-TEXT
+
+\ Clear menubutton
+gadget MENUG
+intuitext MENUG-TEXT
+
+\ Requester button
+gadget REQG
+intuitext REQG-TEXT
+
+\ X,Y input device
+gadget SLIDERG
+propinfo SLIDER-INFO
+image MYKNOB  ( for system to initialize )
+
+\ Text input gadget
+gadget STRINGG
+stringinfo STRING-INFO
+256 constant MAX_STR_CHARS
+create STR-BUFFER max_str_chars allot
+border STRING-BORDER
+create STRING-XYS 5 cells allot
+
+\ Numeric gadget
+gadget INTGAD
+stringinfo INTGAD-INFO
+create INT-BUFFER 40 allot
+\ Border for gadget
+border BOOLG-BORDER
+create BOOLG-XYS 5 cells allot
+
+\ Functions to execute when gadget hit.  The CFA of the word
+\ is stored in the gadget data area for automatic execution
+\ by PROCESS.GADGET.
+\ You could also use CASE statements or other techniques to
+\ associate a function with a gadget.
+: GAD.STRING ( gadget -- , type string in string gadget)
+	s@ gg_specialinfo
+	s@ si_buffer
+	0count type cr
+;
+
+: GAD.INT ( gadget -- , print number in INTGADGET)
+	s@ gg_specialinfo
+	s@ si_longint . cr
+;
+
+: REDRAW ( -- , redraw gadgets in window )
+	checkg gr-curwindow @ null refreshgadgets()
+;
+
+: DUMP.STUFF ( -- , dump string and integer values )
+	stringg gad.string
+	intgad gad.int
+;
+
+: GAD.CLEAR ( gadget -- , action for clear gadget )
+	drop gr.clear
+	redraw
+	dump.stuff
+;
+
+: GAD.COLOR ( gadget -- , change colors for mouse drawing )
+	s@ gg_flags SELECTED AND
+	IF 3
+	ELSE 1
+	THEN  gr.color!
+;
+
+: GAD.SLIDE ( gadget -- , report new values after change )
+	s@ gg_specialinfo
+	dup s@ pi_horizpot $ FFFF and .
+	s@ pi_vertpot $ FFFF and . cr
+;
+
+
+\ ----------------------------------------------------
+\ Initialize the gadgets for this test.
+: CHECKG.INIT  ( -- , initialize color toggling gadget )
+	boolg-xys boolg-border s! bd_xy ( set border )
+	52 14 boolg-border border.setup
+\
+	20 30 50 12 checkg checkbox.setup
+	boolg-border checkg s! gg_gadgetrender
+\
+	checkg-text checkg s! gg_gadgettext
+	0" Color" checkg-text itext.setup
+\ Set function to be executed when hit.
+	' gad.color checkg s! gg_userdata
+	checkg link.gadget
+;
+
+: MENUG.INIT ( -- , this gadget Clears the window)
+	20 50 50 12 menug menubutton.setup
+	boolg-border menug s! gg_gadgetrender
+\
+	menug-text menug s! gg_gadgettext
+	0" Clear" menug-text itext.setup
+	' gad.clear menug s! gg_userdata
+\
+	menug link.gadget ( link gadgets )
+;
+
+defer PUT.UP.REQ
+
+: REQG.INIT ( -- , this gadget puts up a requester)
+	20 70 50 12 reqg menubutton.setup
+	boolg-border reqg s! gg_gadgetrender
+\
+	reqg-text reqg s! gg_gadgettext
+	0"  Req" reqg-text itext.setup
+	' put.up.req reqg s! gg_userdata
+\
+	reqg link.gadget ( link gadgets )
+;
+
+: SLIDERG.INIT ( -- , two dimensional slider gadget )
+	100 30 50 50 sliderg propgadget.setup
+	' gad.slide sliderg s! gg_userdata
+	9000 2000 1000 1000 slider-info propinfo.setup
+	slider-info sliderg s! gg_specialinfo
+	myknob sliderg s! gg_gadgetrender
+\
+	sliderg link.gadget
+;
+
+: STRINGG.INIT ( -- , string gadget )
+	250 30 200 14 stringg stringgadget.setup
+	' gad.string stringg s! gg_userdata
+\
+	str-buffer max_str_chars erase
+	$ 41424300 str-buffer !
+	str-buffer 20 string-info stringinfo.setup
+	string-info stringg s! gg_specialinfo
+	string-border stringg s! gg_gadgetrender
+	string-xys string-border s! bd_xy
+	202 16 string-border border.setup
+\
+	stringg link.gadget
+;
+
+: INTGAD.INIT ( -- )
+	250 80 200 14 intgad intgadget.setup
+	' gad.int intgad s! gg_userdata
+\
+	int-buffer 40 erase
+	$ 30000000 int-buffer !
+	int-buffer 20 intgad-info stringinfo.setup
+	intgad-info  intgad s! gg_specialinfo
+\ STRING-BORDER setup in STRINGG.INIT
+	string-border  intgad s! gg_gadgetrender
+\
+	intgad link.gadget
+;
+
+
+: PROCESS.GADGET  ( gadget -- , execute CFA in gadget)
+	dup s@ gg_userdata ?dup
+	IF execute
+	ELSE drop ." NO CFA!"
+	THEN
+;
+
+VARIABLE IF-DOWN
+VARIABLE IF-QUIT
+
+newwindow GADWINDOW
+
+\ ---------------- Requester stuff
+
+.NEED InitRequester()
+: InitRequester()   ( req -- )
+	callvoid>abs intuition_lib InitRequester
+;
+.THEN
+
+.NEED Request()
+: Request()   ( req window -- flag , false = failure )
+	call>abs intuition_lib Request  0= 0=
+;
+.THEN
+
+.NEED EndRequest()
+: EndRequest()   ( req window -- )
+	callvoid>abs intuition_lib EndRequest
+;
+.THEN
+
+requester RQ
+
+: RQ.CLOSE  ( -- )
+	gad.string
+	rq  gr-curwindow @    EndRequest()
+;
+
+\ Text input gadget
+gadget STRINGRG
+stringinfo STRING-INFO2
+create STR-BUFFER2 max_str_chars allot
+border STRING-BORDER2
+create STRING-XYS2 5 cells allot
+
+: STRINGRG.INIT ( -- , string gadget )
+	20 20 160 8 stringrg stringgadget.setup
+	stringrg s@ gg_GadgetType REQGADGET | stringrg s! gg_GadgetType
+	' RQ.CLOSE stringrg s! gg_userdata
+\
+	str-buffer2 max_str_chars erase
+	$ 44454600 str-buffer2   !
+	str-buffer2 20 string-info2 stringinfo.setup
+	string-info2 stringrg s! gg_specialinfo
+	string-border2 stringrg s! gg_gadgetrender
+	string-xys2 string-border2 s! bd_xy
+	162 10 string-border2 border.setup
+\
+;
+
+: RQ.INIT  ( -- )
+	stringrg.init
+\
+\ fill it with initial values...
+	RQ InitRequester()
+\
+	20 20 200 50  ( -- l t w h )
+		RQ s! rq_height
+		RQ s! rq_width
+		RQ s! rq_topedge
+		RQ s! rq_leftedge
+	2 RQ s! rq_backfill
+	stringrg  RQ s! rq_ReqGadget
+;
+
+: RQ.ACTIVATE  ( -- )
+	STRINGRG   gr-curwindow @  RQ   ActivateGadget()
+;
+
+: RQ.DISPLAY  ( gadget -- present requester )
+	drop   RQ  gr-curwindow @   Request()  drop
+;
+' rq.display is put.up.req
+
+\ ---------------- End of Requester stuff
+
+\ ---------------- Begin Mutual Exclude Example
+\ Mutual Exclude Gadgets are tricky.
+\ Please see the Amiga ROM/KERNEL Reference Manual V1.3 or later.
+\ There is also an article in AmigaMail for developers, IV-23.
+\
+\ If you want to manually select or deselect a gadget, you must:
+\ Remove using RemoveGList(), change SELECTED bit, then add back
+\ using AddGList(), then draw using RefreshGList().
+\
+\ This image data was generated by drawing two brushes
+\ with DeluxePaint, then converting them to source code using
+\ JA:DUMPBRUSH.F cloned.
+
+image ON-IMAGE
+48 on-image s! ig_width
+15 on-image s! ig_height
+2 on-image s! ig_depth
+3  on-image s! ig_planepick
+
+create on-image-DATA here HEX
+\ Plane 0
+	FFFE w, 0003 w, FFF8 w,
+	FFC0 w, 0000 w, 1FF8 w,
+	FE00 w, 0000 w, 03F8 w,
+	F800 w, 0000 w, 00F8 w,
+	F000 w, 0000 w, 00F8 w,
+	E000 w, 0000 w, 0038 w,
+	C000 w, 0000 w, 0018 w,
+	C000 w, 0000 w, 0018 w,
+	C000 w, 0000 w, 0018 w,
+	E000 w, 0000 w, 0038 w,
+	F800 w, 0000 w, 0078 w,
+	F800 w, 0000 w, 00F8 w,
+	FE00 w, 0000 w, 03F8 w,
+	FFC0 w, 0000 w, 1FF8 w,
+	FFFE w, 0003 w, FFF8 w,
+
+\ Plane 1
+	8001 w, FFFC w, 0000 w,
+	603F w, FFFF w, E008 w,
+	11FF w, FFFF w, FC30 w,
+	0FFF w, FFFF w, FF40 w,
+	0FFF w, FFFF w, FF80 w,
+	1FFF w, FFFF w, FFC0 w,
+	3FFF w, FFFF w, FFE0 w,
+	3FFF w, FFFF w, FFE0 w,
+	3FFF w, FFFF w, FFE0 w,
+	1FFF w, FFFF w, FFC0 w,
+	0FFF w, FFFF w, FF80 w,
+	17FF w, FFFF w, FF80 w,
+	21FF w, FFFF w, FC60 w,
+	403F w, FFFF w, E018 w,
+	8001 w, FFFC w, 0000 w,
+
+here swap - constant ON_IMAGE_SIZE   DECIMAL
+\ Copy image data to CHIP RAM before using!
+
+image OFF-IMAGE
+48 off-image s! ig_width
+15 off-image s! ig_height
+2 off-image s! ig_depth
+2  off-image s! ig_planepick
+
+create off-image-DATA here HEX
+
+\ Plane 1
+	0001 w, FFFC w, 0000 w,
+	003F w, FFFF w, E000 w,
+	01FF w, FFFF w, FC00 w,
+	07FF w, FFFF w, FF00 w,
+	0FFF w, FFFF w, FF80 w,
+	1FFF w, FFFF w, FFC0 w,
+	3FFF w, FFFF w, FFE0 w,
+	3FFF w, FFFF w, FFE0 w,
+	3FFF w, FFFF w, FFE0 w,
+	1FFF w, FFFF w, FFC0 w,
+	0FFF w, FFFF w, FF80 w,
+	07FF w, FFFF w, FF00 w,
+	01FF w, FFFF w, FC00 w,
+	003F w, FFFF w, E000 w,
+	0001 w, FFFC w, 0000 w,
+
+here swap - constant OFF_IMAGE_SIZE   DECIMAL
+\ Copy image data to CHIP RAM before using!
+
+
+: SETUP.IMAGES ( -- )
+\ copy image date to CHIP RAM
+	MEMF_CHIP on_image_size allocblock ?dup
+	IF
+		on-image-data over on_image_size cmove
+		on-image s! ig_imageData
+	THEN
+\
+\ copy image date to CHIP RAM
+	MEMF_CHIP off_image_size allocblock ?dup
+	IF
+		off-image-data over off_image_size cmove
+		off-image s! ig_imageData
+	THEN
+;
+
+: FREE.IMAGES
+	on-image s@ ig_imagedata ?dup
+	IF
+		freeblock
+		0 on-image s! ig_imagedata
+	THEN
+\
+	off-image s@ ig_imagedata ?dup
+	IF
+		freeblock
+		0 off-image s! ig_imagedata
+	THEN
+;
+
+gadget RADIOG1
+intuitext RADIOG1-TEXT
+
+gadget RADIOG2
+intuitext RADIOG2-TEXT
+
+gadget RADIOG3
+intuitext RADIOg3-TEXT
+
+variable CUR-STATION
+
+: DESELECT.GADGET  ( gadget -- , deselect a gadget )
+	dup s@ gg_flags
+	SELECTED COMP AND  ( mask off selected bit )
+	swap s! gg_flags
+;
+
+: SELECT.GADGET  ( gadget -- , select a gadget )
+	dup s@ gg_flags
+	SELECTED OR  ( mask ON selected bit )
+	swap s! gg_flags
+;
+
+: SELECT.STATION  ( gadget -- , turn off current, turn on this one )
+	gr-curwindow @ radiog1 3 RemoveGList() drop \ 00001
+	cur-station @ deselect.gadget
+	dup  select.gadget
+	cur-station !
+	gr-curwindow @ radiog1 -1 3 0 AddGList() drop \ 00001
+	radiog1 gr-curwindow @ 0 3 refreshGList()
+;
+
+: GAD.KPFA  ( gadget -- , select the best radio station )
+	select.station ." KPFA" cr
+;
+: GAD.KLAW  ( gadget -- , select another radio station )
+	select.station ." KLAW" cr
+;
+: GAD.KQED  ( gadget -- , select another radio station )
+	select.station ." KQED" cr
+;
+
+
+: SETUP.RADIO  { xpos cfa 0text itext gad -- , setup gadget }
+\ specify x,y,w,h and set other defaults
+	xpos 100 48 15 gad menubutton.setup
+\
+\ use separate images for on and off
+	off-image gad s! gg_GADGETrender
+	on-image gad s! gg_SELECTrender
+	GADGHIMAGE GADGIMAGE | gad s! gg_flags
+\
+\ setup IntuiText structure
+	itext gad s! gg_gadgettext
+	0text itext itext.setup
+	6 itext s! it_leftedge
+	4 itext s! it_topedge
+\
+\ function to be called in our event loop
+	cfa gad s! gg_userdata
+	gad link.gadget
+;
+
+: SETUP.RADIO.ALL  ( -- )
+	50 'c gad.kpfa
+	0" KPFA" radiog1-text radiog1 setup.radio
+\
+\ Make KPFD the default.
+	radiog1 cur-station !
+	GADGHIMAGE GADGIMAGE | SELECTED | radiog1 s! gg_flags
+\
+\ Now setup other two options.
+	110 'c gad.kqed
+	0" KQED" radiog2-text radiog2 setup.radio
+\
+	170 'c gad.klaw
+	0" KLAW" radiog3-text radiog3 setup.radio
+;
+
+\ ---------------- End Mutual Exclude Example
+
+: PROCESS.EVENT ( class -- done? , process events from IDCMP )
+	false if-quit !
+	CASE
+		MOUSEBUTTONS OF   ( check for up or down )
+			ev-last-code @ SELECTDOWN =
+			IF  true if-down !
+				ev.getxy00 gr.move  ( MOVE graphics pen to down x,y )
+			ELSE false if-down !
+			THEN
+		ENDOF
+
+		MOUSEMOVE OF if-down @
+			IF  ev.getxy00 gr.draw
+			THEN
+		ENDOF  ( DRAW )
+
+		GADGETUP OF ev-last-iaddress @ ( -- gadget )
+			>rel process.gadget
+		ENDOF
+
+	GADGETDOWN OF ev-last-iaddress @
+		>rel process.gadget
+	ENDOF
+
+	REQSET OF RQ.ACTIVATE
+		ENDOF
+
+	CLOSEWINDOW OF true if-quit ! ENDOF
+
+	." GADGET.LOOP -- Unrecognized event!" cr
+	ENDCASE
+	if-quit @
+;
+
+: GADGET.LOOP  ( -- , loop until done )
+	BEGIN
+		gr-curwindow @ ev.wait
+		gr-curwindow @ ev.getclass dup
+		IF process.event
+		THEN
+	UNTIL
+;
+
+: TG.TERM
+	gr.closecurw
+	free.images
+	gr.term
+;
+
+: TG.INIT ( -- , initialize demo )
+\ Create window from template and make it the current window.
+	gr.init
+	last-gadget off
+	checkg.init
+	menug.init
+	reqg.init
+	sliderg.init
+	stringg.init
+	intgad.init
+	rq.init
+	setup.images
+	setup.radio.all
+	0 if-down !
+\
+\ Set defaults for newwindow
+	GADWINDOW newwindow.setup
+\
+\ Link to gadget list.
+	checkg  gadwindow s! nw_firstgadget
+\
+\ Set new title.
+	0" Gadgets!"  GADWindow s! nw_title
+\
+\ Add flags for gadget events.
+	CLOSEWINDOW MOUSEBUTTONS |  MOUSEMOVE |   ( add MOUSEMOVE )
+	GADGETUP | GADGETDOWN |  REQSET |
+	GadWindow s! nw_idcmpflags
+\
+	gadwindow gr.opencurw dup
+	IF 400 msec  stringg gr-curwindow @ 0 ActivateGadget()
+	ELSE ." COuld not open window!" cr
+	THEN
+;
+
+: TG.LOOP
+	20 20 " Paint in window and play with gadgets." gr.xytext
+	1 gr.color!
+	gadget.loop
+;
+\
+: DEMO.GADGETS  ( -- )
+	>newline ." GADGETS - Hit CLOSEBOX to stop!" cr
+\
+	tg.init
+	IF  tg.loop
+	THEN
+	tg.term
+;
+
+cr ." Enter:   DEMO.GADGETS   to see demo!" cr

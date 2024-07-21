@@ -1,0 +1,105 @@
+\ High Level Interrupts from clock /timer.
+\
+\ Author: Phil Burk
+\ Copyright 1989 Phil Burk
+
+ANEW TASK-HIGH_INT
+
+\ Set in specific order to avoid getting caught without params.
+: SET.TICKER  ( param cfa -- )
+    swap time-count cell+ cell+ !
+    time-count cell+ !
+;
+
+: RESET.TICKER ( -- )
+    0 time-count cell+ !
+    0 time-count cell+ cell+ !
+;
+
+
+\ Create special stack just for interupt.
+CREATE INT-STACK 256 allot
+4 allot    \ extra just for protection from underflow
+
+: TOP-INT-STACK int-staCK 256 + ;
+
+\ Create memory area for holding A3, A4, A5 and A6
+4 ARRAY AREGS-HOLDER
+
+ASM GET.A3A4A5 ( -- A3 A4 A5 , push A3, A4 and A5 onto stack )
+    MOVE.L     TOS,-(A6)
+    MOVE.L     A3,-(A6)
+    MOVE.L     A4,-(A6)
+    MOVE.L     A5,TOS
+    RTS
+END-CODE
+
+: SETUP.AREGS-HOLDER  ( -- , setup image of A registers)
+    get.A3a4a5
+    2 aregs-holder !  ( A5 = User Pointer ) 
+    1 aregs-holder !  ( A4 = Base of JForth )
+    0 aregs-holder !  ( A3 = Base + 64K )
+    top-int-stack >abs 3 aregs-holder !  ( data stack )
+;
+
+variable test-flag
+defer FROM.INT
+' noop is from.int
+
+: SAMPLE.CODE  ( -- )
+    1 test-flag +!
+    test-flag @ 400 >
+    IF 50 100 midi.noteon
+       reset.ticker
+    THEN
+;
+
+ASM INT.GLUE  ( -- )
+\ This is a version of TIME.INT.SERVER that calls
+\ HIGH LEVEL Forth code to do its thing.
+    MOVEM.L    D2-D7/A2-A6,-(A7)  \ Save non scratch registers.
+    move.l     8(a1),A0           \ Get parameter from time-count
+\ A0 points to the image in memory of what should be in A3,A4,A5,A6
+    MOVEM.L    (A0)+,A3-A6        \ Setup Forth registers
+    CALLCFA    FROM.INT         \ Call High Level
+    MOVEM.L    (A7)+,D2-D7/A2-A6
+    MOVEQ.L    #0,D0
+    RTS
+END-CODE
+
+
+: HI.INIT
+    setup.aregs-holder
+    0 aregs-holder >abs
+    ' int.glue >abs set.ticker
+;
+
+: HI.TERM
+    reset.ticker
+    ' noop is from.int
+;
+
+if.forgotten hi.term
+
+false .IF
+ASM FAKE.INT  ( holder.abs -- )
+    move.l    tos,a1
+    move.l    (dsp)+,tos
+    callcfa   int.glue
+END-CODE
+
+: HI.TEST1
+    setup.aregs-holder
+    ' sample.code is from.int
+    0 aregs-holder >abs time-count 8 + !
+    time-count >abs
+    fake.int
+;
+
+: HI.TEST2
+    0 test-flag !
+    ' sample.code is from.int
+    hi.init
+;
+
+.THEN

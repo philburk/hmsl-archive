@@ -1,0 +1,41 @@
+\ System Exclusive for Ensonic ESQ1 or ESQM
+\
+\ NOTE!!!! You must enable SYSEX in the ESQ1 before sending
+\ messages.  PARAM + MIDI -> ENABLE = KCPSYS
+\
+\ Author: Phil Burk
+\ Copyright 1989 Phil Burk
+\ All Rights Reserved.
+
+decimal
+
+ANEW TASK-ENSONIC_ESQ1
+
+: ESQ.START.SYSEX ( -- )
+    midi.start.sysex
+    $ 0F midi.xmit    ( ENSONIC vendor code )
+    $ 02 midi.xmit    ( product ID code )
+    midi-channel @ 1- midi.xmit
+;
+
+: PRESS.BUTTON  ( button# -- )
+    esq.start.sysex
+    $ 0F midi.xmit    ( button command )
+    dup midi.xmit     ( press down  )
+    $ 10 + midi.xmit  ( list up )
+    midi.end.sysex
+;
+
+variable MIDI-LAST-PARAM
+-1 midi-last-param !
+
+\ I don't think this works!!  %Q
+: MIDI.SET.PARAM  ( value parameter -- , set parameter using control )
+    dup midi-last-param @ =
+    IF drop
+    ELSE dup midi-last-param !
+        $ 62 swap midi.control  ( select parameter )
+    THEN
+    6 swap midi.control
+;
+

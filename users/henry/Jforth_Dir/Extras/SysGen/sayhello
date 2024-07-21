@@ -1,0 +1,26 @@
+\ 00001 PLB 12/31/91 Added Serial# print.
+\ 00002 PLB 4/3/92 Added 0 #TIB !
+
+: (hello)
+  cls
+  cr cr  25 spaces        ." /|====================|\"   cr  11 spaces
+            ." ----======[[[[ |"
+  $ 9b emit ." 33;42m  JForth for Amiga  "
+  $ 9b emit ." 31;40m| ]]]]======----"
+  cr     25 spaces        ." \|====================|/"
+  cr cr  20 spaces
+  $ 9b emit ." 33m"
+  sp@ here - .    ." dictionary bytes available"
+  $ 9b emit ." 31m"
+  cr cr 5 spaces   ascii - 69 emit-to-column  cr
+\
+\ Give Beta message
+  cr
+  ." Copyright © 1992 Delta Research" cr cr
+  ." Serial# = " serial# @ . cr \ 00001
+\
+\ fix #TIB after COLD , 00002
+	0 #TIB !
+;
+
+' (hello) is SayHello

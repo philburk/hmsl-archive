@@ -1,0 +1,47 @@
+\ Check to make sure that an even address is
+\ a valid Name Field Address.
+\ Compare against all properties of a name field.
+\ It is possible but HIGHLY unlikely that
+\ this can fail.
+
+\ MOD: PLB 9/13/89 Removed check for SMUDGE , this is mainly used
+\       by Clone which doesn't care about smudge bits.
+
+: CHECK-NFA?   ( nfa? -- flag , check if a valid nfa )
+    dup 1 AND  ( odd address? )
+\ Check needed for Clone because >NAME can return an ODD address
+\ if its input is not a valid CFA.
+    IF drop false
+    ELSE 
+      ( precedence )
+      DUP C@   DUP $ 80 AND ( nfa? cnt? flag -- )
+\ ( ignore smudge bit )     OVER  $ 20 AND 0= AND
+      IF  TRUE SWAP    $ 01F AND  -dup
+        IF  0  ( -- nfa? flag cnt? 0 )
+          DO   ( nfa? flag2 --- )   SWAP 1+ DUP C@
+               ( f2 adr+1 <adr+1> -- )
+               dup $ 80 AND swap ?visible 0= or
+               IF   ( not an ascii char )    SWAP DROP FALSE  LEAVE
+               ELSE SWAP
+               THEN
+          LOOP ( adr flag -- )  SWAP DROP
+         ELSE 2drop false
+         THEN
+      ELSE 2DROP FALSE
+      THEN
+    THEN
+;
+
+: VALID-NAME?   ( nfa? -- flag , check if a valid name header )
+    dup check-nfa?
+    IF  n>link @ ?dup
+        IF ( prev-nfa? -- )
+            dup 1 and 0=
+            IF check-nfa?
+            ELSE drop FALSE
+            THEN
+        ELSE true  ( probably a vocabulary header )
+        THEN
+    ELSE drop FALSE
+    THEN
+;

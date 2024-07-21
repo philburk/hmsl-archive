@@ -1,0 +1,55 @@
+\ UNRAVEL takes apart the return stack and shows the entire calling sequence.
+\ works. BTD oct 13/86
+\ MOD: 11/2/86 Name changed from RAVEL to UNRAVEL
+\ MOD: PLB 8/8/88 Added include? for RDEPTH
+\ 00001 PLB 5/25/92 Use .HEX to print every return stack entry.
+\       Also print absolute value to help decipher local variables.
+
+INCLUDE? .FROM JU:FROM-WORD
+include? rdepth ju:.rstack
+
+.NEED WITHIN?
+: WITHIN? BETWEEN? ;
+.THEN
+
+: .FROM-OR.  ( ADR --- )
+	dup 0 here within? 
+	IF   .from 
+	ELSE drop
+	THEN
+	cr
+;
+
+: UNRAVEL  ( --- )
+	>newline
+	."   Absolute   Relative  Forth-word" cr
+	rdepth 1+ 0  
+	DO
+		rdepth  i - rpick
+\ print number as absolute and relative
+		base @ >r hex
+		dup 10 .r space
+		>rel dup 10 .r space space
+		r> base !
+		.from-or. 
+	LOOP
+; 
+
+VARIABLE OLD-QUIT
+   
+: (UNRAVEL-QUIT)  UNRAVEL  (QUIT) ;
+
+: START.UNRAVEL.QUIT
+    old-quit @ ?dup
+    IF ." QUIT Already set for UNRAVEL" cr
+    ELSE what's quit   old-quit !
+         ' (unravel-quit) is quit
+    THEN
+;
+: STOP.UNRAVEL.QUIT
+    old-quit @ ?dup
+    IF  old-quit @  is quit
+        0   old-quit !
+    ELSE ." QUIT NOT Already set for UNRAVEL" cr
+    THEN
+;

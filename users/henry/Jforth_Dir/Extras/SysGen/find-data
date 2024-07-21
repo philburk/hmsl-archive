@@ -1,0 +1,27 @@
+
+: cr?   ( -- , do cr if near end of line )
+  flushemit
+  out @ linelimit @  5 - < 0=
+  IF  ?pause cr
+  THEN
+;
+
+: find-data   ( addr cnt data -- )  cr
+  rot rot     ( data addr cnt -- )
+  swap even-up swap
+  over + swap ( data end start -- )
+  DO   i @ over =
+       IF     ( ?pause ) cr? i  6 .r space
+       THEN 2
+ +LOOP drop
+;
+
+: find-wdata   ( addr cnt data -- )  cr
+  rot rot     ( data addr cnt -- )
+  swap even-up swap
+  over + swap ( data end start -- )
+  DO   i w@ over =
+       IF     ( ?pause ) cr? i  6 .r space
+       THEN 2
+ +LOOP drop
+;

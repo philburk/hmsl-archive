@@ -1,0 +1,112 @@
+\ Test Sequencer
+include? track{ hsc:Sequencer
+
+ANEW TASK-TESTSEQ
+
+\ Track 1 - play canned sequence.
+\ Track 2 - control a job spewing notes around a center
+\ Track 3 - play one of last four notes played
+
+\ Track 1-1-1-1-1-1-1-1-1-1-1-1-1-1-1-1-1-1-1-1-1-1
+score{
+: TR1.INIT  ( -- )
+    1 track{ 1/2 c d g d 1/4 c5 g4 1/6 c c# d }track
+;
+}score
+
+\ Track 2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2-2
+OB.JOB SPEW-JOB
+
+: SPEW.FUNC  ( job -- , spew notes out around a center )
+    2 midi.channel!
+    get.data: []  ( get center )
+\ Select note near center.
+    4 choose+/- 4 choose+/- + + ( pseudo-gaussian )
+\
+    40 choose 50 +  ( vel )
+    ticks/beat @ 4/ ( on time )
+    midi.noteon.for
+;
+
+: SPEW.INTERP  { elmnt# shape instr -- }
+\ Play faster if key hit harder
+    elmnt# 2 shape ed.at: [] ?dup
+    IF -3 ashift  20 swap -
+        put.duration: spew-job
+\
+\ set center to note played
+        elmnt# 1 shape ed.at: []  dup 36 =
+        IF drop rtc.time@ 0 execute: spew-job
+        ELSE dup 38 =
+            IF drop stop: spew-job
+            ELSE put.data: spew-job
+            THEN
+        THEN
+    THEN
+;
+
+: SPEW.STOP ( player -- )
+    drop stop: spew-job
+;
+
+: SPEW.INIT  ( -- )
+    0 'c spew.func 0stuff: spew-job
+    ticks/beat @ 2/ put.duration: spew-job
+\
+    'c spew.interp 2 track.instr put.on.function: []
+    'c spew.stop 2 track.player put.stop.function: []
+
+;
+
+: SPEW.TERM ( -- )
+    free: spew-job
+;
+
+if.forgotten spew.term
+
+\ Track 3-3-3-3-3-3-3-3-3-3-3-3-3-3-3-3-3-3-3-3-3-3-3-3-3-3
+OB.LIST  LAST4NOTES
+
+: L4.ON ( velo -- )
+    many: last4notes    choose at: last4notes
+    swap   ( -- note vel )
+    ticks/beat @ 2/
+    dup 1 3 choose shift *  vtime+!
+    midi.noteon.for
+;
+
+: L4.INTERP { elmnt# shape instr -- }
+    elmnt# shape instr interp.el.on.for
+    elmnt# 2 shape ed.at: [] ?dup
+    IF many: last4notes ?dup
+       IF  4 =   ( FULL? )
+           IF 0 remove: last4notes
+           THEN
+           ( -- velo )
+           dup l4.on
+           dup l4.on
+           l4.on
+       ELSE drop
+       THEN
+       elmnt# 1 shape ed.at: [] add: last4notes
+    THEN
+;
+
+: L4.INIT ( -- )
+    4 new: last4notes
+    'c l4.interp 3 track.instr put.on.function: []
+;
+
+: L4.TERM ( -- )
+    free: last4notes
+;
+
+: TS.INIT
+    tr1.init
+    spew.init
+    l4.init
+;
+
+if.forgotten l4.term
+
+           

@@ -1,0 +1,58 @@
+\ Create VALUE data type.
+\ Use of these words can interfere with MULTI-TASKING ,
+\ just like the use of VARIABLES , use USER for multitasking.
+\
+\ Author: Phil Burk
+\ Copyright 1987 Delta Research
+
+ANEW TASK-VALUE
+
+\ 09/07/87 - mdh, Int SFA to reflect VALUE_ID and incorporate ALITERAL,
+\                 both for target compiler.
+
+: (VALUE@)  ( pfa -- , fetch value )
+    state @
+    IF [compile] aliteral compile @
+    ELSE @
+    THEN
+; 
+
+: VALUE  ( n -- , define a self fetching variable )
+    depth 1 < abort" VALUE requires a number!"
+    CREATE , IMMEDIATE
+    last-sfa drop dup @  CREATE_ID -  VALUE_ID or  swap !
+    DOES> (value@)
+;
+
+: (->VALUE)  ( nfa -- , store to value )
+    find
+    IF  do-does-size +  ( convert CFA to PFA )
+        state @
+        IF [compile] aliteral compile !
+        ELSE !
+        THEN
+    ELSE cr count type
+        abort" -> - Could not find!"
+    THEN
+;
+
+: -> ( n <name> -- , set value )
+    bl word (->value)
+; IMMEDIATE
+
+: (+->VALUE)  ( nfa -- , store to value )
+    find
+    IF  do-does-size +  ( convert CFA to PFA )
+        state @
+        IF [compile] aliteral compile +!
+        ELSE +!
+        THEN
+    ELSE cr count type
+        abort" -> - Could not find!"
+    THEN
+;
+
+: +-> ( n <name> -- , set value )
+    bl word (+->value)
+; IMMEDIATE
+

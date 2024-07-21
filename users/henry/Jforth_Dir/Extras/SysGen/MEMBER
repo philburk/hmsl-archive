@@ -1,0 +1,150 @@
+\ This files supports the definition of structure members
+\ similar to those used in 'C'.  This file, along with JU:C_STRUCT
+\ are used to access the Amiga internal data structures.
+\
+\ Some of this same code is also used by ODE,
+\ the Object Development Environment.
+\
+\ Author: Phil Burk
+\ Copyright 1986 Phil Burk
+\
+\ MOD: PLB 1/16/87 Use abort" instead of er.report.
+\ MOD: PLB 2/19/87 Made OB.MEMBER immediate, use literal.
+\ MOD: PLB/MDH 6/7/88 Use 16 bit values in member defs.
+\ MOD: PLB 7/31/88 Add USHORT and UBYTE.
+\ MOD: PLB 1/20/89 Treat LITERAL as state sensitive.
+\ MOD: PLB 2/23/90 Allow triple unions. Make APTR use -4.
+\ MOD: PLB 7/9/91 recoverd from old disk, c/ju:/jf:/
+\ 00001 mdh 22-oct-91 implement 0 error in ob.findit
+\ 00002 PLB 1/22/92 Use $ERROR instead of 0 ERROR.
+
+INCLUDE? HO.FIND.PFA JF:AJF_DICT
+
+ANEW TASK-MEMBER
+decimal
+
+\ Variables shared with object oriented code.
+.NEED OB-STATE
+    VARIABLE OB-STATE  ( Compilation state. )
+    VARIABLE OB-CURRENT-CLASS  ( ABS_CLASS_BASE of current class )
+    1 constant OB_DEF_CLASS   ( defining a class )
+    2 constant OB_DEF_STRUCT  ( defining a structure )
+.THEN
+
+4 constant OB_OFFSET_SIZE
+
+ob_offset_size 4 =
+.IF
+    : OB.OFFSET@ ( member_def -- offset ) @ ;
+    : OB.OFFSET, ( value -- ) , ;
+    : OB.SIZE@ ( member_def -- offset )
+        ob_offset_size + @ ;
+    : OB.SIZE, ( value -- ) , ;
+.ELSE
+    : OB.OFFSET@ ( member_def -- offset ) w@ ;
+    : OB.OFFSET, ( value -- ) w, ;
+    : OB.SIZE@ ( member_def -- offset )
+         ob_offset_size + w@ w->s ;
+    : OB.SIZE, ( value -- ) w, ;
+;
+.THEN
+
+( Members are associated with an offset from the base of a structure. )
+: OB.MAKE.MEMBER ( +-bytes -- , make room in an object at compile time)
+       dup >r  ( -- +-b , save #bytes )
+       ABS     ( -- |+-b| )
+       ob-current-class @ ( -- b addr-space)
+       tuck @          ( as #b c , current space needed )
+       over 2 mod 0=        ( even ammount of data? )
+       IF even-up ( make sure words and longs start on even boundary )
+       THEN
+       swap over + rot !    ( update space needed )
+\ Save data in member definition. %M
+       ob.offset,    ( save old offset for ivar )
+       r> ob.size,   ( store size in bytes for ..! and ..@ )
+;
+
+\ Unions allow one to address the same memory as different members.
+\ Unions work by saving the current offset for members on
+\ the stack and then reusing it for different members.
+: UNION{  ( -- old-offset new-offset , Start union definition. )
+    ob-current-class @ @ dup
+;
+
+: }UNION{ ( old new -- old maxnew , Middle of union )
+    ob-current-class @ @ ( get current offset ) MAX
+    over ob-current-class @ !  ( Set back to old )
+;
+
+: }UNION ( old new -- , Terminate union definition, check lengths. )
+    ob-current-class @ @ MAX
+    ob-current-class @ !   ( set to largest part of union )
+    drop
+;
+
+\ Make members compile their offset, for "disposable includes".
+: OB.MEMBER  ( #bytes -- , make room in an object at compile time)
+           ( -- offset , run time for structure )
+    CREATE ob.make.member immediate
+    DOES> ob.offset@  ( get offset ) [compile] literal
+;
+
+: OB.FINDIT  ( <thing> -- pfa , get pfa of thing or error )
+    ho.find.pfa not
+    IF
+       " OB.FINDIT - Word not found!" $error \ 00002
+    THEN
+;
+
+: OB.STATS ( member_pfa --  offset #bytes )
+    dup ob.offset@ swap
+    ob.size@
+;
+
+: OB.STATS? ( <member> -- offset #bytes )
+    ob.findit ob.stats
+;
+
+: SIZEOF() ( <struct>OR<class> -- #bytes , lookup size of object )
+    ob.findit @
+    [compile] literal
+; immediate
+
+\ Basic word for defining structure members.
+: BYTES ( #bytes -- , error check for structure only )
+    ob-state @ ob_def_struct = not
+    IF " BYTES - Only valid in :STRUCT definitions." $ERROR
+	THEN
+	ob.member
+;
+
+\ Declare various types of structure members.
+\ Negative size indicates a signed member.
+: BYTE ( <name> -- , declare space for a byte )
+    -1 bytes ;
+
+: SHORT ( <name> -- , declare space for a 16 bit value )
+    -2 bytes ;
+
+: LONG ( <name> -- )
+    cell bytes ;
+
+: RPTR ( <name> -- , relative address pointer )
+    cell bytes ;
+
+: APTR    ( <name> -- , store as -4 for auto >ABS >REL )
+    cell negate bytes ;
+
+: UBYTE ( <name> -- , declare space for signed  byte )
+    1 bytes ;
+
+: USHORT ( <name> -- , declare space for signed 16 bit value )
+    2 bytes ;
+
+
+\ Aliases
+: ULONG   ( <name> -- ) long ;
+
+: STRUCT ( <struct> <new_ivar> -- , define a structure as an ivar )
+    [compile] sizeof() bytes
+;

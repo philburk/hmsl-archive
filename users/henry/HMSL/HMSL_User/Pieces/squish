@@ -1,0 +1,247 @@
+\ Play a melody in a tuning system that is expanding and contracting.
+\
+\ The "height" of a harmonic overtone series tuning is controlled
+\ by the dim=1 values in SHAPE-1.  The 1/1 period is set in
+\ dim=2.
+\
+\ Four samples are played, initially in sync.
+\ About 1/3 of the way through the first pass, the 4 melodies
+\ are phased by bumping the last duration up or down by a bit.
+\
+\ This demonstrates the creation of a new class of Player
+\ that has its own Shape and Instrument
+\
+\ Composer: Phil Burk
+\ Copyright 1987 Phil Burk
+\ All Rights Reserved
+\
+\ Performed 11/13/87 at Mills College
+\
+\ MOD: PLB 11/16/87 Moved DECIMATE and START: into HMSL
+\ MOD: PLB 2/20/90  Use hs: instead of sws:
+
+ANEW TASK-SQUISH
+
+ob.tuning.ratios SQ-RATIOS
+
+: SQ.BUILD.TUNING ( denom count -- , build overtone series )
+\ For example, for denom = 22 -> 22/22, 23/22, 24/22, 25/22, etc.
+    clear: sq-ratios
+    0
+    DO  ( -- denom )
+        dup i + over add: sq-ratios
+    LOOP
+    drop
+;
+
+: REPORT.TUNING ( denom 1/1 -- , display on shape editor )
+    scg.tnr@ >r  ( get old transform )
+    0 scg.selnt
+    2500 3980 scg.move
+    swap " H= " gr.text
+    gr.number
+    "  , 1/1= " gr.text
+    gr.number
+    "    " gr.text
+    r> scg.selnt  ( restore )
+;
+
+: SQ.ON.INTERP  ( elmnt# shape instr -- , play tuning parameters)
+    drop
+    interp.extract.pv
+    2dup report.tuning
+    put.1/1: sq-ratios
+    30 sq.build.tuning
+;
+
+OB.INSTRUMENT INSTR-1
+
+: C1/1  ( height -- 1/1 period , calc period to give highest fit. )
+    dup 30 + 130 * swap /
+;
+
+8 c1/1 constant 1/1_MAX
+: PT.INIT  ( -- , initialize Play Tuning shape )
+    40 3 new: shape-1
+    800 2000 1/1_max add: shape-1
+    500 1000 1/1_max add: shape-1
+    500 600  1/1_max add: shape-1
+    500 400  1/1_max add: shape-1
+    500 300  1/1_max add: shape-1
+    500 200  1/1_max add: shape-1
+    400 100  1/1_max add: shape-1
+    500  80  1/1_max add: shape-1
+    500  40  1/1_max add: shape-1
+    600  30  1/1_max add: shape-1
+    500  24  1/1_max add: shape-1
+    500  17  1/1_max add: shape-1
+    500  12  1/1_max add: shape-1
+    500  10  1/1_max add: shape-1
+    900   8  1/1_max add: shape-1
+    400  11  dup c1/1 add: shape-1
+    500  12  dup c1/1 add: shape-1
+    500  19  dup c1/1 add: shape-1
+    800  60  dup c1/1 add: shape-1
+    500 130  dup c1/1 add: shape-1
+    500 200  dup c1/1 add: shape-1
+    500 400  dup c1/1 add: shape-1
+    500 1000  dup c1/1 add: shape-1
+    250 1200  200 add: shape-1
+    200 1400  300 add: shape-1
+    100 1600  400 add: shape-1
+    300 1800  500 add: shape-1
+\
+    " Duration" 0 put.dim.name: shape-1
+    " Height" 1 put.dim.name: shape-1
+    " 1/1" 2 put.dim.name: shape-1
+\
+    0 shape-1 0stuff: player-1
+    2 put.repeat: player-1
+\
+    'c sq.on.interp put.on.function: instr-1
+    'c 3drop  put.off.function: instr-1
+    instr-1 put.instrument: player-1
+    shape-1 add: shape-holder
+\
+    40 new: sq-ratios
+    20 30 sq.build.tuning
+;
+
+
+: QUANTIZE.DUR ( elmnt# shape -- duration )
+    0 swap ed.at: []
+    5 *
+;
+
+
+METHOD GET.SHAPE:
+METHOD SETUP:
+METHOD CLEANUP:
+
+\ Make a class out of a squishy melody so we can make
+\ as many copies as we want.
+:CLASS OB.SQUISH <SUPER OB.PLAYER
+\ These are "Instance Objects" for Internal Class Use Only!!
+    ob.shape IV-SQ-SHAPE
+    ob.amiga.instrument IV-SQ-INSTR
+    ob.sample IV-SQ-SAMPLE
+
+:M SETUP: ( $sample -- , organize one squishy melody )
+    iv-sq-instr put.instrument: self
+    sq-ratios put.tuning: iv-sq-instr
+    iv-sq-sample put.waveform: iv-sq-instr
+    dup load: iv-sq-sample
+    put.name: iv-sq-sample
+    0 put.envelope: iv-sq-instr
+    0 put.offset: iv-sq-instr
+    iv-sq-sample add: shape-holder
+\
+        32 3  new: IV-SQ-SHAPE
+       2       4     127 add: IV-SQ-SHAPE
+       2       4     100 add: IV-SQ-SHAPE
+       2       4     100 add: IV-SQ-SHAPE
+       2       4     117 add: IV-SQ-SHAPE
+       6       2     127 add: IV-SQ-SHAPE
+       2       4     127 add: IV-SQ-SHAPE
+       2       9     127 add: IV-SQ-SHAPE
+       2       3     127 add: IV-SQ-SHAPE
+       4      24     127 add: IV-SQ-SHAPE
+       2      13      92 add: IV-SQ-SHAPE
+       4      10      86 add: IV-SQ-SHAPE
+       1      27     100 add: IV-SQ-SHAPE
+       1      20     126 add: IV-SQ-SHAPE
+       2      30      86 add: IV-SQ-SHAPE
+       2       5      84 add: IV-SQ-SHAPE
+       2      22     100 add: IV-SQ-SHAPE
+       2      21     100 add: IV-SQ-SHAPE
+       8      17     127 add: IV-SQ-SHAPE
+       1      30     100 add: IV-SQ-SHAPE
+       1      30      74 add: IV-SQ-SHAPE
+       1      30     127 add: IV-SQ-SHAPE
+       1       2     108 add: IV-SQ-SHAPE
+       1       2      74 add: IV-SQ-SHAPE
+       3       2     127 add: IV-SQ-SHAPE
+       3      25     108 add: IV-SQ-SHAPE
+       3       9     115 add: IV-SQ-SHAPE
+       6      23     127 add: IV-SQ-SHAPE
+       2       9      46 add: IV-SQ-SHAPE
+       2      17      50 add: IV-SQ-SHAPE
+       2      30      81 add: IV-SQ-SHAPE
+       8      27     127 add: IV-SQ-SHAPE
+\
+    0 30 1 put.dim.limits: iv-sq-shape
+    0 127 2 put.dim.limits: iv-sq-shape
+    " Duration" 0 put.dim.name: iv-sq-shape
+    " Note" 1 put.dim.name: iv-sq-shape
+    " Loudness" 2 put.dim.name: iv-sq-shape
+\ Use name of player as name of shape.
+    self pfa->nfa dup id. put.name: iv-sq-shape
+\
+    iv-sq-shape add: shape-holder
+\
+    stuff{ iv-sq-shape }stuff: self
+    'c quantize.dur put.dur.function: self
+    20000 put.repeat: self
+;M
+
+:M CLEANUP: ( -- )
+    default.hierarchy: self
+    free: iv-sq-sample
+    free.hierarchy: self
+;M
+
+:M PRINT: ( -- )
+    print: super
+    print: iv-sq-shape
+    print: iv-sq-instr
+;M
+
+:M GET.SHAPE:  ( -- shape , for outside access )
+    iv-sq-shape
+;M
+;CLASS
+
+OB.SQUISH SQUISH-1
+OB.SQUISH SQUISH-2
+OB.SQUISH SQUISH-3
+OB.SQUISH SQUISH-4
+
+: SQUISH.INIT  ( -- )
+    clear: shape-holder
+    pt.init
+    " hs:mcsingle" setup: squish-1
+    " hs:mando5th" setup: squish-2
+    " hs:bowl" setup: squish-3
+    " hs:analog2" setup: squish-4
+    stuff{ player-1
+        squish-1 squish-2 squish-3 squish-4
+    }stuff: coll-p-1
+    print.hierarchy: coll-p-1
+    print: shape-holder
+;
+
+: SQUISH.PLAY ( -- )
+    coll-p-1 hmsl.play
+;
+
+: SQUISH.TERM ( -- )
+\    " ram:sq1" $logto
+\    get.shape: squish-1  dump.source: []
+\    logend
+\
+    cleanup: squish-1
+    cleanup: squish-2
+    cleanup: squish-3
+    cleanup: squish-4
+    default.hierarchy: coll-p-1
+    free.hierarchy: coll-p-1
+;
+
+: SQUISH ( -- )
+    squish.init
+    squish.play
+    squish.term
+;
+
+cr ." Enter:  SQUISH" cr
+

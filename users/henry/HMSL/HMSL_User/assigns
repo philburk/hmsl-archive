@@ -1,0 +1,10 @@
+; Assign logical volumes for HMSL_User
+assign hp:  HMSL_user:pieces
+assign hs:  HMSL_user:samples
+assign hsc: HMSL_user:screens
+assign hmf: HMSL_user:MIDIfiles
+assign hsx: HMSL_user:sysex
+assign hadc: HMSL_User:adc
+assign ht:  HMSL_User:tools
+assign hdocs: HMSL_User:docs
+

@@ -1,0 +1,40 @@
+* a newer language for MIDI tuning
+* make a rexx host to open, accumulate and send the values.
+* the idea: use rexxrvi to set the note values up.
+* commands and shared variables:
+*
+* supported values:
+* E!		4096(1024) per octave
+* PROteus	768
+* DX7II		1024
+* TX81Z		768?
+* Standard	new tuning standard!
+* 
+* 'ListDest   listing filename' (else Ram:TunaList)
+* 
+* the actual tunings are set with 
+* 'Tune  xxx  value'
+* xxx can be:
+*       (d: -> octave)
+*      a note number 0..127,
+*     midi note name 5:C = note 60,5:bb,6:b# or bs
+*     relative note number (to last) + or -
+* value can be:
+*     in Hertz   (valid number)
+*     As an ET note   5:BB etc
+*     as just ratio   5:3/2  = 4:6/2 = 3:12/2
+*     as cents: 5:%323.3
+*     with hard coded  adjustments:
+*      +1/4	+25 Cents      -1/4	-25 Cents
+*      +com
+* 
+* 'ZeroTuning'
+*
+* 'Save filename format (,format..)' 
+* saves the list as an appropriate Sysex or appended sysexes
+*   (same tuning expressed in many ways)
+* 'Transmit format' sends block out to "live" buffer
+* 'SetBank format'  sets a bank
+* 'GetBank format'  gets a bank
+* 'Read filename' reads first in the list
+* 'REceive format' asks MIDI 

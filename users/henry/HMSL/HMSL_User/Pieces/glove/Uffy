@@ -1,0 +1,77 @@
+\ UFORCEd me into it!
+\ a uforce harmonix thing
+\ a chord is played on 4 channels
+
+include? _Uforce_data Uforce1
+anew task-Uffy
+
+
+\ waken the uforce
+\ initialize 
+v: basef
+v: baseh
+v: die
+
+: Uffy.init
+test.init
+da.init
+6 basef !
+1 baseh !
+
+0 da.channel! 0 da.volume! da.start
+1 da.channel! 0 da.volume! da.start
+2 da.channel! 0 da.volume! da.start
+3 da.channel! 0 da.volume! da.start
+DA_SINE da.wave!
+;
+
+
+: Uffy.play
+die off
+begin
+ 16 msec
+gl_poll msg.do
+
+uf.top   64 > if 1 basef +! then
+uf.bot   64 > if   basef @ 1  - basef !  then
+basef @ 10 < if 10 basef ! then
+basef @ 200 > if 200 basef ! then
+
+ uf.btn1 0= if die on then
+
+ uf.btn2 0= if 1 baseh +!  then
+
+baseh @ 13 > if 1 baseh ! then
+
+
+0 da.channel! basef @ baseh @ * da.freq!
+1 da.channel! basef @ baseh @ 1 + * da.freq!
+2 da.channel! basef @ baseh @ 2 + * da.freq!
+3 da.channel! basef @ baseh @ 3 + * da.freq!
+
+
+0 da.channel!
+uf.bll 4/ da.volume!
+1 da.channel!
+uf.blr 4/ da.volume!
+2 da.channel!
+uf.tul 4/ da.volume!
+3 da.channel!
+uf.tur 4/ da.volume!
+?terminal die @ or until
+;
+
+
+: uffy.term
+test.term
+da.kill
+da.term
+;
+
+
+: Uffy
+uffy.init
+uffy.play
+uffy.term
+;
+." Uffy is what you want!" cr

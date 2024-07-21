@@ -1,0 +1,146 @@
+11/18/87  Phil Burk
+
+HMSL version 3.14 differs from 3.13 in the following ways:
+
+!!! Critical Notes!!!!
+* When compiling HMSL on the Amiga, set #K to 260 instead of 240 !!!
+
+* Instruments now have a method PUT.#VOICES:
+  that causes voices to be turned off if you exceed
+  that number.  The default is now at 8.
+
+\ Changes to ODE -----------------------------
+* CURRENT.OBJECT ( -- object )
+Handy in Forth words called from methods.
+
+* RUN.FASTER and RUN.SAFER turn ON or OFF error checking.
+
+* DO: added to OB.ELMNTS and inherited by all morphs.
+  DO: ( cfa -- , each element passed to cfa )
+
+	: SET.REPEAT ( player -- )
+	    16 swap put.repeat: []
+	;
+	0 PLAYER-1 PLAYER-2 PLAYER-3 0STUFF: COLL-P-1
+        'C SET.REPEAT DO: COLL-P-1
+
+* Method DELETE: added to OB.OBJLIST and MORPHS.
+  Defined as:    INDEXOF: SELF IF REMOVE: SELF THEN
+
+  Allows direct deletion by value, eg.
+
+	PLAYER-1 ADD: COLL-S-1
+	PLAYER-2 ADD: COLL-S-1
+	  later
+	PLAYER-1 DELETE: COLL-S-1
+
+
+* Instance Objects now supported!!
+  You can declare objects inside of a class definition
+  along with the other instance variables.
+
+Here is an example of using an instance object array to
+store data for each dimension of a shape.
+        METHOD PUT.DIM.DATA:
+        METHOD GET.DIM.DATA:
+
+	:CLASS FOO <SUPER OB.SHAPE
+	    IV.LONG IV-FOO-FLAVOR
+	    OB.ARRAY IV-FOO-ARRAY  ( Declare Instance Object )
+
+	:M NEW: ( #elmnts #dimensions -- )
+	    TUCK NEW: SUPER    ( calls FREE: )
+	    NEW: IV-FOO-ARRAY  ( so NEW: this after SUPER )
+	;M
+
+	:M FREE: ( -- , called by NEW: )
+	    FREE: SUPER
+	    FREE: IV-FOO-ARRAY
+	;M
+
+        :M PUT.DIM.DATA: ( value dim -- )
+	    TO: IV-FOO-ARRAY
+	;M
+	:M GET.DIM.DATA: ( dim -- value )
+	    AT: IV-FOO-ARRAY
+	;M
+	;CLASS
+
+Remember, instance objects, like instance variables can
+ONLY be referenced from inside a method or a Forth word
+called from a method for that object!
+
+\ Changes to Actions ---------------------
+* Method DELETE-ACTION-#: changed to REMOVE:
+  Removed DELETE.ACTION: and DELETE.ACTION.IF:
+  
+* CLEAR: ACTION_TABLE now works when garbage in table.
+  Called from HMSL.RESET .
+
+\ General changes ---------------------------------------
+* Bug in MP.CHANNEL@ fixed. Fetches last channel input
+  in MIDI Parser.
+
+* PUT.DUR.FUNCTION: added to PLAYERs.
+  PLAYERS now look first for a DUR function.
+  If it exists, they will call it.
+  The stack diagram for DUR function is.
+
+  A.DUR.FUNCTION  ( elmnt# shape -- duration )
+
+  Here is an example of a function that scales the durations.
+
+	: SCALE.DURATION ( elmnt# shape -- duration )
+	    0 SWAP ED.AT: []  ( get original duration )
+	    8 * ( slow things down by 8 )
+	;
+	'C SCALE.DURATION PUT.DUR.FUNCTION: PLAYER-1
+
+  If the player finds no DUR function it uses the dur dimension
+  as before, unless the dur dim is < 0.  Then it will use the
+  value set by PUT.DURATION:
+
+* Size of ACTOBJ increased from 32 to 128.
+  This allows more objects like PLAYERS and JOBS
+  to be active at the same time.
+
+* MIDI instruments can allocate the same channel without giving
+  nasty errors.  This is nice if you have a limited number
+  of channels and are willing to let instruments share.
+  You can turn off the channel allocation by forcing the
+  channel with PUT.CHANNEL: before the instrument is opened
+  by the player.
+
+* A new method for allocators allows you to mark a channel as
+  used whether you allocate it or not.
+  MARK: ( index -- )
+
+* MIDI Instruments now use 16 value long circular buffers
+  to store note on information.  This allows LAST.NOTE.OFF:
+  to work with polyphony.
+
+* MIDI.RECALL.PRESET and MIDI.RECALL.BEND added.
+  MIDI.PROGRAM also offered as synonym for MIDI.PRESET
+  since it is more correct.
+
+* Repeat counts fixed in JOBs. 1 executes once not twice!
+
+* Added ?QUIT ( -- flag , pauses until key hit, true if 'q')
+
+* Shape Editor now displays the first value of group when
+  transposing UP or DOWN 1
+
+--- Amiga Specific Changes ----------------------------------
+
+* IFF sample files now supported on the Amiga.
+  If you want to edit a multioctave file you should first
+  extract an octave.  This is not fully worked out.
+
+* DA.LOUDNESS@ added as described in manual.
+
+* The hardware timer in TIME@ is now based on the Vertical
+  Blanking Interrupt.  This makes TIME@ execute about 40X faster.
+  The new rate is now 60 hz instead of 50 hz.  This gives
+  better resolution but can affect the tempo of old pieces
+  unless you used RTC.RATE@.  The OLD clock would cause pieces
+  to hang or freak out at midnight when the day count clicked over.

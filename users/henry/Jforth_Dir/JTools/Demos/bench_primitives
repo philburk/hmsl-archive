@@ -1,0 +1,39 @@
+\ Benchmark Forth Primitives
+\
+\ These should run on almost any 32 bit Forth.
+\ ( You may have to remove the commas.)
+\
+\ This code is provided as an example of using
+\ JForth benchmark utilities.
+\ If you don't have words like BENCH.WITH, use
+\ your stopwatch on your previous Forth.
+\
+\
+\ Copyright 1986 Delta Research
+
+\ Examine this file for details.
+include? bench ju:measure  \ Resolution of 1/50 second.
+
+decimal
+
+create #do 1,000,000   ,
+
+: t1           #do @ 0      do                     loop ;
+: t2  23 45    #do @ 0      do  swap               loop   2drop ;
+: t3  23       #do @ 0      do  dup drop           loop drop ;
+: t4  23 45    #do @ 0      do  over drop          loop 2drop ;
+: t5           #do @ 0      do  23 45 + drop       loop ;
+: t6  23       #do @ 0      do  >r r>              loop drop ;
+: t7  23 45 67 #do @ 0      do  rot                loop 2drop drop ;
+: t8           #do @ 0      do  23 2* drop         loop  ;
+: t9           #do @ 10 / 0 do  23 5 /mod 2drop    loop ;
+: t10     #do  #do @ 0      do  dup @ drop         loop drop ;
+
+: foo ( noop ) ;
+: t11          #do @ 0      do  foo                loop ;
+
+." To initialize DO LOOP timing correction, enter:" cr
+."      BENCH.WITH T1" cr
+cr
+." Then to test T6, for example:" cr
+."      BENCH T6     ... and so on." cr

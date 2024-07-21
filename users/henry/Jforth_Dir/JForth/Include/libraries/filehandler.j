@@ -1,0 +1,9 @@
+\ AMIGA JForth Include file.
+decimal
+EXISTS? LIBRARIES_FILEHANDLER_H NOT .IF
+: LIBRARIES_FILEHANDLER_H ;
+EXISTS? DOS_FILEHANDLER_H NOT .IF
+include ji:dos/filehandler.j
+.THEN
+
+.THEN

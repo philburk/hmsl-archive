@@ -1,0 +1,70 @@
+\ Messages for Glove
+\ Implement a message port with the following messages:
+\ 		START:	start continuous polling
+\ 		STOP:	stop polling
+\ 		KILL:	terminate the background job
+\ 		POLL:	one-shot get data
+\ 		RESET: 	do SetHires properly
+\ Author: rnm 12/2/91
+\ Copyright (©) Robert Marsanyi 1991
+
+include? msg.make message_support
+include? PollForPacket TimedHires
+anew task-glove_messages
+
+variable MSG-QUIT
+variable polling?			( data area or false )
+
+: MSG.EXEC  ( msg -- , background acts on message )
+    dup>r ..@ GL_opcode
+    CASE
+    	GL_RESET OF
+    				SetHires r@ .. gl_data PollForPacket SetHires
+    				polling? off
+    			 ENDOF
+        GL_START OF r@ .. gl_data polling? ! ." Poll on" cr ENDOF
+        GL_STOP  OF polling? off ." Poll off" cr ENDOF
+        GL_KILL  OF msg-quit on ." Bye ..." cr ENDOF
+        GL_POLL  OF r@ .. gl_data PollForPacket
+        			r@ .. gl_data ShowPacket
+        		 ENDOF
+                ." Bad opcode! dup .
+    ENDCASE
+    rdrop  ( drop message )
+;
+
+: GloveRecv
+	init.glove
+	0" glmsg_back" msg.make
+	msg-quit off
+	polling? off
+	BEGIN
+		polling? @ ?dup IF
+			dup PollForPacket ShowPacket
+			msg.check ?dup IF
+		    	dup msg.exec
+			    ReplyMsg()
+			THEN
+		ELSE
+			msg.recv
+			dup msg.exec
+			ReplyMsg()
+		THEN
+        msg-quit @
+    UNTIL
+    msg.term
+    term.glove
+;
+			
+: ShowSignals
+	init.glove
+	0" glmsg_back" msg.make
+	msg-quit off
+	BEGIN
+		0 0 SetSignal() h. cr
+		?terminal
+	UNTIL
+	msg.term
+	term.glove
+;
+

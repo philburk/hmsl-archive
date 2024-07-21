@@ -1,0 +1,17 @@
+\ words for accessing inline data
+\ handles any conversions  needed; rel to abs for Jforth seg&off>addr for
+\ OCT 12, 86. BTD Changed to prevent use in inline word. 
+
+: inline@  ( --- inline-data-adr ) COMPILE  r@ COMPILE >rel 
+      INLINEOK? OFF ;  IMMEDIATE
+
+: inline+  ( inc --- )   COMPILE r>  COMPILE +  COMPILE >r  
+    INLINEOK? OFF ; IMMEDIATE
+
+: inline>  ( --- inline-data-adr )  ( return-adr --r-- ) 
+    COMPILE r>  COMPILE >rel INLINEOK? OFF ; IMMEDIATE
+
+: >inline  ( inline-data-adr --- )  ( --r-- return-adr )  
+   COMPILE >abs  COMPILE >r INLINEOK? OFF ; IMMEDIATE
+
+decimal

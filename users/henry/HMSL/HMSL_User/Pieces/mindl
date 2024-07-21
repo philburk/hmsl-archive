@@ -1,0 +1,240 @@
+\
+\ Mindlight 7 words:
+\
+\
+\ Get the module instead of including the .j files.
+exists? includes
+exists? newwindow not and
+.IF getmodule includes
+.THEN
+
+anew Mindl.spot
+\
+V: ML-Bass-Amp
+V: ML-Bass-freq
+V: ML-Treble-amp
+v: ML-All-Amp
+V: ML-All-Freq
+
+$ BFE001 K: ML-A8520
+$ BFD000 K: ML-B8520
+0	K: ML-PRA
+$ 12	K: ML-Pot0Dat
+$ 14	K: ML-Pot1Dat
+$ 0a	K: ML-Joy0Dat
+$ 0c	K: ML-Joy1Dat
+$ 16	K: ML-Potinp
+$ 34	K: ML-Potgo
+$ DFF000 K: Ml-Base
+$ AF00	K: ML-Chanset
+
+$ C000  K: ML-SetJoyP9
+$ 3000  K: ML-SetJoyP5
+$ F000  K: ML-SetJoyP95
+
+ml-base  ml-potgo  + k: potg
+
+\  these regs are sometimes word length
+V: Ml-D0
+V: Ml-D1
+V: Ml-D2
+V: Ml-D3
+
+\ last valid values of x-y
+V: ML-JoyX
+V: ML-JoyY
+
+: Mindl.read.This
+\ and fix it up, too
+
+\ read bytes from Joy1Dat and duplicate them
+ML-Joy1Dat ML-Base + Absc@  dup Ml-D1 ! ml-d3 !
+ML-Joy1Dat ML-Base + 1+  Absc@ dup  ml-d0 ! ml-d2 !
+
+
+ml-d0 @ ml-joyx @ - dup dup  ml-d0 !
+0> if 256 - ml-d0 ! else drop then 
+
+ml-d1 @ ml-joyy @ - dup  dup ml-d1 !
+0> if 256 - ml-d1 ! else drop then 
+
+\ let the bits propogate...
+ml-d0 @ negate  ml-d0 !
+ml-d1 @ negate  ml-d1 !
+
+ml-d2 @ Ml-joyX ! Ml-D3 @ ml-joyY !
+
+Ml-d0 @ 248 > if Ml-d0 off then
+Ml-d1 @ 248 > if Ml-d1 off then
+Ml-d0 @ ml-d1 @
+;
+
+\ technique for setting bits.:
+\ outputs a pulse when OUTx and DATx are written to simultaneously.
+\ 
+
+: Mindl.read.BABF ( -- Ba Bf )
+ML-ChanSet      PotG ABSW!
+Mindl.Read.This
+;
+
+: Mindl.read.BATF ( -- Ba Tf )
+ML-SetJoyP9   PotG ABSW!
+Mindl.Read.This
+;
+
+: Mindl.read.OAOF ( -- Ba Bf )
+ML-SetJoyP5    PotG ABSW!
+Mindl.Read.This
+;
+
+: Mindl.read.OATA ( -- Ba Bf )
+ML-SetJoyP95    PotG ABSW!
+Mindl.Read.This
+;
+
+
+: Mindl.read.all
+\ Mindlight must be "asked " for the proper channel.
+\ channel 0 ... Bass amp, freq
+ML-ChanSet      PotG ABSW!
+ 16 msec
+Mindl.Read.This ML-Bass-Amp ! ML-Bass-Freq !
+
+ML-ChanSet $ 1000 OR     PotG ABSW!
+ 16 msec
+Mindl.Read.This ML-Bass-Amp ! ML-Treble-Amp !
+
+ML-ChanSet $ 4000 or     PotG ABSW!
+ 16 msec
+Mindl.Read.This ML-All-Amp ! ML-All-Freq !
+
+ML-ChanSet $ 5000 or     PotG ABSW!
+ 16 msec
+Mindl.Read.This ML-All-Amp ! ML-Treble-amp !
+;
+
+: .t 09 emit ;
+
+: Mindl
+begin
+."  oaof:" mindl.read.OaOf . 09 emit  . 09 emit
+."  babf:" mindl.read.babf . 09 emit  . 09 emit
+cr
+?terminal until
+
+;
+
+\ PROteus test of Poly Pressure, using MindLight.
+: Mindl.PROt
+\ set to Pressure sensitive patch!
+1 Midi.Channel!
+25 MIDI.PRESET
+begin
+mindl.read.babf 2/ 2/ swap 2/ 2/ 2dup MIDI.NoteOn
+150 msec
+\ 2dup
+ MIDI.NoteOff
+\ . . cr
+50 msec
+?Terminal Until
+;
+
+: Mindlall
+begin
+Mindl.read.all
+." B:" ML-Bass-Freq ? .t ML-Bass-Amp ? .t
+." T:" ML-Treble-Amp ? .t  ML-All-Freq ? .t
+." A:" ML-ALL-Freq ?  .t ML-All-Amp ?
+cr
+?terminal until
+;
+\ --------------------- \
+30 k: mltop
+10 k: mlw
+2  k: mlws
+mlws mlw + k: mlwws
+30 k: mll
+
+: rekt { x y val -- }
+0 gr.color!
+x mlwws * mll +
+y mlwws * mltop +
+x mlwws * mll + 256 8 / +
+y mlwws * mltop + mlw +
+gr.rect
+
+1 gr.color!
+x mlwws * mll +
+y mlwws * mltop +
+x mlwws * mll + val 8 / +
+y mlwws * mltop + mlw +
+gr.rect
+
+;
+
+: label { x y string -- }
+0 gr.color!
+x mlwws * mll +
+y mlwws * mltop +
+x mlwws * mll + 256 8 / +
+y mlwws * mltop + mlw +
+gr.rect
+
+1 gr.color!
+x mlwws * mll +
+y mlwws * mltop +
+gr.move
+string gr.text
+
+;
+
+: MindlW
+gr.init
+WIndowTemplate NewWindow.setup
+190 WindowTemplate ..! nw_height
+WindowTemplate gr.openCurw
+0= abort" gr.opentest failure "
+0 4 " B-F" label
+4 4 " B-A" label
+
+9 4 " T-A" label
+
+14 4 " A-F" label
+18 4 " allamp" label
+
+
+begin
+
+ Mindl.read.all
+
+0 5 ML-Bass-Freq @ rekt
+4 5 ML-Bass-Amp @ rekt
+
+9 5 ML-Treble-Amp @ rekt
+
+14 5 ML-All-Freq @ rekt
+18 5 ml-all-amp @ rekt
+
+ 16 msec
+ ?terminal until 
+
+gr.closecurw
+;
+
+\ raw fetcher
+
+: mindlr
+." 00:" $ 0000  potg absw! Mindl.Read.This . .
+." c0:" $ C000  potg absw! Mindl.Read.This . .
+." 30:" $ 3000  potg absw! Mindl.Read.This . .
+." f0:" $ f000  potg absw! Mindl.Read.This . .
+cr
+
+;
+
+
+
+." mindl"
+
+

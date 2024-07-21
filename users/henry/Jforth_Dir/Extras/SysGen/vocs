@@ -1,0 +1,228 @@
+\  9/13/86 mdh added 'only, 'forth, 'definitions initialization (needed by
+\          'FREEZE'.
+\ f83 vocabulary stack
+\
+\ 00001 25-jan-92 mdh    PREVIOUS didn't check for dropping ROOT
+\ 00002 26-jan-92 mdh    fixed stack depth when calling ?PAUSE in ID.LIST
+
+
+ EXISTS? VOC-LINK  NOT
+ .IF    : VOC-LINK  VOCLINK ;   
+ .THEN  
+
+EXISTS? ROMABLE  NOT
+.IF  FALSE CONSTANT ROMABLE 
+.THEN
+
+EXISTS? WORDS
+.IF   ." PLEASE REMOVE WORDS AND VLIST FROM PREVOUIS FILES" CR
+ .THEN
+
+INCLUDE? ['] JF:UTILITIES
+
+\ 40 CONSTANT MAXVOCS
+\ : USER-ALLOT  ( BYTES --- )  USER#   +! ;
+\ CONTEXT @
+\ USER CONTEXT  MAXVOCS CELLS USER-ALLOT
+\ CONTEXT !
+
+
+ROMABLE 
+.IF    ." using ROMABLE definitions of vocabularies " CR
+\ Jforth vocabulary structure: ROMABLE 
+\   header:
+\  ( do-does>:)
+\   voc-link@:
+\   TO-RAM-VARIABLES@
+
+\   BACK-LINK@ :  ( IN RAM ) 
+\   voc-latest@ : 
+
+: VOCABULARY  CREATE ( --- )  ( NEW-VOC-NAME --IN-- ) 
+     HERE  VOC-LINK @ , VOC-LINK ! 
+     HERE  RAM-HERE   ,  RAM, 
+     0 ( sealed LATEST )  RAM, 
+     DOES>  ( <PFA> --- ) CELL+ @ CELL+   CONTEXT ! ; 
+
+: VLATEST>VLINK  ( VOC-LATEST@ --- VOC-LINK@ ) CELL- @ CELL-  ;
+: VLINK>VLATEST  CELL+ @ CELL+  ;
+
+.ELSE   \  ."  using RAM based definition of vocabularies"  CR
+\ Jforth vocabulary structure: Ram based: 
+\   header:
+\   ( do-does>: )
+\   voc-link@:
+\   voc-latest@ : 
+
+: VOCDOES  CELL+ CONTEXT !  ;
+
+: VOCABULARY  CREATE ( --- )  ( NEW-VOC-NAME --IN-- ) 
+     HERE  VOC-LINK @ , VOC-LINK ! 
+     here  ColdVocNFAS ( nfapointer arraybase -- )
+     #vocs @ [ 2 cells ] literal *  + ! ( tell cold it should set this place )
+     ( if the following cell in the table is non zero from freeze. )
+     ( Freeze will fetch the nfa stored here and plunk it in the table )
+     ( following the pointer to this address)
+     0 ( sealed LATEST ) ,
+     1 #vocs +! 
+     DOES>  ( <PFA> --- ) VOCDOES  ; 
+    ( sets context to point to latest ) 
+
+: VLATEST>VLINK  ( VOC-LATEST@ --- VOC-LINK@ )  CELL- ;
+: VLINK>VLATEST  CELL+ ;
+
+.THEN
+
+
+EXISTS? DO-DOES-SIZE NOT
+.IF   CREATE DON'T-USE-THIS  UNSMUDGE 
+    ' DON'T-USE-THIS  HERE - ABS CONSTANT DO-DOES-SIZE 
+.THEN 
+
+: VLINK>'  ( VOC-LINK@ --- VOCABULARY'S-CFA )
+    DO-DOES-SIZE  - ;
+
+
+VOCABULARY ROOT  LATEST  ROOT  CONTEXT @ !  ( WILL SEAL LATER ) 
+
+ROOT CONTEXT @ CURRENT !  
+
+VOCABULARY FORTH  ' ROOT '>NAME  FORTH CONTEXT @ ! 
+' forth 'forth !
+
+: DEFINITIONS  CONTEXT @ CURRENT ! ;
+' definitions  'definitions !
+
+: BYE  BYE  ;  ( for going bye-bye ) 
+
+: ALSO   ( --- ) ( just makes room )
+    CONTEXT DUP CELL+  [ MAXVOCS 1-  CELLS ] LITERAL MOVE ;
+
+: ONLY  ( --- )  [ ' ROOT ] LITERAL   '>BODY  CONTEXT
+  [ MAXVOCS 1- CELLS ] LITERAL DDUP ERASE + ! ROOT ALSO ROOT ;
+' only 'only !
+
+\  seal is'nt right for our voc structure
+: SEAL ( --- )   '   '>BODY  CONTEXT [ MAXVOCS CELLS ] LITERAL
+    ERASE    CONTEXT  !  ;
+
+: PREVIOUS  ( --- )  context cell+ @  \ 00001
+  IF
+     CONTEXT DUP CELL+ SWAP
+     [ MAXVOCS CELL- CELLS ]  LITERAL MOVE
+     0  CONTEXT  [ MAXVOCS CELL- CELLS  ] LITERAL  +  !
+  THEN  ;
+
+\ F83 VOCABULARY ORDER:
+\ uses existing search order till all voc found
+
+turnkeying? NOT .IF
+\ ROOT DEFINITIONS  F83
+\ ORDER: is not yet compilable
+: ORDER:  ( --- )  (  ";" <VOC> ... <CURRENT> --IN-- )
+   0  []  '   >R
+   BEGIN    >IN @ BL WORD  $" ;" $=  NOT
+   WHILE    >IN !  [] '
+   REPEAT   DROP  (  last-voc...top-voc --- ) ( current -r- )
+   R> EXECUTE DEFINITIONS   ONLY
+   BEGIN    DUP
+   WHILE    EXECUTE  ALSO
+   REPEAT   DROP  PREVIOUS  ;
+.THEN
+
+\ example: ORDER: FORTH   ASSEMBLER FORTH EDITOR ;
+\ =>  FORTH DEFINITIONS ONLY EDITOR ALSO FORTH ALSO ASSEMBLER
+\ ORDER <CR>  CURRENT:  FORTH
+\             CONTEXT:  ASSEMBLER FORTH EDITOR ROOT
+
+\ ROOT DEFINITIONS
+
+
+\ FIG
+: VOC-ID.  ( context-pointer --- ) >R  VOC-LINK 
+    BEGIN  @ DUP 0=  OVER  VLINK>VLATEST  R@ =  OR
+    UNTIL  DUP 0=  ?ABORT" Unknown Voc"
+      RDROP  ( VLINK ) VLINK>'   '>NAME  ( ID. )  ID.LIST  ;
+
+: ORDER   ( --- )
+  CR ." Searching (CONTEXT) : "  $ 16 ( 22 )  LISTINDENT !
+  CONTEXT MAXVOCS  CNT>RANGE
+  DO           I @  -DUP  0= ?LEAVE  ( SPACE ) VOC-ID.
+  CELL +LOOP
+  >newline ." Extending (CURRENT) : "  CURRENT @ VOC-ID.
+  listindent off   CR ;
+
+\ HEX   ROOT ONLY FORTH ALSO ROOT
+: FIND-IN   ( adr --- cfa true )  ( ... false ) ( vocabulary -inline--- )  
+   INLINE@ @  EXECUTE
+   CELL  INLINE+    ( adr old-context )  
+   CONTEXT @  (FIND) ;
+
+USER SEARCH-CURRENT  FALSE SEARCH-CURRENT ! 
+: VOC-FIND  ( $ --- ADR FLAG ) CONTEXT
+     BEGIN  DUP @                           ( -- $ lfa prevnfa ) 
+     WHILE  ( NOT ZERO ) 2DUP @             ( -- $ lfa $ lfa )  
+            (FIND) ?dup
+            IF   >r  ( $ VOC@ CFA )  >R 2DROP R> r> EXIT
+            ELSE ( $ VOC@ $   ) DROP  CELL+ 
+            THEN
+     REPEAT ( $ VOC@ ) DROP  SEARCH-CURRENT @
+     IF     CURRENT @ (FIND) 
+     ELSE  FALSE
+     THEN   ;
+
+: VOCS  ( --- )
+  >newline ." Defined Vocabularies: "  $ 16 ( 22 ) listindent !   VOC-LINK
+    BEGIN @ DUP
+    WHILE  DUP>r ( 00002 )  VLINK>'  '>NAME  ID.LIST r>
+    REPEAT DROP  ORDER  listindent off  ;
+
+turnkeying? NOT .IF
+\ VLIST -------------------------------------------------------
+
+base @
+hex
+: VLIST ( --- )   0 #WORDS ! >newline  CONTEXT @ @ 
+    BEGIN  DUP 
+    WHILE
+           \ linelimit @ ( C/L )  OUT @ - OVER C@
+           \ 01F AND [ 2 CELLS ] LITERAL + <
+           \ IF    >r ?pause r> CR
+           \ THEN
+           \
+           DUP>r ( 00002 )  ID.LIST r> \   1 #WORDS +!  SPACE SPACE
+           N>LINK @
+    REPEAT  DROP   #WORDS @ CR 5 .R ."  words "   ;
+: WORDS VLIST ;
+base !
+.THEN
+
+ONLY
+' VOC-FIND is find
+ROOT  0 ' FORTH '>NAME N>LINK ! 
+FORTH ' ROOT '>NAME  CONTEXT @ ! 
+ONLY FORTH 
+FORTH DEFINITIONS
+ ( SEAL UP THE ROOT VOCABULARY ) 
+
+DEFER WHEN-SCANNED 
+DEFER WHEN-VOC-SCANNED 
+
+: SCAN-VOC  ( VLATEST --- )   @ 
+    BEGIN  DUP 
+    WHILE  DUP>r ( 00002 ) WHEN-SCANNED  r>
+           N>LINK @
+    REPEAT  DROP    ;
+
+: SCAN-WORDS ( --- )  CONTEXT @ SCAN-VOC ;
+
+: SCAN-ALL-VOCS ( --- )  VOC-LINK 
+   BEGIN  @ DUP
+   WHILE  DUP>r ( 00002 )  WHEN-VOC-SCANNED
+          r@     VLINK>VLATEST  SCAN-VOC r>
+   REPEAT  DROP   ;
+
+
+
+
+

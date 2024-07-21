@@ -1,0 +1,153 @@
+\ Demonstrate color cycling using SetRGB4
+\
+\ Author:  Phil Burk
+\ Copyright 1988 Delta Research
+
+decimal
+INCLUDE? NewWindow.Setup JU:AMIGA_GRAPH
+include? sc_Viewport ji:intuition/intuition.j
+INCLUDE? NewScreen.Setup JU:SCREEN_SUPPORT
+INCLUDE? ?CLOSEBOX JU:AMIGA_EVENTS
+include? msec ju:msec
+include? choose ju:random
+
+ANEW TASK-DEMO_RGB
+
+decimal
+
+\ Declare necessary Amiga 'C' structures.
+NewScreen RGB-NewScreen
+NewWindow RGB-NewWindow
+
+VARIABLE RGB-SCREEN
+
+: RGB.INIT.SCREEN ( -- screen | NULL )
+	gr.init
+\ Set to default values.
+	RGB-NewScreen NewScreen.Setup
+	RGB-NewWindow NewWindow.Setup
+\
+\ Modify defaults for this demo.
+	4 RGB-NewScreen s! ns_Depth  ( 16 colors )
+\
+\ Open Screen and store pointer in NewWindow structure.
+	RGB-NewScreen openscreen() dup RGB-Screen !  ( Open screen. )
+\
+\ Sometimes the Amiga can build a bad COPPER list for screens.
+\ This can happen if you have Emacs and Workbench up in INTERLACE
+\ mode and open a NON-INTERLACE screen.
+\ The following calls will correct this problem (hopefully).
+	RGB-screen @ screentoback()
+	RemakeDisplay()
+	RGB-screen @ screentofront()
+;
+
+: RGB.INIT.WINDOW ( screen -- window | NULL )
+	RGB-NewWindow s! nw_screen
+\
+\ Set up window.
+	0" RGB - JForth - Delta Research"
+		RGB-NewWindow s! nw_Title
+	CUSTOMSCREEN   RGB-NewWindow s! nw_type
+	RGB-NewWindow s@ nw_Flags ACTIVATE |
+		RGB-NewWindow s! nw_Flags
+	20    RGB-NewWindow s! nw_TopEdge
+	320  RGB-NewWindow s! nw_Width
+	160  RGB-NewWindow s! nw_Height
+	RGB-NewWindow gr.opencurw
+;
+
+: RGB.TERM ( -- , CLose demo screen )
+	gr.closecurw
+	RGB-screen @ closescreen()
+;
+
+: SetRGB4() ( vp index r g b -- , call Amiga routine )
+	callvoid>abs graphics_lib SetRGB4
+;
+
+: GetRGB4() ( colormap index -- packed_RGB )
+	call>abs graphics_lib getrgb4
+;
+
+: UNPACK.RGB ( packed_rgb -- r g b )
+	dup>r
+	-8 shift 15 and
+	r@ -4 shift 15 and
+	r> 15 and
+;
+
+: GET.VP ( -- vp , get rel address of viewport )
+	RGB-SCREEN @ ( -- rel_screen )
+	.. sc_ViewPort ( -- rel_ViewPort )
+;
+
+: GET.CM ( -- colormap )
+	RGB-SCREEN @
+	.. sc_ViewPort
+	s@ vp_colormap ( relative address of colormap )
+;
+
+: GET.RGB ( index -- r g b )
+	get.cm swap getRGB4()
+	unpack.RGB
+;
+
+variable RGB-#COLORS
+: RGB.DRAW.STUFF ( -- , draw colored boxes )
+	1 rgb-NewScreen s@ ns_depth shift
+	dup rgb-#colors !
+	2
+	DO i gr.color!
+		5 i 14 * +
+		5
+		over 14 +
+		120
+		gr.rect
+	LOOP
+;
+
+: RAND.COLOR ( index -- , set color to random RGB )
+	get.vp swap 16 choose 16 choose 16 choose SetRGB4()
+;
+
+: SHUFFLE.COLORS  ( -- move colors )
+	rgb-#colors @  1- 2
+	DO  get.vp i
+		i 1+ get.rgb SetRGB4()
+	LOOP
+	rgb-#colors @  1- rand.color
+;
+
+: DEMO.RGB  ( -- , cycle colors with random source )
+	rgb.init.screen ?dup
+	IF  rgb.init.window
+		IF  rgb.draw.stuff
+			BEGIN
+				200 msec
+				shuffle.colors
+				?closebox
+			UNTIL
+			rgb.term
+		THEN
+	THEN
+;
+
+: DEMO.RGB.LINES  ( -- , simpler example )
+	rgb.init.screen ?dup
+	IF  rgb.init.window
+		IF  5 gr.color!
+			0 0 gr.move
+			BEGIN
+				300 choose 160 choose gr.draw  ( draw line )
+				14 choose 2+ rand.color
+				14 choose 2+ gr.color!
+				?closebox
+			UNTIL
+			rgb.term
+		THEN
+	THEN
+	gr.term
+;
+
+cr ." Enter:    DEMO.RGB or DEMO.RGB.LINES" cr

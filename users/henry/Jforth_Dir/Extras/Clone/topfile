@@ -1,0 +1,58 @@
+
+only forth definitions
+
+redef? off
+
+\  getmodule includes      hidemodule includes
+
+.need TASK-TOPFILE
+  : TASK-TOPFILE ;
+.then
+
+.NEED INITCLONE
+  : INITCLONE ;
+.THEN
+
+exists? getmodule
+hash-state @ not  AND
+.if
+      include? ModuleFind   ju:ModuleFind
+.else
+      getmodule includes
+.then
+
+include? ReLoad        ju:ReLoad
+include? logto         ju:Logto
+include? ASM           jf:Forward-ASM
+include? DynamicStack  ju:StackUtils
+
+\ include? {            JU:locals
+
+\ include? update        ju:Update
+
+\ " CL:"  srcdir$  $move
+\ " CL2:" DestDir$ $move
+
+.NEED TGT
+      vocabulary TGT
+.THEN
+
+also TGT
+
+
+include? Calls?       CL:OpSizes.f
+include? PFALength?   CL:PFALength.f
+include? StartJForth  CL:StartJForth.asm 
+include? Redefs       CL:Redefs.f
+include? Status?      CL:Status.f
+include? PacketFor    CL:Tree.f
+include? TargetImage  CL:MemRefs.f
+include? Stats        CL:Stats.f
+include? Clone        CL:Clone.f
+include? Save-Image   CL:SaveImage.f
+
+
+only forth definitions
+
+redef? on
+

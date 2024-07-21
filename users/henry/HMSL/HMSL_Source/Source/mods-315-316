@@ -1,0 +1,28 @@
+Modifications between HMSL vesion 3.15 and 3.16
+
+Check for object stack overflow in OB.COLL.LOOP .
+If a player had a repeat count of 0 inside a collection
+with a high repeat count then the object stack would overflow.
+
+Expanded Object Stack to 256 bytes.
+
+Added USE->REL to OB.PRELOAD.CFAS in ODE for Macintosh.
+
+Changed Shape Editor so that HMSL.EDIT.PLAY brings up
+desired shape.  Used to always edit first shape in SHAPE-HOLDER.
+
+Amiga Only:
+
+PERIOD>OCTAVE: no longer duplicates the lowest octave
+in IFF files with multisamples.
+
+Added PLAY_SAMPLE demo.
+
+
+Macintosh Only:
+
+HMSL window now highlights properly.
+
+EV_MOUSEUP now has proper mouse x,y.
+
+Copyright message now scrolls past area blanked by MultiFinder.

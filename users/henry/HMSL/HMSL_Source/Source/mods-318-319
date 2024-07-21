@@ -1,0 +1,18 @@
+HMSL Mods 3.18 to 3.19
+
+* 0STUFF: added to OB.OBJLIST class.
+
+* DO: method fixed on Macintosh
+
+* Variable Rate Real Time clock added, RTC.RATE!
+
+* Added HMSL.START and HMSL.STOP for KEY based
+  multitasking.
+
+* FILL.DIM: in OB.ELMNTS gives better error message.
+
+* 0 SET.MANY: now works.
+
+* Instruments handle multiple opens when shared.
+
+* Added FIRST.NOTE.OFF: method to instruments.

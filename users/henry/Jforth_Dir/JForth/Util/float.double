@@ -1,0 +1,3 @@
+." WARNING - FLOAT.DOUBLE has been moved to JFLT:" cr
+include JFLT:FLOAT.DOUBLE
+

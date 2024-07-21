@@ -1,0 +1,22 @@
+ 
+( CONDITION by Brian Donovan ) 
+
+EXISTS? FORTH 
+.IF   FORTH DEFINITIONS
+.THEN
+
+
+EXISTS? !CSP NOT
+.IF   : !CSP  ( --- )   SP@ CSP ! ;  
+.THEN
+
+: CONDITION ( --- IF_FLAG ) ?COMP  CSP @   !CSP   IF_FLAG   ;   IMMEDIATE
+  ( CONDITION IF ... ELSE  IF ... ELSE  ENDCOND )
+
+: ENDCOND   (  [adr IF_FLAG] ....--- ) IF_FLAG  ?PAIRS
+         BEGIN   SP@ CSP  @ = 0=
+         WHILE   IF_FLAG  [COMPILE]  THEN  DROP  ?STACK
+         REPEAT  CSP !  ; IMMEDIATE
+
+( HK VERSION tested 5/1/83. BTD. seems fine )
+

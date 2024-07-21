@@ -1,0 +1,48 @@
+\ Fibonacci sequence using recursion.
+
+ANEW TASK-FIBONACCI
+
+ASM FIBO   ( n -- fib[n] )
+	cmpi	#1,tos
+		bgt.s	1$		; continue recursion?
+		move	#1,tos		; fib(1) = fib(0) = 1
+	rts
+1$:	movem.l	d1-d2,-(rp)	; must be reentrant
+	move.l	tos,d1		; save N in D1
+		subq.w  #1,tos		; calc fib(n-1)
+		forth{ ] recurse [ }forth ; jsr fibo
+	move.l	tos,d2		; save fib(n-2) in d2
+	move.l	d1,tos
+		subq.w  #2,tos		; calc fib(n-2)
+		forth{ ] recurse [ }forth
+	add.l	d2,tos		; add fib(n-1)
+	movem.l	(rp)+,d1-d2
+	rts
+END-CODE
+
+: TEST.FIBO  ( -- )
+	10 0
+	DO i fibo .
+	LOOP
+;
+
+: CHEAP.FIBO  ( -- , print first 10 fibonaccis )
+	1 1 dup .
+	9 0
+	DO dup . tuck +
+	LOOP
+;
+
+: FIBO.HI ( N -- fib[n] , high level version )
+	dup 1 >
+	IF  dup 1- recurse swap 2- recurse +
+	ELSE drop 1
+	THEN
+;
+
+
+: TEST.FIBO.HI  ( -- )
+	10 0
+	DO i fibo.hi .
+	LOOP
+;

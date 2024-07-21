@@ -1,0 +1,21 @@
+V3.41+  Phil Burk   1/26/90
+
+This version has Event Buffered Amiga Local Sound!
+See files: HH:AMIGA_SOUND and HH:EB_POSTING
+
+It also has two new pieces:
+
+    HP:PHASEPIX  - phased graphics and sound, silly but fun.
+    HSC:THEREMIN - in progress,uses unfinished XY controller
+        grid, DA sound, overlays tuning lines from slendro
+
+Changes:
+
+MIDI.NOTEON.FOR MIDI.NOTEON.AT and MIDI.NOTEON.LATER
+have new stack diagrams!!!!
+
+Notation system now called "Score Entry System".
+In file HT:SCORE_ENTRY
+Invoked using SCORE{
+See HP:SCORE_1 for an example.
+

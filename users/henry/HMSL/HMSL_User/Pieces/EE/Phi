@@ -1,0 +1,33 @@
+\
+\ phi number system:
+\ each number = a Phi + b
+\ phi = (1/phi) + 1     phi*phi = phi+1   1/phi = phi-1
+\ 
+
+anew phi.spot
+
+: p+ { ap b cp d  -- }
+ap cp + 
+b d + 
+;
+
+: p* { ap b cp d -- }
+\ this makes acpp  bcp adp bd 
+\ pp = 2p + 1
+\ so 
+ap cp * 2 *  b cp * +  ap d * + 
+ap cp *      b d  * +           
+;
+
+: p/ { ap b cp d -- }
+\ (ap+b)/cp  + (ap+b)/d
+\ (ap+b)*(p-1)/c + (ap+b)/d
+\  (a/c)pp        + (b/c)p - (a/c)p - b/c + (a/d)p + b/d
+\  (a/c)p + (a/c) + (b/c)p - (a/c)p - b/c + (a/d)p + b/d
+\   (a/c) + (b/c)p  - b/c + (a/d)p + b/d
+b  cp / ap  d / +
+ap cp / b  cp / - b d / + 
+;
+
+: P. swap ."  = " . ."  phi + " . cr
+;

@@ -1,0 +1,195 @@
+\ Tools to create an ILBM FORM from a bitmap.
+\
+\ Author: Phil Burk
+\ Copyright 1987 Phil Burk
+\
+\ MOD: 3/10/91 by Martin Kees
+\      uses faster packing routines in modified jiff:packing
+\ MOD: PLB/MK 7/9/91 c/iff.write?/fwrite/ for proper even-up
+\      of odd sized chunks
+\ 00001 PLB 11/14/91 Improve error handling, check FWRITEs
+\ 00002 PLB 12/3/91 Use FORMPOS variable for proper error handling.
+\ 00003 PLB 1/26/92 Changed ILBM.WRITE.BITMAP to ILBM.WRITE.BITMAP?
+\           because of ERROR? return.  ILBM.WRITE.BITMAP aborts on error.
+
+include? AllocRaster() ju:graph_support
+include? { ju:locals
+include? vpackrow jiff:packing
+include? task-iff_support jiff:iff_support
+decimal
+ANEW TASK-ILBM_MAKER
+
+\ -----------------------------------------
+: ILBM.HEADER.SETUP  { bmap bmapheader -- , set w,h and depth }
+	bmapheader sizeof() Bitmapheader erase
+	bmap ..@ bm_depth bmapheader ..! bmh_nplanes
+	bmap bitmap>wh 2dup
+	bmapheader ..! bmh_h bmapheader ..! bmh_w
+	200 max bmapheader ..! bmh_pageheight
+	320 max bmapheader ..! bmh_pagewidth
+	1 bmapheader ..! bmh_xaspect
+	1 bmapheader ..! bmh_yaspect
+	cmpByteRun1 bmapheader ..! bmh_compression
+	2 bmapheader ..! bmh_masking
+;
+
+
+\ Writing an IFF File
+\ 1) Open file
+\ 2) Start ILBM form
+\ 3) Write BMHD
+\ 4) Write CMAP
+\ 5) Write BODY
+\ 6) Write optional chunks, GRAB, CRNG
+\ 7) End FORM
+\ 2) Close File
+
+\ Declare a scratch header if not already present.
+.need ILBM-Header
+BitMapHeader ILBM-Header
+.THEN
+
+\ This is an example of how to write an interleaved bitmap
+\ Using the ILBM tools.  You will probably need to
+\ write a customized version.
+\ Write BitMapHeader
+: ILBM.WRITE.HEADER? ( bitmap -- error? , write header based on bitmap )
+	ilbm-header ilbm.header.setup
+	ilbm-header sizeof() BitMapheader 'BMHD' iff.write.chunk?
+;
+
+\ MODIFIED to use WRITE.BITMAP.BODY for packing speed increase
+\ and avoidance of memory problems ( only needs 2K buffer )
+: ILBM.WRITE.BODY? { bmap | bodyptr bsize -- error? }
+\
+\ write BODY chunk ID
+	iff.where -> bodyptr
+	0 'BODY' iff.write.chkid? ?goto.error
+\
+\ write body data
+	bmap iff-fileid @ ilbm-header ..@ bmh_compression
+	write.bitmap.body dup -> bsize 0= ?goto.error
+\
+\ write correct chunk-size
+	iff.where
+	bodyptr cell+ iff.seek
+	bsize pad ! pad 4 iff.write?
+	swap iff.seek
+	?goto.error
+\
+\ even-up iff chunk
+	bsize 1 and
+	IF
+		iff-fileid @ pad 1 fwrite 1 - ?goto.error
+	THEN
+	false
+	exit
+ERROR:
+	." ILBM.WRITE.BODY? failed!" cr
+	true
+;
+
+: ILBM.WRITE.BITMAP?  ( bitmap -- error? , write as BODY to ILBM )
+	dup ilbm.write.header? 0=
+	IF
+		ilbm.write.body?
+	ELSE
+		drop TRUE
+	THEN
+;
+
+: ILBM.WRITE.BITMAP  ( bitmap -- , OBSOLETE , just abort if error )
+	ilbm.write.bitmap?
+	IF
+		" ILBM.WRITE.BITMAP failed!" $error
+	THEN
+;
+
+
+\ Note the order of chunks here.  Some applications, eg.
+\ Art Departmnent require the property chunks (CMAP, etc.) to be
+\ between the Header chunk and the BODY chunk!
+: ILBM.WRITE.ILBM?  { bmap ctable ctable# | formpos -- error? , write bitmap in ILBM file}
+	iff-fileid @ 0=
+	IF ." You must open an IFF file first using $IFF.OPEN" cr
+		goto.error
+	THEN
+	'ilbm' iff.begin.form? ?goto.error  ( -- formpos )
+	-> formpos \ 00002
+\
+\ Write Bitmap Header
+	bmap ilbm.write.header? ?goto.error
+\
+\ Generate CMAP and write it.
+	ctable
+	IF  ctable pad ctable# ctable>cmap  ( use pad to pack cmap )
+		pad ctable# 3 * 'CMAP' iff.write.chunk? ?goto.error
+	THEN
+\
+\ Write Bitmap
+	bmap ilbm.write.body? goto.error
+\
+\ Close out 'FORM'
+	formpos iff.end.form? ?goto.error \ 00002
+\
+	false
+	exit
+
+ERROR:
+	true
+;
+
+: ILBM.WRITE.ILBM+CAMG?  { bmap ctable ctable# camg | formpos -- error? }
+\ This word is needed if writing a screen of data.
+	iff-fileid @ 0=
+	IF ." You must open an IFF file first using $IFF.OPEN" cr
+		goto.error
+	THEN
+	'ilbm' iff.begin.form? ?goto.error  ( -- formpos )
+	-> formpos \ 00002
+\
+\ Write Bitmap Header
+	bmap ilbm.write.header? ?goto.error
+\
+\ Write CAMG value.
+	camg pad !
+	pad 4 'CAMG' iff.write.chunk? ?goto.error
+\
+\ Generate CMAP and write it.
+	ctable
+	IF  ctable pad ctable# ctable>cmap  ( use pad to pack cmap )
+		pad ctable# 3 * 'CMAP' iff.write.chunk? ?goto.error
+	THEN
+\
+\ Write Bitmap
+	bmap ilbm.write.body? ?goto.error
+\
+\ Close out 'FORM'
+	formpos iff.end.form? ?goto.error \ 00002
+\
+	false
+	exit
+\
+ERROR:
+	true
+;
+
+: $SCREEN>IFF? { scrn $filename | vp -- error? , write screen to IFF file }
+	$filename new $iff.open?
+	IF
+		scrn .. sc_bitmap
+		scrn .. sc_viewport -> vp ( -- bm vp )
+		vp ..@ vp_colormap >rel
+		dup ..@ cm_ColorTable >rel
+		swap ..@ cm_count
+		vp ..@ vp_modes  ( get CAMG )
+		ilbm.write.ilbm+camg?
+		iff.close
+	ELSE
+		TRUE
+	THEN
+;
+
+: SCREEN>IFF? ( screen <filename> -- error? , write screen IFF file )
+	fileword $screen>iff?
+;

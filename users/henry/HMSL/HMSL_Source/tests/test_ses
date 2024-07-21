@@ -1,0 +1,11 @@
+\ Test Score Entry System
+
+ANEW TASK-TEST_SES
+
+: 8CS  c c c c c c c c ;
+: 8AS  a a a a a a a a ;
+
+: TEST ( N -- )
+     accel{ par{ 8cs }par{ 8as }par }accel ;
+;
+

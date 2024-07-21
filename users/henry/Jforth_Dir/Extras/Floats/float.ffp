@@ -1,0 +1,1046 @@
+\ JFVGFP.FFP   Revised: 1/29/89    Length 12,298 bytes with max-inline=16
+\
+\ A FFP ( fast floating point ) JForth implementation of the
+\  Forth Vendors Group Floating Point Extension
+\  Dr. Dobb's Journal September 1984.
+\
+\ Copyright 1987 by
+\            David J. Sirag,
+\            17215 S. Harvest Ave.,
+\            Cerritos, CA 90701.
+\  Permission is hereby granted to distribute this code with JFORTH
+\  with the provision that this copyright notice and permission
+\  statement are included with the code.  It may be used by licensed
+\  users of JFORTH with the same restrictions as if it were part of
+\  JFORTH.
+\
+\ >>>>>>>>>>>>>>>
+\ Modifications by Phil Burk & Mike Haas, Delta Research, 8/15/88
+\ Some modifications were needed to take advantage
+\ of some of JForth 2.0's new features, ie. Clone,
+\ Precompiled Assembler Module and Hashing.
+\ References to Status Register changed to use GetCC exec call.
+\
+\ MOD: PLB 7/10/89 Set FPWARN to TRUE instead of 1 for AND
+\ MOD: PLB 9/19/89 Increased accuracy of DEG/RAD,
+\          Changed FDUP to FOVER in F**
+\ MOD: PLB 4/24/90 Don't call SMUDGE0123
+\ MOD: PLB 7/31/90 FIX converted to high level.
+\ 00001 PLB 9/23/91 Check for FPEXP > 61 in F>TEXT F>ETEXT
+\ 00002 PLB 9/26/91 Add AUTO.TERM
+\ 00003 PLB 1/4/92 Added FLOAT.NUMBER? FASTFP.NUMBER? FNUMBER?
+\ 00004 PLB 2/25/92 Fixed AUTO.TERM which used to call AUTO.INIT
+\ 00005 PLB 4/28/92 Fixed FLOAT and >F for large negative numbers.
+
+\ <<<<<<<<<<<<<<<
+\
+\ Arithmetic operators:
+\  F+  F-  F*  F/  FABS  FNEGATE  FMAX  FMIN  F2*  F2/
+\
+\ Transendental functions:
+\  FLOG   FLN    FSIN    FCOS    FTAN     FSINH   FCOSH   FTANH
+\  FALOG  FALN   FASIN   FACOS   FATAN    FSQRT   F**
+\  FCS    FATCS  DEG>RAD RAD>DEG DEG/RAD  PI      PI/2    2PI
+\
+\ Logical operators:
+\  F0=   F0<   F0>    F=    F<    F>
+\  F0<>  F0<=  F0>=   F<=   F>=   F<>
+\  FEQ   FLT   FGT    FNE   FLE   FGE   FVS   FVC
+\
+\ Stack operators:
+\  FDROP   FDUP    FOVER   FSWAP   FROT
+\  F>R     FR>     FR@     FRDROP
+\  FNOVER  NFOVER  FNSWAP  NFSWAP
+\  FFNROT  FNFROT  NFFROT  FNNROT  NFNROT  NNFROT
+\  FCELL   FCELL+  FCELL-  FCELLS  FCELL/  FCELLU/
+\
+\ Number handling operators:
+\  FLOAT  FIX (rounded)  INT (truncated)
+\  F!  F@  FCONSTANT  FVARIABLE  FARRAY
+\  FNUMBER  PACK  UNPACK  F#BYTES  F#PLACES
+\
+\ Display operators:
+\  F.   E.   ENG.   PLACES (sets FFLD described below)
+\  F.R  E.R  ENG.R  (display rounded and right justified in field)
+\  F>TEXT  F>ETEXT  F>ENGTEXT ( create f., e., and eng. strings )
+\
+\ Display operators & variables - not in FVG84:
+\  FLD         - total width of field for number displays
+\  FFLD        - width of fractional field for F. - places after decimal
+\  EFFLD       - width of fractional field for E. and ENG.
+\  F.EMAX      - maximum exponent for decimal form display for F.
+\  F.ENDPOINT  - flag indicating whether to use a point at end of F. display
+\  DP-CHARS    - symbols for decimal point and comma - allows Euro style
+\  E.PLUS      - flag for "E+01" rather than "E01" - aligns with "E-01"
+\  EXPSYMBOL   - symbol for "E" for E. and ENG. - allows upper or lower "E"
+\  COMMAS      - use commas (from Jforth) in F. and integer displays
+\  NO-COMMAS   - don't use commas in F. and integer displays
+\  FPWARN      - flag to display floating point warning messages
+\
+\ Number interpreters - fp only interpreted if base is 10 - not in FVG84:
+\  FLOAT.INTERPRET  - integers, decimal form and "E" form real numbers
+\  FASTFP.INTERPRET - integers and decimal form real numbers
+\  FIX.INTERPRET    - integers
+\  NTYPE            - number type variable  1 = int, 2 = fp, 0 = not number
+\
+\ Significant digits:
+\  The fp number interpreters and fp diplay routines provide
+\  7 significant digit conversions to and from floating point.
+\  For example, 1.2345678 F. will display 1.234568.
+\
+
+only forth definitions
+
+anew FP-DEFINITIONS
+
+: FFP ;
+
+: OPEN-MATHLIBS ( --- ) mathffp? mathtrans? ;
+: CLOSE-MATHLIBS ( --- ) -mathffp -mathtrans ;
+open-mathlibs  ( used by FLOAT at compilation )
+
+decimal
+
+\ Stack and memory operators  ==FVG84 required (except as noted)
+\ These operators are identical to their integer equivalent because
+\ ffp floating point and integer both require 4 bytes per number.
+\ The fp form of the operator should be used in application code so
+\ that the application will function properly when a floating point
+\ inplementation with a different number of bytes is substituted for ffp.
+
+: F!    !    both ;
+: F@    @    both ;
+: FDROP drop both ;
+: FDUP  dup  both ;
+: FOVER over both ;
+: FSWAP swap both ;
+: FROT  rot  both ;
+: FCONSTANT  constant ;
+: FVARIABLE  variable ;
+
+: F>R >r inline ; \ ==extensions to FVG84
+: FR> r> inline ;
+: FR@ r@ inline ;
+: FRDROP rdrop inline ;
+: FNOVER ( r n --- r n r ) over both ; \ mixed number type stack operators
+: NFOVER ( n r --- n r n ) over both ; \ ==extensions to FVG84
+: FNSWAP ( r n --- n r )   swap both ;
+: NFSWAP ( n r --- r n )   swap both ;
+: FFNROT ( r1 r2 n --- r2 n r1 ) rot both ;
+: FNFROT ( r1 n r2 --- n r2 r1 ) rot both ;
+: NFFROT ( n r1 r2 --- r1 r2 n ) rot both ;
+: FNNROT ( r n1 n2 --- n1 n2 r ) rot both ;
+: NFNROT ( n1 r n2 --- r n2 n1 ) rot both ;
+: NNFROT ( n1 n2 r --- n2 r n1 ) rot both ;
+
+: FCELL+     ( n --- n ) cell+ both ; \ fp cell operators
+: FCELL-     ( n --- n ) cell- both ; \ ==extensions to FVG84
+: FCELLS     ( n --- n ) cells both ;
+: FCELL/     ( n --- n ) cell/ both ;
+code FCELLU/ ( n --- n ) 2 #  tos dn  lsr   both   rts   end-code
+
+: FARRAY \ fp array with size error checking   == extension to FVG84
+	create dup , 0 do -1 , loop
+	does>  [ also assembler
+		dsp a@  0dr dn  move
+		1dr dn  clr
+		org tos 0 an+r+b  0dr dn  cmp
+		1dr dn  byte   scc
+		2 #     0dr dn  asl
+		0dr dn  tos dn  add
+		4 #     tos dn  addq
+		tos dn  dsp a@  move
+		1dr dn  tos dn  move
+	previous ] if ."  farray size" 0 error then ;
+
+4        constant  FCELL       \ number of bytes required for ffp
+-129     fconstant FINFINITY   \ internal use
+-1       fconstant F-INFINITY  \ internal use
+$ 20000  constant  FPOV        \ internal use
+	variable  FPWARN      \ if true, fp warning messages will display
+\                  1 fpwarn !  \ ==extension to FVG84
+		TRUE fpwarn !  \ ==extension to FVG84
+	variable  FPSTAT      \ status of last fp operation
+	\ bit flags (hex) 20000 = overflow
+	\ 40000 = zero    80000 = negative
+		\ other bits are undefined ==FVG84 optional
+
+code FPCALL.1 ( r offset library -- r' ) \ 1 arg
+	org tos 0 an+r+b 0ar an move
+	dsp a@+ 0dr dn  move
+	6 #     0dr dn word muls
+	0dr dn  0ar an  suba
+	dsp a@+ 0dr dn  move
+	dsp an   7ar -a@  move        ( save a6 )
+	0ar 0 an+w      jsr
+\
+	0dr dn   0ar an   move        ( d0 to A0 )
+	4 abs.l  6ar an  move         ( get ExecBase )
+	6ar $ -210  an+w jsr          ( puts CC in d0 )
+	7ar a@+  dsp an  move         ( restore a6 )
+	0dr dn   7dr dn  word move    ( move d0 to TOS )
+\
+\      tos dn  move-from-sr ( status to TOS )
+\
+	] fpstat w! [   ( use call for CLONE to resolve )
+	7dr dn   dsp -a@ move
+	0ar an   7dr dn  move
+	rts
+end-code
+
+code FPCALL.2 ( r1 r2 offset library -- r' ) \ 2 arg call, reverse args
+	org tos 0 an+r+b 0ar an move
+	dsp a@+ 0dr dn  move
+	6 #     0dr dn word muls
+	0dr dn  0ar an  suba
+	dsp a@+ 1dr dn  move
+	dsp a@+ 0dr dn  move
+	6ar an   7ar -a@  move        ( save a6 )
+	0ar 0 an+w      jsr
+\
+	0dr dn   0ar an   move        ( d0 to A0 )
+	4 abs.l  6ar an  move         ( get ExecBase )
+	6ar $ -210  an+w jsr          ( puts CC in d0 )
+	7ar a@+  6ar an  move         ( restore a6 )
+	0dr dn   7dr dn  word move    ( move d0 to TOS )
+\
+\      tos dn  move-from-sr ( status to TOS )
+\      0dr dn  dsp -a@ move
+\
+	] fpstat w! [
+	7dr dn   dsp -a@ move
+	0ar an   7dr dn  move
+	rts
+end-code
+
+\ Macros must be compiled as INLINE code to work with
+\ new precompiled assembler module.
+code (FPC) \ floating point compare
+	dsp a@+  0dr dn  move
+	8   #    0dr dn  ror    3 bcc
+	31  #    0dr dn  bclr   0dr dn  neg
+3 br: 8   #    tos dn  ror    4 bcc
+	31  #    tos dn  bclr   tos dn  neg
+4 br: tos dn   0dr dn  cmp
+inline rts
+end-code
+
+: FPC compile (FPC) ;
+: FPCEND ( -- compile b->s )
+	compile b->s
+;
+
+code (@>CCR) ( cc -- cc , copy codes to ccr )
+	org 7dr 0  an+r+b   move-to-ccr
+	inline rts
+end-code
+
+\ These macros must compile BSR references to FPSTAT
+\ for proper cloning.
+: FPSTAT->CCR \ macro: move fp status to cond code reg
+	compile fpstat
+	compile (@>ccr)
+;
+
+code TEST.NZ  ( N -- N ccr )
+	tos dn  dsp -a@ move
+	tos dn  tst   9 beq
+	tos dn  byte tst
+9 br: \ 7dr dn  move-from-sr
+	4 abs.l  0ar an  move
+	0ar $ -210 an+w jsr
+	0 # tos dn moveq
+	0dr dn tos dn word move
+both  \  inline
+rts
+end-code
+
+: SET-FPSTAT  \ macro: test tos, set n & z in fpstat
+	compile test.nz
+	compile fpstat
+	compile w!
+;
+
+\ Fp logical operators that test the number on the top of the stack.
+\ The number is replaced on the stack with the test result flag.
+\ They do not set the condition codes in fpstat.
+\ ==FVG84 required (except as noted)
+
+code F0=  ( r --- f )   tos dn  tst
+	tos dn  byte    seq   fpcend
+	both    rts     end-code
+
+code F0<  ( r --- f )   7   #   tos dn  btst
+	tos dn  byte    sne   fpcend
+	both    rts     end-code
+
+code F0>  ( r --- f )   1 #     tos dn  byte  rol
+	tos dn  byte    shi   fpcend
+	both    rts     end-code
+
+code F0<> ( r --- f )   tos dn  tst                  \ ==extension to FVG84
+	tos dn  byte    sne   fpcend
+	both    rts     end-code
+
+code F0<= ( r --- f )   1 #     tos dn  byte  rol    \ ==extension to FVG84
+	tos dn  byte    sls   fpcend
+	both    rts     end-code
+
+code F0>= ( r --- f )   tos dn  byte    tst          \ ==extension to FVG84
+	tos dn  byte    sge   fpcend
+	both    rts     end-code
+
+\ Fp logical operators that test the fpstat condition code of the last
+\ fp operation.  This allows very fast tests.  The resulting test flag
+\ is placed on the stack.  They do not set the condition codes in fpstat.
+\ Fvs and fvc test the overflow bit for being set or clear.
+\ ==extensions to FVG84
+
+code FEQ ( --- f ) fpstat->ccr  tos dn byte seq  fpcend  both rts end-code
+code FLT ( --- f ) fpstat->ccr  tos dn byte slt  fpcend  both rts end-code
+code FGT ( --- f ) fpstat->ccr  tos dn byte sgt  fpcend  both rts end-code
+code FNE ( --- f ) fpstat->ccr  tos dn byte sne  fpcend  both rts end-code
+code FLE ( --- f ) fpstat->ccr  tos dn byte sle  fpcend  both rts end-code
+code FGE ( --- f ) fpstat->ccr  tos dn byte sge  fpcend  both rts end-code
+code FVS ( --- f ) fpstat->ccr  tos dn byte svs  fpcend  both rts end-code
+code FVC ( --- f ) fpstat->ccr  tos dn byte svc  fpcend  both rts end-code
+
+\ Fp logical operators that compare two fp numbers on the stack.
+\ The two numbers are removed from the stack and replaced with
+\ the resulting test flag.  They do not set the condition codes
+\ in fpstat.   ==FVG84 required (except as noted)
+
+code F=  ( r1 r2 --- f ) fpc  tos dn byte seq  fpcend  both  rts  end-code
+code F<  ( r1 r2 --- f ) fpc  tos dn byte slt  fpcend  both  rts  end-code
+code F>  ( r1 r2 --- f ) fpc  tos dn byte sgt  fpcend  both  rts  end-code
+	\ following are ==FVG84 extensions
+code F<> ( r1 r2 --- f ) fpc  tos dn byte sne  fpcend  both  rts  end-code
+code F<= ( r1 r2 --- f ) fpc  tos dn byte sle  fpcend  both  rts  end-code
+code F>= ( r1 r2 --- f ) fpc  tos dn byte sge  fpcend  both  rts  end-code
+
+
+\ Fp arithmetic operators   ==FVG84 required (except as noted)
+\ Fpstat condition codes are set by arithmetic operators
+
+: F+    ( r1 r2 --- r )  11 mathffp_lib fpcall.2  ; \ spadd
+: F-    ( r1 r2 --- r )  12 mathffp_lib fpcall.2  ; \ spsub
+: F*    ( r1 r2 --- r )  13 mathffp_lib fpcall.2  ; \ spmul
+: F/    ( r1 r2 --- r )                              \ spdiv
+	fdup if     14 mathffp_lib fpcall.2
+	else fdrop fpwarn @ if ." ...warning " then
+		fdup f0> if fdrop finfinity fpov fpwarn @ if ." fp"  then
+		else f0< if f-infinity 655360    fpwarn @ if ." -fp" then
+		else 0. 393216                fpwarn @ if ." 0."  then
+			then then  fpstat !  fpwarn @ if ."  div by 0. " then
+		then ;
+
+code CC2D0   ( get the cc, put in d0, wrecks a0 also )
+	4 abs.w  0ar an  move
+	0ar $ -210 an+w jsr
+inline end-code
+
+\ Change to D1 to avoid conflict with GetCC
+code F2*   ( r --- r )
+	tos dn  1dr dn  byte  move   \ ==extension to FVG84
+	1   #   tos dn  addq  set-fpstat
+	tos dn  1dr dn  eor   1dr dn  byte  tst  1 bge
+	1   #   tos dn  subq  tos dn  byte  tst
+\
+\     2 # byte ori-ccr   org 2dr 0 an+r+b  move-from-sr
+\
+	] cc2d0 [
+	2 #  0dr dn  word or
+	] fpstat [
+	0dr dn   org tos 0 an+r+b  word move
+	dsp a@+  tos dn   move
+1 br: rts     end-code
+
+code F2/   ( r --- r )
+	tos dn  1dr dn  byte  move   \ ==extension to FVG84
+	1   #   tos dn  subq  set-fpstat
+	tos dn  1dr dn  eor   1dr dn  byte  tst  1 bge
+\
+\     org 2dr 0 an+r+b  move-from-sr
+\
+	] cc2d0 [
+	] fpstat [
+	0dr dn   org tos 0 an+r+b  word move
+	4 #  dsp an  addq
+	tos dn  clr
+1 br: rts     end-code
+
+code FABS  ( r --- r )  7   #   tos dn  bclr  set-fpstat        \ abs value
+	both    rts     end-code
+
+code FNEGATE ( r --- r )  tos dn  tst   1 beq   7 #  tos dn  bchg \ chg sign
+1 br: set-fpstat    both    rts  end-code
+
+code FMAX  ( r1 r2 --- r ) tos dn  2dr dn  move    fpc    1 blt  \ max value
+	dsp -a@ tst     dsp a@+ tos dn move   2 bra
+1 br: 2dr dn  tos dn  move
+2 br: set-fpstat      both     rts   end-code
+
+code FMIN  ( r1 r2 --- r ) tos dn  2dr dn  move    fpc    1 bgt  \ min value
+	dsp -a@ tst     dsp a@+ tos dn move   2 bra
+1 br: 2dr dn  tos dn  move
+2 br: set-fpstat      both     rts   end-code
+
+\ Fp conversion routines  ==FVG84 required (except as noted)
+\ Fpstat condition codes are set by conversion routines
+
+\ Call FPSTAT
+: (FLOAT)   ( n --- r )                                      \ spflt
+	6 mathffp_lib fpcall.1
+;
+
+code $200000/mod  ( d --- n d ) \ 21 bit div mod
+	tos dn  0dr dn  move    3dr dn  byte    slt
+	3dr dn  word    ext     3dr dn          ext
+	dsp a@  1dr dn  move    1dr dn  2dr dn  move
+	$ ffe00000 # 3dr dn and $ 1fffff #  2dr dn and
+	3dr dn  2dr dn  or      2dr dn  dsp a@  move
+	21 #    4dr dn  move    4dr dn  tos dn  asr
+	4dr dn  1dr dn  lsr     11 #    4dr dn  move
+	4dr dn  0dr dn  lsl     1dr dn  0dr dn  or
+	0dr dn  dsp -a@ move    rts
+end-code
+
+\ Patch suggested by Rob Andre 00005
+: FLOAT  ( n --- r ) \ assumes that spflt can only handle 21 bits accurately
+	dup abs $ 200000 >
+	IF
+		s->d  \ it actually seems to handle 24 bits
+		dup 0< >r dabs
+		$200000/mod drop (float) 21 + nfswap (float) f+ \ we can do 31 + sgn
+		r>
+		IF fnegate
+		THEN
+	ELSE (float)
+	THEN
+;
+
+\ Call FPSTAT
+
+1         float     fconstant  F1
+100000000 float     fconstant  F100000000
+f1 f100000000 f/    fconstant  F.00000001
+
+: INT     ( r --- n )                  \ truncate and convert to integer
+	5 mathffp_lib fpcall.1
+	FVC NOT
+	IF  drop 0
+		fpwarn @ if ." ...warning fp too large for int" then
+	THEN
+;
+
+: FIX ( r -- i , round then integerize )
+	fdup f0>
+	IF [ f1 f2/ ] literal
+	ELSE [ f1 f2/ fnegate ] literal
+	THEN
+	f+ INT
+;
+
+\ Fp transendental functions.  Fpstat condition codes are set by these
+\  functions.   ==FVG84 required or optional (except as noted).
+\ If transendental functions are wanted (or not wanted)
+\  place true (or false) prior to the .if on the next line
+\ The transendental functions use about 1500 bytes.
+true .if
+
+3373259586 fconstant PI
+3373259585 fconstant PI/2       \ ==extension to FVG84
+3373259587 fconstant 2PI        \ ==extension to FVG84
+\ 3845055046 fconstant DEG/RAD    \ ==extension to FVG84
+3845054790 fconstant DEG/RAD    \ ==extension to FVG84
+
+: F**   ( r1 r1 --- r )                                      \ sppow
+\     fdup f0>= if 15 mathtrans_lib fpcall.2
+	FOVER f0>=
+	IF 15 mathtrans_lib fpcall.2
+	ELSE fdrop fdrop 0 fpov fpstat !
+		fpwarn @ if ." ...warning power of neg number" then
+	THEN
+;
+
+: FSQRT   ( r --- r )                                     \ spsqrt
+	fdup f0>= if  16 mathtrans_lib fpcall.1
+	else fdrop 0 fpov fpstat !
+		fpwarn @ if ." ...warning sqrt of neg number" then
+	then ;
+
+: FLN     ( r --- r )                                      \ splog
+	fdup f0> if  14 mathtrans_lib fpcall.1
+	else fdrop f-infinity fpov fpstat !
+		fpwarn @ if ." ...warning ln of 0 or neg number" then
+	then ;
+
+: FLOG    ( r --- r )                                      \ splog10
+	fdup f0> if  21 mathtrans_lib fpcall.1
+	else  fdrop  f-infinity  fpov fpstat !
+		fpwarn @ if ." ...warning log of 0 or neg number" then
+	then ;
+
+
+: FALOG ( r --- r )  2684354628 swap f** ;            \ alog10
+: FALN  ( r --- r )  13 mathtrans_lib fpcall.1 ;      \ spexp
+
+: FSIN  ( r.rad --- r )  6 mathtrans_lib fpcall.1  ;  \ spsin
+: FCOS  ( r.rad --- r )  7 mathtrans_lib fpcall.1  ;  \ spcos
+: FTAN  ( r.rad --- r )  8 mathtrans_lib fpcall.1  ;  \ sptan
+: FASIN ( r --- r.rad ) 19 mathtrans_lib fpcall.1  ;  \ spasin
+: FACOS ( r --- r.rad ) 20 mathtrans_lib fpcall.1  ;  \ spacos
+: FATAN ( r --- r.rad )  5 mathtrans_lib fpcall.1  ;  \ spatan
+
+: FSINH ( r.rad --- r ) 10 mathtrans_lib fpcall.1  ;  \ spsinh
+: FCOSH ( r.rad --- r ) 11 mathtrans_lib fpcall.1  ;  \ spcosh
+: FTANH ( r.rad --- r ) 12 mathtrans_lib fpcall.1  ;  \ sptanh
+
+\ Call variables.
+code FCS ( r.rad --- r.sin r.cos )            \ cosine & sine  - spsincos
+	tos dn  0dr dn  move    \ ==extension to FVG84
+	] mathtrans_lib [
+	dsp an  1dr dn  move
+	org tos 0 an+r+b 0ar an move
+	0ar -54 an+w    jsr     dsp a@    tos dn   move
+	0dr dn  dsp a@  move    set-fpstat \ sets fpstat for cosine
+	rts     end-code
+
+: FATCS  ( r.sin r.cos --- r.rad ) \ four quadrant atan - fortran's atan2
+	fdup f0< if -1 else 0 then >r \ ==extension to FVG84
+	fdup f0= if fdrop
+		f0> if pi/2 else pi/2 fnegate then
+	else f/ fatan
+	then
+	r> if pi fover f0> if f- else f+ then then ;
+
+: DEG>RAD deg/rad f/ ; \  convert degrees to radians   ==extension to FVG84
+: RAD>DEG deg/rad f* ; \  convert radians to degrees   ==extension to FVG84
+
+.then   \ end of transendental functions
+
+
+
+\ Fp ascii conversion and display routines.  Fpstat is not set by the ascii
+\ conversion and display routines.  Fpstat from a prior fp operation is not
+\ preserved through these routines.
+\ ==FVG84 required, optional, or extension is indicated with each routine.
+
+
+variable FFLD       \ fractional field - digits to display after decimal
+-1 ffld !           \  when displayed with f.  min=0 max=7 (-1=variable)
+	\ ==extension to FVG84
+
+variable F.EXMAX    \ Maximum exponent for which to use for decimal form
+	9 f.exmax !        \  when displayed with f. (larger exponents use e-form
+		\ ==extension to FVG84
+
+variable F.ENDPOINT \ Flag indicating to put a point at the end
+-1 f.endpoint !     \  of a f. display when appropriate.
+	\ ==extension to FVG84
+
+variable EFFLD      \ fractional field in mantissa when displayed with e.
+6 effld !           \  min = 0  max = 6 (no variable width feature)
+	\ ==extension to FVG84
+
+variable E.PLUS     \ true indicates to place "+" after "e" (e.g. "e+06")
+1 e.plus !          \ ==extension to FVG84
+
+variable EXPSYMBOL  \ contains ascii symbol for exponent in e form
+ascii e expsymbol ! \ ==extension to FVG84
+
+4 constant F#BYTES  \ number of bytes in a floating point number
+	\ ==FVG84 optional
+
+7 constant F#PLACES \ maximum number of significant digits in fp number
+	\ ==FVG84 optional
+
+variable DP-CHARS      \ double precision characters  ==FVG84 extension
+ascii . dp-chars w!    \ . is normal decimal point
+ascii , dp-chars 2+ w! \ , is normal digits separator
+
+
+
+
+variable  SIGDIG    variable  UNPP2         \ variables for internal use
+fvariable UNPREAL   fvariable UNPMULT   variable UNPEX
+
+
+: FLOATEXP  ( n --- n r ) \  convert int exp to fp power of 10
+	dup 0> if               \   factored to real and int power of 2
+		dup 21 < if          \  for internal use
+			dup 8 > if f100000000 nfswap 8 - else f1 nfswap then
+			0 1 rot ?dup if 0 do 5 * swap 1+ swap loop then
+			float fnfrot f*
+		else drop 0 finfinity
+			fpwarn @ if ." ... warning fp infinity " then
+		then
+	else
+		dup -21 > if
+			dup -8 < if f.00000001 nfswap 8 + else f1 nfswap then
+			0 1 rot ?dup if abs 0 do 5 * swap 1- swap loop then
+			float fnfrot fswap f/
+		else drop 0 0 then
+	then ;
+
+
+: FPEXP 127 and 64 - ;     \ for internal use
+
+\ fix suggested by Rob Andre 00005
+: >F ( d --- r ) \ converts double integer with decimal point to float
+\  uses position of decimal point indicated by dpl
+\  to position decimal point in floating point number
+\ ==extension to FVG84
+	ddup or
+	if
+		dup 0< >r
+		dabs
+		$200000/mod $200000/mod drop (float) 42 +
+		nfswap (float) 21 + f+ nfswap (float) f+
+		dpl @ dup 0>
+		IF floatexp + f/
+		ELSE drop
+		THEN
+		r>
+		IF fnegate
+		THEN
+	ELSE
+		drop
+	THEN
+	-1 dpl !
+;
+
+: NUNPACK ( r --- n1 n2 ) \ float to n1: mantissa 1.2345678  n2: exponent
+\  for internal use
+	unpreal f!  f1 unpmult f!   0 unpex !   0 unpp2 !
+	unpreal f@ f0<> if
+		begin unpreal f@ unpmult f@ f/ fpexp  unpp2 @ -
+			0> while unpex @ 1+ dup unpex ! floatexp unpmult f! unpp2 ! repeat
+		begin unpreal f@ unpmult f@ f/ fpexp unpp2 @ - 1-
+			0< while unpex @ 1- dup unpex ! floatexp unpmult f! unpp2 ! repeat
+		unpreal f@ unpmult f@ f/ f100000000 f1 unpp2 @ - f* f* fix
+		fpwarn @ if
+			unpex @ 18 = if dup abs 922337100 > else 0 then
+			if ." ...warning fp infinity " then
+		then
+	else 0 then unpex @ ;
+
+: UNPKROUND ( n1 n2 n3 --- n1 n2 ) \ round unpacked num n1,n2 to n3 sig dig
+	\  n3 must be a number between 1 and 7
+		sigdig ! swap dup abs        \ for internal use
+		5 8 sigdig @ - 0 do 10 * loop dup sigdig ! +
+		sigdig @ dup + swap over / *
+		dup 999999999 > if 10 / rot 1+ rot rot then
+		swap 0< if -1 * then
+		swap ;
+
+: NPACK ( n1 n2 --- r )      \ n1: signed-integer-mantissa
+	7 unpkround floatexp      \     with 8 implied decimal places
+	rot 0 >f                  \ n2: signed-integer-exponent
+	rot + f100000000 f/ f*    \ r:  7 sig dig num in ffp form
+	fpwarn @ if dup 128 or -1 = if ." ... warning fp infinity " then
+	then ;                    \ for internal use
+
+: PACK  ( d n --- r )        \ d: signed double-integer mantissa with 16
+	>r 100000000 m/ swap drop \    implied decimal places.
+	r> npack ;                \ n: signed integer exponent  ==FVG84 optional
+
+: UNPACK ( r --- d n )       \ d: signed double-integer mantissa with
+	nunpack >r 100000000 m*   \    16 implied decimal places.
+	r> ;                      \ n: signed integer exponent  ==FVG84 optional
+
+
+variable  E.CNT  variable E.EXCNT              \ variables for internal use
+variable F.MT    variable F.EX    variable F.MULT    variable F.CFLG
+variable F.DIV   variable F.CH    variable F.FFLD
+
+
+: (F>ETEXT) ( n1 n2 --- addr count ) \ internal use
+	effld @ 1+ unpkround
+	5 e.cnt ! (commas) @ >r no-commas
+	<# dup abs s->d # # ddrop 0< if ascii - hold e.cnt @ 1+ e.cnt !
+		else e.plus @ if ascii + hold e.cnt @ 1+ e.cnt ! then
+		then expsymbol @ hold
+		dup abs 10 7 effld @ - 0 do 10 * loop / s->d
+		effld @ ?dup if 0 do # loop then
+		effld @ e.cnt @ + e.cnt !
+		dp-chars w@ hold # rot
+		0< if ascii - hold e.cnt @ 1+ e.cnt ! then
+		fld @ dup 0< if drop
+		else e.cnt @ - 1- dup 0> if 0 do 32 hold loop else drop then
+		then
+	#> r> (commas) ! ;
+
+: F>ETEXT ( r --- addr count )
+\ Converts fp to e-form text
+\ same as e. (below) but no printing
+	fdup fpexp  61 >
+	IF
+		fdrop " Infinity" count
+	ELSE
+		nunpack (f>etext)         \ ==extension to FVG84
+	THEN
+;
+
+: E. ( r1 --- ) \ display floating-point in exponential form
+	f>etext       \  uses the variable "fld" to indicate width of
+	type space ;  \   the display field (-1=variable width)
+	\   if field is not wide enough for number,
+	\    the number will be displayed overflowing the field
+	\  uses the variable "effld" to indicate width of the
+	\   mantissa fractional field (places after decimal point)
+	\   (min = 0   max = 6)
+	\  uses the variable "e.plus". if true a + is placed
+	\   after the "e" so that e+06 and e-06 will line up.
+	\  ==FVG84 required  with extended features
+
+: E.R ( r n1 n2 --- )       \ e form display of floating point number
+	fld @ >r fld !        \ with n1 places to right of the decimal
+	effld @ >r            \ right justified in a field n2 characters wide.
+	dup 7 < over -1 > and \ ==FVG84 optional
+	not if drop r@ then effld !
+	e. r> effld ! r> fld ! ;
+
+
+: (F>ENGTEXT) ( r --- addr count )
+\ Converts fp to eng-form text
+\ same as eng. (below) but no printing
+	(commas) @ >r no-commas       \ ==extension to FVG84
+	nunpack effld @ 1+ unpkround
+	dup 3 mod dup 0< if 3 + then dup  e.excnt !  -
+	5 e.cnt !
+	<# dup abs s->d # # ddrop 0< if ascii - hold e.cnt @ 1+ e.cnt !
+		else e.plus @ if ascii + hold e.cnt @ 1+ e.cnt ! then
+		then expsymbol @ hold
+		dup abs 10 7 effld @ - 0 do 10 * loop / s->d
+		effld @ e.excnt @ - ?dup if 0 do # loop then
+		effld @ e.cnt @ + e.cnt !
+		dp-chars w@ hold
+		e.excnt @ 1+ 0 do # loop rot
+		0< if ascii - hold e.cnt @ 1+ e.cnt ! then
+		fld @ dup 0< if drop
+		else e.cnt @ - 1- dup 0> if 0 do 32 hold loop else drop then
+		then
+	#> r> (commas) !
+;
+
+: F>ENGTEXT ( r --- addr count )
+	fdup fpexp  61 >
+	IF
+		fdrop " Infinity" count
+	ELSE
+		(f>engtext)
+	THEN
+;
+
+: ENG. ( r1 --- ) \ display floating-point in engineering exponential form
+	f>engtext       \  with exponents ...,-06,-03,00,03,06,...
+	type space ;    \  uses the variable "fld" to indicate width of
+\   the display field (-1=variable width)
+\   if field is not wide enough for number,
+\    the number will be displayed overflowing the field
+\  uses the variable "effld" to indicate width of the
+\   mantissa display field. (effld + 1 = num sig dig)
+\   (effld min = 0,  effld max = 6)
+\  uses the variable "e.plus". if true a + is placed
+\   after the "e" so that e+06 and e-06 will line up.
+\ ==extension to FVG84
+
+
+: ENG.R ( r n1 n2 --- )  \ engineering form display of r with
+	fld @ >r fld !      \ with n1 + 1 significant digits
+	effld @ >r          \ right justified in a field n2 characters wide
+	dup 7 < over -1 > and \ ==extension of FVG84
+	not if drop r@ then effld !
+	eng. r> effld ! r> fld ! ;
+
+
+: -COMMA?                         \ for internal use
+	(commas) @ if
+		f.cflg @ 1+ 3 mod dup f.cflg !
+		0= if dp-chars 2+ w@ 1 f.ch +! then
+	then ;
+
+: +COMMA?                         \ for internal use
+	(commas) @ if
+		f.cflg @ 1- 3 mod dup f.cflg !
+		0= if dp-chars 2+ w@ 1 f.ch +! then
+	then ;
+
+
+: NEXTDIGIT  ( --- c1 )      \ put next dig on stack
+	f.div @ 0> if           \ for internal use
+		f.mt @ f.div @ /mod swap f.mt !
+		f.div @ 10 / f.div !
+	else 0
+	then  ascii 0 +  1 f.ch +! ;
+
+: F.-EX                      \ used by f. when exp is <0
+\ for internal use
+	f.ffld @ 0= if ascii 0  dp-chars w@ 2 f.ch +!
+	else dp-chars w@ 1 f.ch +!  0 f.cflg !
+		f.ffld @ 0 do  1 f.ex +!
+			f.ex @ 0< if ascii 0  1 f.ch +!
+			else nextdigit then
+			f.mt @ 0= ffld @ 0< and if leave
+			else f.ffld @ i 1+ > if -comma? then
+			then
+		loop
+	then ;
+
+: F.+EX                      \ used by f. when exp is 0>=
+\ for internal use
+	f.ex @ 1+ 0 do  nextdigit  +comma?  loop
+	(commas) @ if drop -1 f.ch +! then 0 f.cflg !
+	dp-chars w@ 1 f.ch +!
+	ffld @ 0< if
+		f.mt @ 0= not if
+			f.ffld @ 0 do nextdigit
+				f.mt @ 0= if leave
+				else f.ffld @ i 1+ > if -comma? then
+				then
+			loop
+		then
+	else
+		ffld @ 0 do nextdigit loop
+	then ;
+
+: SET-F.FFLD ( --- )       \ Sets f.ffld - used by f>text
+	ffld @ 0< if 7       \               for internal use only
+	else
+		ffld @ 1+
+		f.ex @ + dup 7 > if drop 7 then
+	then f.ffld ! ;
+
+: (F>TEXT) ( r --- addr count ) \ Converts fp to text
+\ same as f. (below) but no printing
+	nunpack                    \ ==extension to FVG84
+	f.ex !  f.mt !
+	set-f.ffld
+	f.mt @ f.ex @ f.ffld @ unpkround f.ex ! f.mt !
+	f.ex @ 0< if
+		ffld @ dup 0< if drop 7 then f.ex @ +
+		0< if 0 f.ex ! 0 f.mt ! set-f.ffld then
+	then
+	f.ex @ ffld @ 0< if abs then
+	f.exmax @ > if
+		f.mt @ f.ex @ (f>etext)
+	else
+		f.ex @ 1+ 3 mod dup 0< if 3 + then f.cflg !
+		f.ffld @ f.ex @ - 1- dup 0< if drop 0 then
+		dup 7 > if drop 7 then f.ffld !
+		0 f.ch !  100000000 f.div !
+		f.mt @ f.mult !
+		f.mt @ abs f.mt !
+		f.ex @ 0< if f.-ex else f.+ex then
+		f.endpoint @ 0= over dp-chars w@ = and if drop -1 f.ch +! then
+		<# f.ch @ 0 do hold loop
+			f.mult @ 0< if ascii - hold 1 f.ch +! then
+			fld @ dup 0< if drop
+			else
+				f.ch @ - 1- dup 0> if 0 do 32 hold loop else drop then
+			then
+		0 0 #>
+	then
+;
+
+: F>TEXT ( r --- addr count )
+	fdup fpexp  61 >
+	IF
+		fdrop " Infinity" count
+	ELSE
+		(f>text)
+	THEN
+;
+
+: F. ( r1 --- ) \ display floating-point in decimal form
+	f>text type  \  uses the variable "fld" to indicate width of
+	space ;      \   the display field (-1=variable width)
+\   if field is not wide enough for number,
+\    the number will be displayed overflowing the field
+\  uses the variable "ffld" to indicate width
+\   of the fractional field (places after decimal point)
+\   (-1=variable width) (max 6 if r1 >= 1., 7 if < 1.)
+\ ==FVG84 required  with extended features
+
+: F.R ( r n1 n2 --- )  \ display fp with n1 fractional places
+	fld @ >r fld !   \ right justified in a field n2 characters wide
+	ffld @ >r ffld ! \ ==FVG84 optional
+	f. r> ffld ! r> fld ! ;
+
+
+: PLACES ( n --- )    \ sets default number of fractional digits
+	ffld ! ;         \  when fp number is displayed by f.
+		\  ==FVG84 required
+
+
+variable E.LOCATION          variable MANT.LENGTH   \ all for internal use
+create   E.STRING 30 allot   variable EXP.LENGTH    variable NTYPE
+ascii E 256 * ascii e + constant ASCII-Ee
+
+code cmatch? ( string cnt b --- pointer-to-matching-char-in-string | false )
+\ the "byte" may be 2 bytes - e.g. ascii E 256 * ascii e +
+	dsp a@+  0dr dn  move       dsp a@+  1dr dn  move
+	org an   0ar an  move       1dr dn   0ar an  adda
+	0dr dn   1dr dn  add        0dr dn   neg
+	tos dn   2dr dn  move       8 #      2dr dn  lsr
+1 br:  0ar a@   tos dn  byte  cmp  2 beq
+	0ar a@+  2dr dn  byte  cmp  2 beq
+	1 #      0dr dn  addq       1 blt
+	0 #      tos dn  move       3 bra
+2 br:  0dr dn   1dr dn  add        1dr dn   tos dn  move
+3 br:  rts       end-code
+
+\ --- BEGIN 00003 ----------
+: FASTFP.NUMBER? ( addr --- r 0 true | n 0 true | false )
+\ Converts string at addr to number
+\  if it contains a decimal point,
+\  it will be converted to floating.
+\ Maximum input = 18 digits but only
+\  7 significant digits are retained.
+	0 ntype !
+	dup count swap c@ ascii - = +
+	20 <
+	IF number?
+	ELSE  drop false exit
+	THEN
+	IF base @ 10 = dpl @ 1+ 0> and
+		IF >f 0 -1 dpl ! 2
+		ELSE 1
+		THEN ntype !
+	ELSE false exit
+	THEN
+	true \ we made it!
+;
+
+
+: FLOAT.NUMBER? ( addr --- r 0 true | n 0 true | false )
+\ Converts string at addr to number
+\  if it contains a decimal point, it will
+\  be converted to floating.  Accepts e-form
+\ Examples of acceptable numbers:
+\  123 1.234   12.34e5  12.34E5  1.234e+5
+\  2e5  e5  negatives in both mantissa
+\  and exponent, but not -e5 - it must be
+\  -1e5.  Max exp is +/- 18.
+\ Max mantissa input = 18 digits but
+\  only 7 significant digits are retained
+\  ==extension to FVG84
+	0 ntype !
+	dup count ascii-Ee cmatch?
+	IF
+		base @ 10 = not
+		IF fastfp.number?
+		ELSE  e.string over c@ 1+
+			dup 26 <
+			IF cmove
+			ELSE  2drop drop false exit \ main too long
+			THEN
+			e.string count ascii-Ee cmatch? e.location !
+			e.location @ e.string - 1-  mant.length !
+			e.string c@ mant.length @ - 1- exp.length !
+			mant.length @ e.string c!
+			exp.length @ e.location @ c!
+			e.string count swap c@ ascii - = + 19 >
+			IF  false exit
+			THEN
+			( dp-chars 2+ w@ >r dp-chars w@ dp-chars 2+ w! )
+			e.string dup c@ 0=
+			IF drop  1 0 -1 dup dpl !
+			ELSE number?
+			THEN
+			IF
+				>f e.location @ number?
+				( r> dp-chars 2+ w! )
+				dpl @ -1 = and
+				IF drop floatexp >r + r> f*
+					finfinity fover f= fnover f-infinity f= or fpwarn @ and
+					IF ." ... warning fp infinity "
+					THEN
+					0 -1 dpl ! 2 ntype !
+				ELSE
+					drop false exit \ bad exponent
+				THEN
+			ELSE
+				( r> dp-chars 2+ w! )
+				false exit  \ bad main number
+			THEN
+			true
+		THEN
+	ELSE
+		fastfp.number?
+	THEN
+;
+
+
+: FASTFP.NUMBER ( addr --- r 0 | n 0 )
+	fastfp.number? 0=
+	IF
+		0 error
+	THEN
+;
+
+: FLOAT.NUMBER ( addr --- r 0 | n 0 )
+	float.number? 0=
+	IF
+		0 error
+	THEN
+;
+
+: FNUMBER? ( addr --- r true | false )  \ convert string to floating point
+	float.number? nip ntype @ 2 <
+	IF 2drop false
+	THEN
+;
+: FNUMBER ( addr --- r )  \ convert string to floating point
+	\  ==FVG84 optional
+	fnumber? 0= if 0 error then
+;
+\ --- END 00003 ----------
+
+\ This smudging and unsmudging caused many problems in cloned
+\ applications so we took it out!!
+: SMUDGE0123 \ smudge the names of numbers so ntype won't be circumvented
+	' 0 ' 1 ' 2 ' 3 4 0 do >name dup c@ 32 or swap c! loop
+	hash-damaged on ; \ internal use
+
+: UNSMUDGE0123 \ unsmudge the names of numbers so they can be found
+	' 0 ' 1 ' 2 ' 3 4 0 do >name dup c@ 223 and swap c! loop
+	hash-damaged on ; \ internal use
+
+\ Initialization and control.
+: FLOAT.INTERPRET ( --- )      \ integer, decimal form, or "E" form
+	' float.number is number  \ decimal point indicates floating point
+\  smudge0123
+	open-mathlibs ;    \ ==extension to FVG84
+
+: FIX.INTERPRET ( --- )        \ put it back the old way
+	' (number) is number      \ ==extension to FVG84
+	0 ntype !
+\  unsmudge0123
+;
+
+: FASTFP.INTERPRET ( --- )     \ integer or decimal form (no "E" form)
+	' fastfp.number is number \ decimal point indicates floating point
+\  smudge0123
+	open-mathlibs ;  \ ==extension to FVG84
+
+: FPINIT float.interpret 0 ntype ! ;
+: FPTERM fix.interpret close-mathlibs ;
+
+: AUTO.INIT ( -- , start floating point if loaded)
+	auto.init fpinit
+	." Floating Point Initialized!" cr
+;
+
+: AUTO.TERM ( -- , term floating point if loaded 00002 )
+	fpterm auto.term \ 00004
+;
+
+\ Reset NUMBER vector if this code forgotten.
+if.forgotten fpterm
+
+close-mathlibs
+
+cr ." Enter:   FPINIT  to start floating point" cr
+

@@ -1,0 +1,861 @@
+\
+\
+\ Here's an HMSL file header to move and create scales for E!
+\ 
+\
+\ Danger! works only with floating.ffp found in new versions of JForth!
+\ soundprocess section cleaned up Apr 6 89
+\ Proteus added!!! whoopee!!
+
+include? { JU:Locals
+
+\ use new  float.ffp system...
+\ you need mod: to point to forth:modules
+include? FP-Definitions Ju:Float.ffp
+\ now needs...(JFORTH 2.0)
+NO-COMMAS
+FPINIT
+
+\ other package uses %%%%
+\ %%%% Include? Open-Float JU:Floating
+\ %%%%  Floating also forth definitions
+
+\
+\
+\ New feature allows selective zapping of TX81z M/tone data as well
+\
+\ default is Envir:E!
+\ others:    Envir:TX81Z
+\            Envir:Lord (Dick Lord's mirage tables)
+\            Envir:SProc (soundprocess)
+\            Envir:List  Nice listing of tuning
+\            Envir:Proteus <<< nov 18 89
+\            Envir:DX7II  April 30 91
+\
+\
+\ even though TX81Z takes different format, we'll take points
+\
+\ in the best of all possible worlds, the Envir should be set before
+\ start-listing.
+\
+\ Also MIDI/Print switch Envir:Print
+\
+\ e!> ( Notenum points)   sends this point to the current notenum
+\
+\ fixed for hmsl 4.19 june 30 1992 (locals are different)
+
+anew ee.spot
+
+false constant Floatee
+\
+
+Variable MidiDelay \ MIDI  Delay value in microseconds
+\ this is needed for TX81z and SoundProcess, 
+\  but can be used for E! as well... 
+\ (note: set to 30 cuz 68030 is too fast!)
+30 constant mdstd
+mdstd MidiDelay !
+
+
+\
+\ a fossil from csi (used here also, though)
+Variable MIDIDevOpened
+
+
+\ 0 = e!, 1=TX 2=Mirage 3=SoundProc 4 = listing
+
+Variable Envir:Mode Envir:Mode Off
+
+
+\ which print format... 0 = points, 1 = cents
+Variable Envir:Mode1 Envir:Mode1 Off
+
+
+\ debuggery kinds of things: 
+Variable Envir:Print Envir:Print Off
+Variable Envir:Ding! Envir:Ding! Off
+
+
+\ also needs this little function:
+: Midi.EWrite ( addr len -- ) \ sends bytes to midi
+0 do
+dup C@ Envir:Print @ if .hex else  midi.xmit then
+1+ loop
+drop envir:Print @ if ." --" else MIDI.Flush 
+mididelay @ ?dup if  msec then then
+;
+
+
+
+
+\
+\ SYSEX formatted bytes
+\
+Create Sets:E!
+$ F0120000 , $  00004200 , $  000000f7 ,
+\
+\ TX needs "note+fine"
+\
+Create Sets:TX \ out on module 1 only
+$ F0431010 , $  7E000000 ,  $ F7000000 ,
+\
+\ Proteus is almost the same as TX81Z
+Create Sets:Proteus \ also on module 1 only
+262 allot
+
+\ I bet Dx7II TU's are sent in a big pile and not note-by-note..
+Create Sets:Dx7II
+274 allot
+
+
+\ note that SoundProcess sends the "inside" bytes inside a sysex
+Create KSets:Sproc
+$ F00F7F4B , $ 00 c,
+
+Create Sets:Sproc
+$ F00F7F4B , $ 00 c,
+ 528  allot  \ room for 132 notes 
+$ f7 c,
+align
+create Sproc:EnaSX
+$ F00f7f02 , $ f7f00000 ,
+
+create SProc:EnaFP
+$ F00f7f01 , $ f7f00000 ,
+
+create Sets:list 128 cells allot
+ align
+
+\
+\ --- ye standard note names for points ----
+\
+: ConNote
+4096 * 12 / [Compile] Constant
+;
+
+00 ConNote @C 01 ConNote @C# 01 ConNote @Db
+02 ConNote @D 03 ConNote @D# 03 ConNote @Eb
+04 ConNote @E
+05 ConNote @F 06 ConNote @F# 06 ConNote @Gb
+07 ConNote @G 08 ConNote @G# 08 ConNote @Ab
+09 ConNote @A 10 ConNote @A# 10 ConNote @Bb
+11 ConNote @B
+\
+\ Some sandburgeois additions
+\ 1 tone = 6 root of 2 = 682 points.
+: @1/2+ 341 + ; \ one semitone
+: @1/4+ 170 + ; \ one quartertone
+: @1/3+ 227  + ; \ one third-tone
+: @1/6+ 113 + ; \ one sixth -tone 
+: @1/8+ 85 +  ; \ one eighth-tone 
+: @3/8+ 256 + ; \ three eighth-tones
+
+: @1/2- 341 - ; \ one semitone
+: @1/4- 170 - ; \ one quartertone
+: @1/3- 227  - ; \ one third-tone
+: @1/6- 113 - ; \ one sixth -tone 
+: @1/8- 85 -  ; \ one eighth-tone 
+: @3/8- 256 - ; \ three eighth-tones
+
+\ nice to have these "just" tools
+\ Comma=73.40813517
+: @Comma- 74 - ;  \ down a comma (syntonic) (81/80)
+: @Comma+ 73 + ;  \ up a comma
+\ 1/4 comma = 18.35203379
+: @1/4Cm- 18 - ;
+: @1/4Cm+ 18 + ;
+\ 1/6 comma (for the exceedingly picky) = 12.23468919
+: @1/6Cm- 12 - ;
+: @1/6Cm+ 12 + ;
+\ Pythagorean (Didymus') comma = (531441/524288) = 80.07683277
+: @DCm- 80 - ;
+: @DCm+ 80 + ;
+
+\ ------- now, notenumber names
+\ make a new object which multiplies stack by 12 and adds K
+\ e.g. 5 \c = 60 
+: ConMidi Create , does> @ swap 12 *  + ; 
+
+000 ConMIDI \C  001 ConMIDI \C# 001 ConMIDI \Db 
+002 ConMIDI \D  003 ConMIDI \D# 003 ConMIDI \Eb
+004 ConMIDI \E  
+005 ConMIDI \F  006 ConMIDI \F# 006 ConMIDI \Gb 
+007 ConMIDI \G  008 ConMIDI \G# 008 ConMIDI \Ab 
+009 ConMIDI \A  010 ConMIDI \A# 010 ConMIDI \Bb 
+011 ConMIDI \B 
+
+
+\ ----------------------------------
+true  .if
+
+\ these may be added if you wish, but hmsl has other methods
+\
+\ Midi event words to painfully construct scores with
+\ <N Non N> Noff 
+\
+\ state variables...
+Variable Msec/Tick   20 Msec/Tick !
+Variable MidiChan    MidiChan Off
+Variable MidiVel     64 MidiVel !
+Variable Hole
+\
+: <N ( noteNumber -- ) \ Note On Xmit
+$  90
+MidiChan @ OR Hole C! 127 and  Hole 1+ C! MIDIVEL @ Hole 2+ C!
+Hole 3 Midi.EWrite
+;
+
+: N> ( noteNumber -- ) \ Note On Xmit
+$  80
+MidiChan @ OR Hole C! 127 and  Hole 1+ C! MIDIVEL @ Hole 2+ C!
+Hole 3 Midi.EWrite
+;
+
+: !! ( tix -- to wait )
+Msec/Tick @ * msec
+;
+
+: <> ( tick Notenumber  -- ) \ play 1 note
+dup <N swap  !!   N> ;
+: <>2 ( tick  Note note -- ) \ play two
+{ N1 n2 -- }
+N1 <N n2 <N 
+!!
+n1 N> n2 N>
+;
+
+: V> ( Vel -- ) MidiVel ! ;
+: C> ( Channel -- ) MidiChan ! ;
+.then
+
+\ ------------------------------------
+
+\
+\ Utilities 
+\ 
+\ this is unused... but might need it to xlate existing scales.
+: Nibs>Pts@ ( addr -- # )
+{ Addr -- }
+ Addr    C@ 15 And 
+ 4 +Shift  Addr 1+ C@ 15 And +
+ 4 +Shift  Addr 2+ C@ 15 And +
+ 4 +Shift  Addr 3 + C@ 15 And +
+;
+\
+\ these numbers have 16 bits in 'em
+\ 
+: Pts>Nibs! { Num Addr -- }
+Num $ F000 and 12 -SHift addr C!
+Num $ 0F00 and 8  -SHift Addr 1+ C!
+Num $ 00F0 and 4  -SHift Addr 2+ C!
+Num $ 000F and           addr 3 + C!
+;
+
+\ backward nybbles for SoundProcess
+
+: Sproc>Nibs! { Num Addr -- }
+Num $ F000 and 12 -SHift addr 1 + C!
+Num $ 0F00 and 8  -SHift Addr 0 + C!
+Num $ 00F0 and 4  -SHift Addr 3 + C!
+Num $ 000F and           addr 2 + C!
+;
+
+\ PROteus  has already compensated 7-bits top byte
+: C2! ( data.w addr -- )
+over 8 -shift $ ff and over 1+  C!
+swap $ FF and swap  C! 
+;
+
+\ for dx7 ii
+: Cdx2! ( data.w addr -- )
+over 7 -shift $ 7f and over 1+  C!
+swap $ 7F and swap  C! 
+;
+\
+\ TX81Z conversion from Points
+\
+
+
+
+: Pts>TX ( x -- note off )
+
+\ clip x to within "-1 C#" and "7 C+32/64" or 
+\ 4437 and 37034 pts
+4437 max 37034 min
+{ Note | ResN ResO -- } \ 0 0 locals| resN resO note |
+
+\ now, get the octave/note by dividing by 4096/12
+note  12 4096 */ -> resN
+note resN 4096 12 */ - \ get "fractional part (approx 0-341 = 4096/12 )
+dup 170 > if
+\ gotta increment the note and use "negative" offset
+768 4096 */ -> reso
+\  resn ( 1+ ) -> resn
+else
+768 4096 */ -> reso
+then
+ ResN ResO
+;
+
+
+\ Dick Lord format: 256 to the octave...
+\ Sorry - no Tweak number
+Variable Lord:Ct
+
+: Pts>lord (  pts -- DLPts)
+8 + 4 -shift
+;
+
+\ this may be true of lord too, but n:00 is the note higher than n:FF
+\ this should be compensted for...
+: Pts>Sproc (  pts -- SprocFmt)
+ 8 + 4 -shift  
+0 max 2303 min  
+;
+
+: Pts>Proteus ( pts -- end ) 
+\ proteus wants 768 to the octave...
+768  4096 */ 
+\ now chop top off...
+dup $ 00007f80 and 1 +shift swap $ 7f and +
+;
+
+: DLord. ( note pts -- )
+\ format, slightly...
+1 lord:ct +! 
+lord:ct @ 8 mod 0 = if cr then
+over 36 96 within? if 
+hex  s->D <# 32 hold # # ascii ' hold #  #> type ."    " decimal
+else drop
+s->D <# 32 hold ascii ) hold # # # ascii ( hold #>  type 
+then
+;
+
+\
+\ turns points into printable Octave.point
+\
+: pt.
+dup 0 <= if drop  ." --.---- "
+else
+dup 12 -SHift s->D <# ascii . hold # # #> type \
+4095 and s->D <# # # # # #> type space
+then
+;
+
+: Cent.
+dup 0 <= if drop  ." --.---- "
+else
+dup 12 -SHift s->D <# ascii . hold # # #> type \
+4095 and 1200 4096 */ s->D <# # # # # #> type space
+then
+;
+
+: TU.
+dup 0 <= if drop  ." --.---- "
+else
+\ dup 12 -Shift s->D <# ascii . hold # # #> type \
+( 4095 and)  4 / s->D <# # # # ascii , hold # # # #> type space
+then
+;
+
+
+\ translate points to nearest et. +- something
+: ptName. ( points )
+dup 0 <= if drop  ." --.-- --"
+else
+dup 12 -SHift s->D <# ascii . hold # # #> type \
+4095 and 1200 4096 */ 
+
+100 /mod ( diff , note name... )
+over 50 > if swap 100 - swap 1 + 12 mod then 
+case
+00 of ." C " endof
+01 of ." C#" endof
+02 of ." D " endof
+03 of ." Eb" endof
+04 of ." E " endof
+05 of ." F " endof
+06 of ." F#" endof
+07 of ." G " endof
+08 of ." Ab" endof
+09 of ." A " endof
+10 of ." Bb" endof
+11 of ." B " endof
+endcase
+dup 0 >= if ." +" else ." -" negate then s->D <# # # #> type
+then
+;
+
+variable Sproc:Resp
+variable Sproc:Did
+
+Create SPStat
+8 allot
+: Sproc:Stat ( -- fetch SoundProcess status message.. )
+spstat 8 erase
+6 0 do
+begin
+midi.recv  \ emergency escpe :
+\ ?terminal or
+until
+ spstat i + C!
+loop
+\ verify that it is a stat message...
+spstat     C@ $ f0 = 
+spstat 1 + C@ $ 0f = and 
+spstat 2 + C@ $ 7f = and 
+spstat 3 + C@ $ 00 = and  
+spstat 5 + C@ $ F7 = and  
+ if
+spstat 4+ c@ ." SProc status = " . cr
+else
+." Status message is sick : " 
+6 0 do spstat i + C@ .hex
+loop cr 
+then 
+;
+
+\
+\ E!> is the points - to output converter
+\
+
+: E!> ( NN Pts -- )
+MIDIDevOpened  @ If
+
+Envir:Mode @ case
+0 of \ E!
+  Sets:E! 8 +   Pts>Nibs!
+  127 and DUP 
+  Sets:E! 7 + C!
+  Sets:E! 12 Midi.EWrite
+endof
+1 of  \ TX81Z
+\ convert points to "nicenote /64excess"
+  Pts>Tx ( note tunenote tuneoff )
+  sets:tx 7 + C!
+  sets:TX 6 + C!
+  127 and dup 
+  Sets:TX 5 + C! 
+  Sets:TX 9 Midi.EWrite
+\ the TX81z is a bit slower than the others - to avoid MIDI READ ERROR,
+\ you can adjust this parm "TXDelay"
+\ TXDelay @ Msec now done in midi=write
+
+endof
+2 of \ Dick Lord
+\ note that only a Table can be printed out!
+Pts>Lord DLord.
+  endof
+\ SoundProcess: convert and store the values (it actually uses 132, not 128!)
+3 of 
+ Pts>sproc over 
+\  if the voice is xposed, or has xposed parts, it may not
+\ synch with other synths or itself. esp. if xpose is "12" and you are
+\ 19. 
+\  36 -
+ 0 max  127 min 4* 5 + Sets:Sproc + Sproc>Nibs!
+ Sproc:did on
+ endof
+\ list : save it in List array...
+4 of over 127 and Cell* Sets:list + !
+endof
+
+5 of  \ Proteus only sends all of 'em, so shove in table.
+\ ( note pts. )  
+Pts>Proteus ( 0xxxxxxx 0xxxxxxx ) 
+swap 0 max 127 min 2* 5 + sets:Proteus + C2!
+ 0 \ stacked for envir-ding (not relevant to proteus)
+endof
+
+6 of  \ DX7II only sends all of 'em, so shove in table.
+\ ( note pts. )  
+4 /
+swap 0 max 127 min 2* 16 +
+  sets:DX7II + Cdx2!
+
+ 0 \ stacked for envir-ding (not relevant to proteus)
+endof
+
+endcase
+\ ring-a my chimes if u wanna
+  Envir:Ding! @ IF 1 swap <> else drop then
+else
+  drop drop ." Midi ain't open, you dope!" cr
+then
+;
+
+\
+\ now, the calculation section
+\
+\ some floating point constants
+\
+$ 80000040 Constant fl1/2
+$ B1721840 Constant log2
+$ 8000004d Constant fl4096
+$ 9600004b Constant  Fl1200
+$ 82D00E44 constant HZ-Pts
+\
+\ convert with rounding...
+\
+: Hz>pts
+Float Hz-Pts F/  Fln Log2 F/ fl4096  F* fl1/2 F+ FIX 
+;
+: Pts>Hz
+FLOAT fl4096 F/ log2 F* FALN Hz-Pts F* fl1/2 F+ FIX
+;
+\
+: Cents>pts
+FLOAT fl4096 F* Fl1200  F/ FIX
+;
+
+
+\ floating ratio to points 
+: fR>Pts
+fln log2 f/ fl4096 F*
+;
+
+\
+\ Some computational aids:
+\
+\ "What is this ratio in points??"
+\
+: F%?  ( oct num den -- floating .)
+{ Oct Num Den -- } 
+\ actually calculate!
+    num  FLOAT 
+    den  FLOAT F/ 
+FLn Log2 F/ fl4096 F* 
+oct float 4096. f* F+ 
+;
+
+: %? (  Oct num den -- points  )  
+{ Oct Num Den -- } 
+\ actually calculate!
+    num  FLOAT 
+    den  FLOAT F/ 
+FLn Log2 F/ fl4096 F* \  fl1/2 F+ fix rounds now round it some...
+FIX oct 4096 * + 
+;
+
+
+\
+\ you could say @a @1/4+ to 
+\
+: @? ( Oct Note -- POINTS ) \ 12-tone style numbers
+SWAP 4096 * +
+;
+
+\
+\ transmit ratio (and increment note number)
+\
+: %% ( note  Oct num den -- Note+1 ) \ sends it down as well !
+{ Note Oct Num Den -- } 
+Note  0 127 within? If 
+Note oct num den %? E!>
+else  Note ." <" . ." > "
+then 
+Note 1+
+;
+
+
+
+variable ~eta
+$ 83126f37 ~eta ! \ .001 in hex
+
+\ floating .closest ratio function, within reason...
+: F~% { points | Oct num denom fact sub good -- }
+\ get octave
+points  4096. f/  dup int -> oct
+dup int float f- 2. swap f** -> fact
+fact -> sub
+0 -> good
+1025 1 do
+sub dup fix float f- fabs ~eta @  F< if 
+   sub fix -> num   i -> denom  1 -> good  leave else
+ fact sub F+ -> sub then 
+loop
+good  if oct num denom else  ." no nice ratio " 0 0 1 then 
+;
+
+
+\ closest ratio function, within reason...
+: ~% ( integer points -- octave num den )
+float  F~%
+;
+
+\ print  ratio of this freq, compared with fRatioBase
+V: fRatioBase
+
+( 27.5 ) \ for A, not C
+33. fRatioBase !
+ 
+: fRfromA? ( floating frequency -- , printed ratio )
+fRatioBase @   F/ \ stak is the uncooked decimal "ratio"
+\ turn into points so we can turn 'em back inside f~%
+fln log2 F/ fl4096 F* 
+
+F~%
+
+ rot ." (" . swap ." ) " . ."  /" .
+;
+
+\ integer version 
+: RfromA?
+float fRFromA?
+;
+
+
+\
+\ transmit "Octave +  points" and increment
+\
+: @% ( note  Oct 12-sym -- Note+1 ) \ sends it down as well !
+{ Note Oct 12-Sym -- } 
+Note  0 127 within?  If 
+Note oct 12-sym @? E!>
+else Note  ." <" . ." > "
+then 
+Note 1+
+;
+
+
+\
+\ this is sometimes useful ... but not in HMSL
+false .if
+\
+: ZoomMidi ( -- Rc=0 for ok else... )
+\ expand it slightly... allowing 16K buffer
+     31250                     SerialRMsg @   +ioBaud !
+   16 1024 *                   SerialRMsg @   +ioRBufLen !
+    serRadBoogie serShared |   SerialRmsg @   +ioSerFlags C!
+   SDCmdSetParams             SerialRmsg @   +ioCommand W!
+    SerialRmsg @ DOIO  ( Drop )
+     CmdRead                  SerialRmsg @   +ioCommand W!
+;
+.then
+
+
+variable <*>:speed
+10 <*>:Speed !
+
+: <*>
+MIDI.Init
+128 0 do
+i 12 mod 0 = if i . ."  " cr then
+<*>:Speed @  i <>
+loop
+;
+
+
+\
+\ a word to set target machine : set before start-list
+\ NB: not only mode, but delay is changed.
+\  you may want to hand tailor it
+\ 
+: Envir:E! 0 Envir:Mode ! mdstd MIDIDelay !  ;
+: Envir:TX 1 Envir:Mode ! 125 MIDIDelay ! ;
+: Envir:Lord 2 Envir:Mode mdstd Mididelay ! ! ;
+: Envir:SProc 3 Envir:Mode ! 125 MIDIDelay ! ;
+: Envir:List 4 Envir:Mode ! 0 MIDIDelay ! ;
+: Envir:ListPt Envir:List 0 Envir:Mode1 ! ;
+: Envir:ListCt Envir:List 1 Envir:Mode1 ! ;
+: Envir:ListTU Envir:List 2 Envir:Mode1 ! ;
+: Envir:ListNt Envir:List 3 Envir:Mode1 ! ;
+: Envir:Proteus 5 Envir:Mode ! mdstd MidiDelay ! ;
+: Envir:Dx7II 6 Envir:Mode ! mdstd MidiDelay ! ;
+
+\
+\ --- Start-list does different stuff depending on what Environment
+\
+\
+: Start-List-0
+MIDI.INIT
+MIDI.clear
+ MIDIDevOpened ON
+\ %%%% OPEN-FLOAT 
+Envir:Ding! off \ no bells
+;
+
+\
+: Start-List
+Envir:Mode @ Case
+0 of Start-List-0 endof
+1 of Start-List-0 endof
+\ no Midi for Dick Lord
+2 of 
+\ OPEN-FLOAT 
+ Envir:Ding! off MIDIDevOpened On
+." ---- Dick Lord format = printout only -----" cr cr
+Lord:ct off
+ endof
+3 of Start-List-0 
+\ restore header...
+kSets:Sproc Sets:Sproc 5 cmove
+sets:Sproc 5 + 528 erase
+$ F7 sets:Sproc 5 + 528 + C!
+
+." Be certain that the MIDI connections are" cr
+." on both ways for SoundProcess (Y/N):" key
+case
+121 of true endof
+89 of true endof
+10 of true endof
+false
+endcase
+ Sproc:Resp ! SProc:Did off
+  endof
+\ listing mode ...
+4 of
+ Envir:Ding! off MIDIDevOpened On
+\ -1 out the array
+ Sets:List 128 cells $ FF fill
+endof
+\ proteus...262 bytes, zero 'em
+5 of
+Start-list-0
+Sets:Proteus  262 $ 00 fill
+$ F0 Sets:Proteus 0 + C!
+$ 18 Sets:Proteus 1 + C!
+$ 04 Sets:Proteus 2 + C! \ mps = 8, me = 4
+$ 00 Sets:Proteus 3 + C!
+$ 05 Sets:Proteus 4 + C!
+$ F7 Sets:Proteus 262 + C!
+ endof
+\ Dx7II...274 bytes, zero 'em
+6 of
+Start-list-0
+Sets:Dx7II  274 $ 00 fill
+$ F0 Sets:DX7II 0 + C!
+$ 43 Sets:DX7II 1 + C!
+$ 00 Sets:DX7II 2 + C!
+$ 7E Sets:DX7II 3 + C!
+$ 02 Sets:DX7II 4 + C!
+$ 0A Sets:DX7II 5 + C! \ 10
+$ 4C Sets:DX7II 6 + C! \ L
+$ 4D Sets:DX7II 7 + C! \ M
+$ 20 Sets:DX7II 8 + C! \ .
+$ 20 Sets:DX7II 9 + C! \ .
+$ 4D Sets:DX7II 10 + C! \ M
+$ 43 Sets:DX7II 11 + C! \ C
+$ 52 Sets:DX7II 12 + C! \ R
+$ 59 Sets:DX7II 13 + C! \ Y
+$ 4D Sets:DX7II 14 + C! \ M
+$ 00 Sets:DX7II 15 + C! \ 0
+\ ??
+$ F7 Sets:DX7II 273 + C!
+ endof
+
+
+endcase
+;
+
+\ transmit 0's to every line, without driving you nuts with Dings
+\
+: Zero-Set
+Envir:Ding! @ Envir:Ding! Off
+128 0 do  i 0 e!> loop
+Envir:Ding! !
+;
+
+\ this used to give normal 12-tone ET, quietly
+: 12ET-Set
+Envir:Ding! @ Envir:Ding! Off
+128 0 do
+i i 4096 * 12 / e!>
+loop
+Envir:Ding! !
+;
+
+: DumpListMode
+cr cr 
+Envir:Mode1 @ 
+case
+0 of ." --- Listing of points by midi note number " cr endof
+1 of ." --- Listing of cents by midi note number  " cr endof
+2 of ." --- Listing of Yamaha TUs by midi note number  " cr endof
+3 of ." --- Listing of note/- cents by midi note number  " cr endof
+endcase
+16  0 do
+I 4* 2*  s->D <# # # # #> type ."  :"
+8 0 do
+I J 4* 2* + 12 mod if ."  " else ." |" then 
+I J 4* 2* + cells Sets:List + @ 
+ENVIR:MODE1 @  
+case
+0 of PT. endof
+1 of cent. endof
+2 of TU. endof
+3 of ptname. endof
+endcase
+loop
+cr
+loop
+cr
+;
+
+variable DxCx
+
+: End-List
+Envir:mode @ Case
+0 of MididevOpened Off endof
+1 of Mididevopened Off endof
+2 of MidiDevOpened Off endof
+3 of
+\ actually write here!
+sproc:resp @ Sproc:did @ and  if
+SProc:EnaSX 6 Midi.EWrite
+Sproc:Stat
+ sets:sproc 534  Midi.EWrite
+Sproc:Stat
+sproc:EnaFP 6 Midi.EWrite
+Sproc:Stat
+then
+ Mididevopened Off
+endof
+\ listing may now be produced...
+4 of
+dumplistmode
+ Mididevopened Off
+endof
+\ proteus can xmit now...
+5 of
+\ slow it down....
+262 0 do	\ mps 263
+Sets:Proteus i + 1 Midi.EWrite
+loop
+
+MidiDevOpened Off
+endof
+
+\ DX7II can xmit now...
+6 of
+
+\ needs a goddam checksum!
+DxCx off
+\ there are 274, last 2 dont get summed
+272 6 do
+dxCx @ sets:dx7II i + C@ + $ 7F And DxCx !
+loop
+
+." this is a checksum?????" dxcx ?
+dxcx @ negate $ 7f and  sets:dx7II 272 + C!
+
+\ slow it down....
+ 274 0 do
+ Sets:Dx7II i + 1 Midi.EWrite
+ loop
+MidiDevOpened Off
+endof
+
+endcase
+;
+
+
+\   Fun little word to send the same tuning to the PROTEUS and The E!
+: E+P ( inline word  )
+[compile] ' dup
+envir:E! Execute
+Envir:PROteus Execute
+;
+
+." Tuning system ready " cr
+

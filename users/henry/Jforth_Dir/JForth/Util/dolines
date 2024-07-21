@@ -1,0 +1,93 @@
+\ Process the lines in a file using a deferred word.
+\ Set the deferred word DO.LINE then call DO.LINES.
+\
+\ See end of file for an example of usage.
+\
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk
+\ All Rights Reserved.
+\
+\ MOD: PLB 1/23/89 Check for empty filenames.
+\ MOD: PLB 9/19/89 Check for buffer not allocated by OPENFV
+
+ANEW TASK-DOLINES
+
+variable DL-FILEID
+variable DL-FILEBUF
+variable DL-LINENUM
+variable DL-FILENAME 64 allot
+
+defer DOLINE.ERROR
+
+: DL.CLOSE.FILE  ( -- )
+    dl-fileid @ ?dup
+    IF  fclose
+        dl-fileid off
+    THEN
+    dl-filebuf @
+    IF dl-filebuf closefvread
+       dl-filebuf off
+    THEN
+;
+
+: $DL.OPEN.FILE  ( $name -- if_ok )
+    dl-fileid off
+    dl-filebuf off
+    dup c@
+    IF  dup dl-filename $move ( save name )
+        $fopen dup dl-fileid !
+        IF dl-filebuf openfv 0=
+            IF ." Could not allocate DOLINES buffer!" cr
+               dl.close.file
+               doline.error false
+            ELSE true
+            THEN
+        ELSE cr dl-filename $type
+            ."  could not be opened!" cr
+            doline.error
+            false
+        THEN
+    ELSE drop doline.error false
+    THEN
+;
+
+256 constant DL_MAX_CHARS
+VARIABLE DL-LINEBUF dl_max_chars 4 + allot
+
+DEFER DOLINE  ( $line -- )
+' DROP is DOLINE
+
+: DL.PROCESS.FILE ( -- )
+    0 dl-linenum !
+    BEGIN
+        1 dl-linenum +!
+        dl-fileid @ dl-filebuf
+        dl-linebuf 1+ dl_max_chars readline nip
+        dup dl-linebuf c!  ( make into string )
+        0< not
+    WHILE
+        dl-linebuf doline
+    REPEAT
+;
+
+: $DOLINES ( filename -- )
+    $dl.open.file
+    IF dl.process.file
+       dl.close.file
+    THEN
+;
+
+: DOLINES ( <filename> -- )
+    fileword $dolines
+;
+
+\ -------------------
+\ This code will type out a file with linenumbers.
+: .LINE ( $line -- )
+   cr dl-linenum @ 5 .r space $type ?pause
+;
+
+: .FILE ( <filename> -- )
+    ' .line is doline
+    dolines
+;

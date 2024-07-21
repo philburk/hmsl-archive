@@ -1,0 +1,48 @@
+\ 00001 18-aug-91 mdh     Incorporated AREXXMOD
+
+.need makeinc?
+variable makeinc?   variable makeass?     variable makedisass?
+variable makerexx?
+.then
+
+\ cr ." Rebuild the INCLUDES binary module " y/n
+    true makeinc? !
+
+\ cr ." Rebuild the ASSEM binary module " y/n
+    true makeass? !
+
+\ cr ." Rebuild the DISASSEM binary module " y/n
+    true makedisass? !
+
+\ cr ." Rebuild the AREXXMOD binary module " y/n  \ 00001
+    true makerexx? !  \ 00001
+
+cr
+
+
+include? module jf:module
+
+
+.NEED INCLUDES
+      module includes
+.THEN
+
+
+.NEED ASSEM
+      module assem
+.THEN
+
+
+.NEED DISASSEM
+      module disassem
+.THEN
+
+.NEED AREXXMOD			\ 00001
+      module arexxmod	\ 00001
+.THEN					\ 00001
+
+include jf:MakeINCLUDES
+include jf:MakeASSEM
+include jf:MakeDISASSEM
+include jf:MakeAREXXMOD	\ 00001
+

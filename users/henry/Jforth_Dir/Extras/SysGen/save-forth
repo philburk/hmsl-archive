@@ -1,0 +1,216 @@
+( Save an executable image on the Amiga disk -- 08-jul-86 )
+
+( The program must build several data areas <hunks> in a file... )
+( 1. the header...name of program <optional>, hunk map, list of needed libs )
+( 2. the code...the actual copy of the image from relative 0 to the filler )
+(    area past the top of the stack )
+( 3. a zero-sized bss hunk <uninitialized data area...we have none > )
+( 4. possibly a reloc32 hunk if we have references for the Amiga loader )
+(    to resolve. )
+
+include jf:Long-References
+include jf:MakeIcon
+
+hex
+
+3e9 constant hunk_code
+3ea constant hunk_data
+3ec constant hunk_reloc32
+3f3 constant hunk_header
+3f2 constant hunk_end
+
+decimal
+
+user #k           64 #k !
+
+variable save-error
+: save,  ( cell -- , send to file unless error )
+  ferror @  save-error @ or
+  IF    drop  save-error on
+  ELSE  tempf,
+  THEN  ;
+
+: write_hunk_header   ( #bytes-in-code -- , write the main file header )
+\  ." writing hunk_header..." cr
+  hunk_header save,       ( start of header hunk )
+  0           save,       ( no name given currently )
+  2  #relocs @
+  IF   1+
+  THEN        save,       ( number of hunks to load )
+  0           save,       ( no resident library names to load )
+  1  #relocs @
+  IF   1+  
+  THEN        save,       ( number of last hunk )
+  cell/       save,       ( #longwords in code hunk )
+  #relocs @
+  IF  relocs @ sizemem 3 + save,      ( #cells in reloc-32 table )
+  THEN
+  0           save,       ( zero-sized bss hunk )
+;
+
+( NOTE:  before copying the user area to the file, the system should install )
+(        the new 'S0' as it is required to be valid at startup...rest of the )
+(        pertinant FORTH regs are initialized at startup. )
+
+: write_hunk_code     ( image-size -- , write the code chunk of the image )
+\  ." writing hunk_code..."  cr
+  absrelocs @ >r  0 absrelocs !
+  0 relocs +boots !
+  hunk_code   save,       ( start of code hunk )
+  dup cell/ save,         ( #bytes-to-write  -- )
+  here  3 + -4 and     ( #-to-write  #-to-here  -- )
+\
+\ save-error @  0= 
+\ IF
+\    tempfile @  tempbuff  CloseFVWrite   ( #-to-write  #-to-here  -- )
+\    tempfile @  0  2 pick  fwrite  drop
+\    ferror @  save-error !
+\    tempbuff OpenFV  drop
+\ THEN 
+\
+  dup  0
+  DO    i @   save,  cell ( ...copy necessary code )
+  +LOOP
+\
+  relocs @ relocs +boots !
+  -   ( -- #-above-here )
+  #U @ cells dup >r -
+  0               ( #-above-here  0  -- )
+  DO    0     save,  cell ( ...fill area with zeros )
+ +LOOP  UP@ #U0 @
+  0
+  DO    dup @ save,  cell+
+  LOOP  drop r> cell/ #U0 @ -
+  0
+  DO    0     save,   ( ...fill area with zeros )
+  LOOP
+  r> absrelocs !
+;
+
+: write_hunk_empty  ( -- , why it does this ??? i won't even guess!!! )
+\  ." writing empty hunk_bss..." cr
+  hunk_code   save, 
+  0           save, 
+  hunk_end    save, 
+;
+
+: unrelocate  ( -- )
+  #relocs @
+  IF   \ ." unrelocating..." cr
+       RelocsAdr #relocs @  ( adr #relocs -- )  0
+       DO  dup @  ( relocblk relocaddr1 -- )
+           dup @  ( rblk raddr1 absaddr -- )  0 >abs -  swap !  cell+
+       LOOP  drop
+  THEN
+;
+
+: relocate  ( -- )
+  #relocs @
+  IF   \ ." relocating..." cr
+       relocs @ #relocs @   ( adr #relocs -- )  0
+       DO  dup @  ( relocblk relocaddr1 -- )
+           dup @  ( rblk raddr1 reladdr -- )  0 >abs +  swap !  cell+
+       LOOP  drop
+  THEN
+;
+
+: write_hunk_reloc32  ( -- )
+  #relocs @
+  IF   \ ." writing hunk_reloc32..." cr
+
+       hunk_reloc32   save, 
+       Relocs @ #relocs @  ( adr #relocs -- )  dup save, 
+       0 save,    ( hunk# to link with )   0
+       DO  dup @  ( relocblk relocaddr1 -- )  save,   cell+
+       LOOP drop
+       ( now for the relocs_hunk to be relocated at ABSRelocs )
+       1 save,    ( #relocs )
+       1 save,    ( hunk# )
+       ABSRelocs up@ up0 @ -  -  save,   ( address to put reloc addr )
+       0 save,    ( no more relocs )
+  THEN
+;
+
+: write_relocs_data  ( -- , write relocs as relocatable data hunk )
+  #relocs @
+  IF   \  ." writing hunk_data, forth relocation map..." cr
+        hunk_data   save, 
+        relocs @ 3 cells -   ( addr of start of area )
+        relocs @ sizemem cell/
+        3 + dup save,   0
+        DO   dup @ save,    cell+
+        LOOP drop
+        hunk_end save, 
+  THEN
+;
+
+: SetBootArea  ( #bytes-in-image -- )
+  #U @ cells -  dup UP0 !    32 -
+  dup [ s0      up@ - userboots + ] literal !   ( set new stack value )
+      [ dplimit up@ - userboots + ] literal !   ( set new dplimit value )
+  \ 0  fcloseatbye +boots !   \ system must not think these exist at startup
+  \ 0  freeatbye   +boots !
+  \ 0  fcloselist  +boots !
+  \ 0  freeuplist  +boots !
+  \ any new inits go here...
+;
+
+: RestoreBootArea ( -- )
+  s0 @ 32 +  up0 !    #U0 @ #U !
+  s0 @ dup  [ s0      up@ - userboots + ] literal !
+            [ dplimit up@ - userboots + ] literal !
+  freeze  \ user area should be good!
+;
+
+: write_image_file  ( create a file im my image ... no error checking yet )
+  #k @ 1024 *         ( #bytes-desired -- )
+  here 1024 +   1024 /mod swap
+  IF   1+
+  THEN   1024 *  >r
+  #U @ cells  >r
+  r@ +   r> r> +
+       ( #bytes-desired  #bytes-needed-min  -- )
+  max  ( #bytes-to-write -- )
+  dup SetBootArea 
+  dup write_hunk_header
+  unrelocate          ( all abs 32 bit addresses -> relative )
+  write_hunk_code
+  relocate            ( put them back to absolute )
+  write_hunk_reloc32
+  hunk_end    save, 
+  write_relocs_data
+  write_hunk_empty
+  RestoreBootArea
+;
+
+: .image  ( -- )
+       ?forgotten
+       >newline    ." This image is "  #relocs @ -dup
+       IF    ." relocatable, " . ." long references."
+       ELSE  ." position-independant."
+       THEN  cr
+;
+
+: (save-forth)  ( file-pointer -- )
+  >newline  cr ?forgotten  ( clean up the reloc-32 table, if one is there )
+  freeze  tempfile !
+  .image cr  ferror off save-error off
+  ." Writing executable file: "  dosstring 1+ count type cr cr
+  tempbuff OpenFV  drop
+  write_image_file
+  save-error @
+  IF    ." Error writing file." cr
+  ELSE  MakeIcon
+  THEN  tempfile @  tempbuff closeFVWrite
+  tempfile @  fclose  ;
+
+variable save-forth-to
+
+: SAVE-FORTH  ( -- , <name> create bootable image of present state )
+  save-forth-to @ -dup 0=
+  IF   new fopen
+  THEN save-forth-to off   -dup
+  IF   (save-forth)
+  ELSE cr ." can't open "  dosstring 1+ count type ."  for writing!"  quit
+  THEN
+;

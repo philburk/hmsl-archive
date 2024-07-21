@@ -1,0 +1,135 @@
+\ cyberspace
+anew cyberspace.spot
+
+METHOD SET.FCOLOR:
+METHOD GET.FCOLOR:
+METHOD SET.BCOLOR:
+METHOD GET.BCOLOR:
+METHOD SET.EYEVIEW:
+METHOD GET.EYEVIEW:
+
+:CLASS OB.CYBERSPACE.INST <SUPER OB.INSTRUMENT
+
+\ VARIABLES
+IV.LONG IV-EYEX
+IV.LONG IV-EYEY
+IV.LONG IV-EYEZ
+ create CYB-ctable  \   table to store old new colors
+$ 000000 w,
+$ FFFFFF w,
+
+
+
+
+:M DEFAULT:
+DEFAULT: SUPER
+$ 000 CYB-CTABLE W!
+$ FFF CYB-CTABLE 4+ W!
+\ START AT CENTER
+0 IV=> IV-EXEX
+0 IV=> IV-EXEY
+0 IV=> IV-EXEZ
+;M
+
+:M SET.FCOLOR:
+CYB-CTABLE 4+ W!
+;M
+
+:M GET.FCOLOR:
+CYB-CTABLE 4+ W@
+;
+
+:M SET.BCOLOR:
+CYB-CTABLE W!
+;M
+
+:M GET.BCOLOR:
+CYB-CTABLE W@
+;M
+
+:M SET.EYEVIEW: ( X Y Z -- )
+IV=> IV-EYEZ
+IV=> IV-EYEY
+IV=> IV-EYEX
+;
+
+:M GET.EYEVIEW: ( -- X Y Z )
+IV-EYEX IV-EXEY IV-EYEZ
+;
+
+\ LOCAL VARIABLES....
+V: CYB-SCREEN
+V: CYB-WINDOW
+
+NEWSCREEN CYB-NS
+NEWWINDOW CYB-NW
+
+ : loadCYBcolors  \  --   load new colors
+CYB-Window @ >Abs Call Intuition_lib Viewportaddress
+CYB-ctable >ABS
+2 Call Graphics_Lib LoadRGB4 drop  \ call to load color values
+;
+
+\ OFFICIAL METHODS
+:M OPEN:
+CYB-NS NEWSCREEN.SETUP
+640 CYB-NS ..! NS_WIDTH
+400 CYB-NS ..! NS_HEIGHT
+1 CYB-NS ..! NS_DEPTH
+HIRES LACE | CYB-NS ..! NS_VIEWMODES
+
+CYB-NS OpenScreen() CYB-Screen !
+
+CYB-NS @ IF
+
+CYB-Nw NewWindow.Setup
+CYB-Screen @ >abs CYB-Nw ..! nw_Screen 
+CUSTOMSCREEN CYB-NW     ..! nw_Type
+    0  CYB-nw ..! nw_LeftEdge
+    0  CYB-nw ..! nw_TopEdge
+    640 CYB-nw ..! nw_Width
+    640 CYB-NW ..! nw_MaxWidth
+    400 CYB-NW ..! nw_Height
+    400 CYB-NW ..! nw_MaxHeight
+  ACTIVATE  RMBTRAP | BackDrop |  CYB-nw ..! nw_Flags
+  MouseButtons RawKey | MENUPICK | CYB-nw ..! nw_IDCMPFlags  
+CYB-Nw Gr.OpenCurW CYB-WINDOW !
+ loadcolors
+
+
+
+ELSE
+." NO SCREEN CAN OPEN" CR
+THEN
+
+;M
+
+:M CLOSE:
+CYB-WINDOW @ GR.CLOSEWINDOW
+CYB-Screen @ >ABS Call Intuition_Lib  CloseScreen drop
+;M
+
+
+:M START: ( -- REGISTER IT )
+
+;M
+
+:M FINISH: ( -- DRAW IT )
+;M
+
+:M NOTE.ON: ( NOTE VEL -- )
+
+;M
+
+:M NOTE.OFF: ( NOTE VEL -- )
+;M
+
+
+
+:M PRINT
+PRINT: SUPER
+." EYESPOT:" IV-EYEX . IV-EYEY . IV-EYEZ . CR
+
+
+
+;CLASS

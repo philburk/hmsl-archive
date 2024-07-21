@@ -1,0 +1,49 @@
+\ Error codes for JForth programs.
+\ By returning standard error codes, the caller
+\ can determine what went wrong.
+\
+\ Return 0 for no error.
+\ Return -1 for general error.
+\
+\ Author: Phil Burk
+\ Copyright 1992 Phil Burk
+\
+\ 00001 PLB 1/21/92 Added SWAP for default to ERR.#>$
+
+ANEW TASK-ERROR_CODES
+
+: ERR: ( num <name> -- num+1 , define error code )
+	dup constant
+	1+
+;
+
+\ This is deferred so you can put up a requester if you like.
+defer $REPORT.ERROR  ( $message -- , make message visible )
+
+: (REPORT.ERROR) ( $message - )
+	count type cr
+;
+
+' (report.error) is $report.error
+
+\ These define common errors that a program might return.
+1
+ERR: ERR_FILE_NOT_FOUND
+ERR: ERR_INSUFFICIENT_MEMORY
+drop
+
+\ Register Base error codes in this file to avoid collision.
+\ Leave at least 100 between.
+100 constant RXERR_BASE
+200 constant IFFERR_BASE
+
+\ Redefine this word in your code to call ERR.#>$ for default.
+: ERR.#>$ ( error_code -- $message )
+	CASE
+		0 OF " No error." ENDOF
+		err_file_not_found OF " File not found!" ENDOF
+		err_insufficient_memory OF " Insufficient memory!" ENDOF
+		" Unknown error!" swap \ 00001
+	ENDCASE
+;
+

@@ -1,0 +1,259 @@
+\ Demonstrate the use of the EZMenu Facility for creating
+\ and manipulating simple text menus.
+\ The first menu illustrates simple action items.
+\ The second menu uses a sound processing metaphor
+\ to illustrate the use of attribute menus.
+\ Please see the source file "amiga_menus" to help
+\ understand how EZMenu works.
+\
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research
+\
+\ MOD: PLB 9/13/90 Added "Noise" sub-menu example.
+\ MOD: PLB 6/6/91 Adapt to new textra submenu code.
+\ 00001 PLB 12/30/91 Added EV.WAIT for better performance.
+
+include? newwindow.setup ju:amiga_graph
+include? ev.getclass ju:amiga_events
+include? menuitem.setup ju:amiga_menus
+
+ANEW TASK-DEMO_MENUS
+
+\ Define EZMenu structures.
+EZMenu CONTROL-MENU
+EZMenu SOUND-MENU
+EZMenu SUB-MENU
+
+\ Example words to execute for menu picks.
+VARIABLE DEMO-QUIT
+: HELLO ( -- , something to do )
+	." Hello, and Welcome to JForth!" cr
+;
+
+: ENABLE.QUIT ( -- , allow demo to be quit from menu )
+\ This exemplifies a word that is required before another
+\ can be executed. For example, sometimes you must LOAD before
+\ You can SAVE.
+	gr-curwindow @
+	0 2 0 menu.mis>#  ( calculate menunum )
+	OnMenu()
+;
+
+: IQUIT  ( trigger termination of demo )
+	true demo-quit !
+;
+
+: (CONTROL-MENU.INIT)   ( -- , Setup the structures for control menu. )
+\ optionally change default layout
+	180 menuitem-defwidth !  ( use different width then default )
+	10 menuitem-defleft !
+\
+\ Set links and other defaults in menu and items.
+	0" Control" 0 control-menu ezmenu.setup
+\
+\ Define text and actions.
+	0" Hello" 0 control-menu ezmenu.text!
+	' hello   0 control-menu ezmenu.cfa[] !
+	ascii H   0 control-menu ezmenu.commseq!  ( set 'H' command key )
+\
+	0" Enable Quit" 1 control-menu ezmenu.text!
+	' enable.quit   1 control-menu ezmenu.cfa[] !
+	0" Quit"    2 control-menu ezmenu.text!
+	' iquit      2 control-menu ezmenu.cfa[] !
+\
+\ Demonstrate advanced technique not supported by EZMenu.
+\ Start off with QUIT initially disabled.
+	ITEMTEXT HIGHCOMP | ( ITEMENABLED | left out of flags )
+	2 control-menu ezmenu.item[]  ( get relative address of item )
+	s! mi_flags
+;
+
+: CONTROL-MENU.INIT   ( -- ok , Setup the structures for control menu. )
+	3 control-menu ezmenu.alloc? dup  ( allocate space for 4 text menuitems )
+	IF
+		(control-menu.init)
+	ELSE
+		." Could not allocate CONTROL-MENU!" cr
+	THEN
+;
+
+: SOUND.REPORT ( -- , report menu pick, demonstrate getting item# )
+	ezmenu-lastitem @ ." Sound Item = " . cr
+;
+
+: NOISE.REPORT ( -- , action for noise reduction pick )
+	ezmenu-lastsubitem @
+	." Noise reduction type " . cr
+;
+
+: (SOUND-MENU.INIT)  ( -- , Setup sound menu. )
+	0" Sound" 1 sound-menu ezmenu.setup
+\
+\ Define text for second menu.
+	0" Clean Sound" 0 sound-menu ezmenu.text!
+	0" Reverb"      1 sound-menu ezmenu.text!
+	0" Fuzz"        2 sound-menu ezmenu.text!
+	0" Flanger"     3 sound-menu ezmenu.text!
+\ disable "----" item
+	ITEMTEXT HIGHCOMP | ( ITEMENABLED | left out of flags )
+		4 sound-menu ezmenu.item[] s! mi_flags
+	0" Noise Reduction"     5 sound-menu ezmenu.text!
+\
+\ Use same action for all items. (OK, I'm lazy!)
+	5 0 DO
+		' sound.report i sound-menu ezmenu.cfa[] !
+	LOOP
+	' noise.report 5 sound-menu ezmenu.cfa[] !
+\
+\ Set mutual exclusion for groups.
+	$ 0E 0 sound-menu ezmenu.exclude!
+	$ 01 1 sound-menu ezmenu.exclude!
+	$ 01 2 sound-menu ezmenu.exclude!
+	$ 01 3 sound-menu ezmenu.exclude!
+\
+\ Set checkmarks for default items.
+	CHECKED 0 sound-menu ezmenu.set.flag
+;
+
+: SOUND-MENU.INIT  ( -- ok , Setup sound menu. )
+	6 sound-menu ezmenu.alloc? dup
+	IF
+		(sound-menu.init)
+	ELSE
+		." Could not allocate SOUND-MENU!" cr
+	THEN
+;
+
+: DOLBY.B  ." Dolby B Noise Reduction" cr ;
+: DOLBY.C  ." Dolby C Noise Reduction" cr ;
+: DBX  ." DBX Noise Reduction" cr ;
+
+: SUB-MENU.INIT  ( -- ok , Setup submenu for "noise reduction". )
+	100 menuitem-defleft !
+	140 menuitem-defwidth !
+	3 sub-menu ezmenu.alloc? dup
+	IF
+		sub-menu ezsubmenu.setup
+\
+\ Define text for second menu.
+		0" Dolby B" ' dolby.b  ascii B 0 sub-menu ezmenu.setitem
+		0" Dolby C" ' dolby.c  ascii C 1 sub-menu ezmenu.setitem
+		0" dbx"     ' dbx      ascii X 2 sub-menu ezmenu.setitem
+\
+\ Set mutual exclusion for groups.
+		$ 06 0 sub-menu ezmenu.exclude!
+		$ 05 1 sub-menu ezmenu.exclude!
+		$ 03 2 sub-menu ezmenu.exclude!
+\
+\ Set checkmarks for default items.
+		CHECKED 0 sub-menu ezmenu.set.flag
+	ELSE
+		." Could not allocate SUB-MENU!" cr
+	THEN
+;
+
+: MYMENUS.TERM  ( -- , free memory used )
+	control-menu ezmenu.free
+	sound-menu ezmenu.free
+	sub-menu ezmenu.free
+;
+
+: MYMENUS.INIT   ( -- ok , Initialize both menus. )
+	false \ default return flag
+	control-menu.init
+	IF
+		sound-menu.init
+		IF
+			sub-menu.init
+			IF
+				control-menu sound-menu menu.linkto
+				sub-menu 5 sound-menu ezmenu.submenu!
+				drop true
+			ELSE
+				mymenus.term
+			THEN
+		ELSE
+			mymenus.term
+		THEN
+	THEN
+
+\ Since CONTROL-MENU is now the first menu, it is used as the "MENUSTRIP"
+\ for calls to SetMenuStrip, EZMENU.EXEC, etc.
+;
+
+: PROCESS.EVENT ( class -- done? , process events from IDCMP )
+	CASE
+		MENUPICK   ( execute appropriate word for item )
+		OF  ev-last-code @  control-menu  ezmenu.exec
+			false
+		ENDOF
+\
+		CLOSEWINDOW OF true ENDOF
+\
+		( other events ) false swap
+	ENDCASE
+;
+
+: MENU.LOOP  ( -- , loop until done )
+	false demo-quit !
+	BEGIN
+		gr-curwindow @ ev.wait \ 00001
+		gr-curwindow @ ev.getclass dup
+		IF process.event
+		THEN
+		demo-quit @ OR
+	UNTIL
+;
+
+NewWindow MenuWindow   ( Create a template for the new window. )
+
+: MENUS.INIT  ( -- ok? , Initialize Demo )
+	cr gr.init
+	." AMIGA JForth Pulldown Menu Demonstration" cr
+	MenuWindow NewWindow.Setup      ( Set defaults for window )
+	0" JForth - Test Menus!"  MenuWindow s! nw_title
+	400 MenuWindow s! nw_width
+	100 MenuWindow s! nw_height
+\
+\ Add MENUPICK and ACTIVATE flags to window.
+	CLOSEWINDOW MOUSEBUTTONS | MENUPICK |
+	MenuWindow s! nw_idcmpflags
+	MenuWindow s@ nw_flags  ACTIVATE |
+	MenuWindow s! nw_flags
+\
+\ Create window from template and make it the current window.
+	MenuWindow gr.opencurw
+	IF
+\ Setup Menus and link to window.
+		mymenus.init
+		IF
+			gr-curwindow @ control-menu SetMenuStrip() true
+		ELSE
+			false
+		THEN
+	ELSE
+		false
+	THEN
+;
+
+: MENUS.TERM  ( -- , cleanup )
+	gr-curwindow @ ?dup
+	IF
+		ClearMenuStrip()
+		gr.closecurw
+		mymenus.term
+	THEN
+	gr.term
+;
+
+: MENUS ( -- , Demonstrate pulldown menus. )
+	menus.init
+	IF
+		menu.loop
+		menus.term
+	THEN
+;
+
+if.forgotten menus.term
+
+cr ." Enter:   MENUS     for demo!" cr

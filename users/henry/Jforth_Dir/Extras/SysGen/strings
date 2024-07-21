@@ -1,0 +1,97 @@
+\ Support for text strings
+\
+\ Copyright 1988 - Delta Research
+\ All Rights Reserved
+
+\ MOD: PLB 10/1/87 Fix stack in (?WARNING")
+\ MOD: PLB 7/28/88 General cleanup.
+\ MOD: PLB 8/16/88 Make ABORT" call ABORT instead of QUIT
+\ MOD: PLB 8/31/90 Added ,"
+
+decimal
+
+max-inline @  20 max-inline !
+
+: COMPILING?  ( --- FLAG )
+    state @ both ;
+
+: INTERPRETING? ( --- FLAG )
+    state @ 0= both ;
+
+max-inline !
+\ : lword  ( char -- addr , accept lower case )
+\   makeucase @ >r  0 makeucase !
+\   word        r>    makeucase !  ;
+
+: ASCII  ( --- CHAR )  ( TEST --IN-- )
+    bl lword 1+ c@ 
+    compiling? IF  [] LITERAL 
+               THEN ; IMMEDIATE
+
+: $TYPE   ( addr-- )
+    count type  ;
+
+: $SIZE  ( $ADR --- TOTAL-ALLOTED-TO-$ )
+    c@ 1+ even-up both ;
+
+: $,   ( delim--<word> ,  compile input-string into dict )
+    lword    $size  allot    ;
+
+: ,"  ( <string>" -- , lay down at HERE, allot space )
+    ascii " lword
+    c@ 1+ allot align
+;
+
+: TYPE-HERE ( --- )
+    here $type ;
+
+: $MOVE  ( from to --- )
+    over c@ 1+ move ;
+
+: >$   ( adr cnt $adr -- , move text for cnt into counted string at $adr )
+  2dup c!        \ plug in count
+  1+ swap move   \ add the text after it
+;
+
+: (($"))      ( string RADDR --r-- RADDR next-ip ) 
+      r>  inline@ dup  $size
+      inline+  swap  >r    ;
+
+: ($")   ( --adr )  ( string-adr  --INLINE-- NEXT-IP )  
+   (($"))   ;  ( must be called ) 
+
+\ : (.")   ( --- )  ( $ --IN-- )  (($")) $TYPE ; ( in kernal ) 
+
+: ." ( --- )
+    ASCII "    compiling? 
+    IF    compile (.")  $,
+    ELSE  lword $type
+    THEN  ; immediate
+
+: $"   ( -- adr )
+    compile ($")   ascii "  $,    ; IMMEDIATE
+
+: (?WARNING")  ( FLAG --- )  ( <STRING> -INLINE- )
+    (($"))  swap
+    IF    >newline dup $type
+    THEN  drop  ;
+
+: WARNING"  ( flag --- )  ( <"> <TEXT> -IN- ) 
+     compile  (?warning")  ascii " $,  ; IMMEDIATE
+
+: (?ABORT")  ( FLAG --- )  ( <STRING> -INLINE- )
+    (($"))  swap
+    IF    >newline $type abort 
+    THEN  drop  ;
+
+: ABORT"  ( flag --- )  ( <"> <TEXT> -IN- ) 
+     compile  (?abort")  ascii " $,  ; IMMEDIATE
+
+: ?ABORT"  [] abort"  ; IMMEDIATE 
+
+\ INCLUDE STRINGS.TEST
+\ all functions tested sept 9 '86. BTD
+
+\ ($LIT) has been renamed to (($")) to emphasize it's relation to ($")
+
+

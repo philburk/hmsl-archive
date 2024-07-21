@@ -1,0 +1,130 @@
+\ Access the Amiga Voice Synthesis
+\ Translator and Narrator Libraries.
+\
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research
+\
+\ MOD: PLB 08/06/88 Error return added to OPEN.NARRATOR
+\      mdh 10/07/88 removed ." statement if Narrator opens successfully
+\          as it was showing up in cloned images.
+
+exists? includes
+.IF getmodule includes
+.THEN
+include? exec_libraries_h ji:exec/libraries.j
+include? devices_narrator_h ji:devices/narrator.j
+include? CreatePort() ju:exec_support
+
+ANEW TASK-SPEAK
+decimal
+
+\ Define channel allocation array.
+Create AllocationMap  1 c,  8 c,  2 c,  4 c,
+
+256 constant MAX_SPEAK_CHARS
+VARIABLE PHONEME-ACCUM max_speak_chars allot
+
+VARIABLE SPEAK-RB-PTR  ( Narrator request block pointer.)
+
+: OPEN.NARRATOR ( -- error? ,  Open Narrator Device.)
+    allocationmap >abs  speak-rb-ptr @  ..! ndi_ch_masks
+    4  speak-rb-ptr @  ..! ndi_nm_masks
+    0" narrator.device" 0
+    speak-rb-ptr @ 0 OpenDevice() dup
+    IF dup . ."   OPEN.NARRATOR -- Error opening narrator.device!"
+    THEN
+;
+
+: SPEAK.TERM.PORT ( -- , delete and free port )
+    speak-rb-ptr @ .. ndi_message .. io_Message ..@ mn_Replyport
+       >rel DeletePort()
+    speak-rb-ptr @ freeblock
+    0 speak-rb-ptr !
+;
+
+: SPEAK.INIT ( -- , Initialize Narrator and Translator devices)
+    speak-rb-ptr @ 0=
+    IF  translator?  ( -- transerr? )
+        MEMF_PUBLIC MEMF_CLEAR |  sizeof() narrator_rb allocblock
+        ( -- transerr? mem? )   dup speak-rb-ptr !
+        0= 
+        IF ." SPEAK.INIT -- Not enough memory!" cr  ( -- transerr? )
+        ELSE
+\ 
+\ Allocate channel with precedence = 10
+\ Narrator_rb has prefix of "ndi_" ( See JI:devices/narrator.j )
+            10 speak-rb-ptr @ .. ndi_message .. io_message
+                          .. mn_node ..! ln_Pri
+\
+\ Create a port for the I/O device to reply to.
+            0" jspeech" 0 CreatePort()   ( -- rel_reply_port )
+            dup >abs speak-rb-ptr @ .. ndi_message .. io_message
+                          ..! mn_ReplyPort
+            0=
+            IF ." SPEAK.INIT -- Cannot open reply port."
+                speak-rb-ptr @ freeblock
+               0 speak-rb-ptr !
+            ELSE open.narrator
+            THEN
+        THEN
+        ( -- transerr? )
+		IF speak.term.port
+		THEN
+    THEN
+;
+
+: SPEAK.TERM ( -- , Terminate speach process. )
+    speak-rb-ptr @
+    IF  speak-rb-ptr @ CloseDevice()
+        speak.term.port
+    THEN
+;
+
+: TRANSLATE ( $english -- 0$phonemes rtncode , Translate )
+    count swap >abs swap
+    phoneme-accum >abs max_speak_chars
+    call translator_lib Translate
+    phoneme-accum swap
+;
+
+: SPEAK.PHONEMES ( 0$phonemes nrb -- , Speak phonetic stream. )
+    CMD_WRITE over      .. ndi_message ..! io_Command
+    swap 2dup >abs swap .. ndi_message ..! io_Data
+    0count nip over     .. ndi_message ..! io_Length
+    DoIO()
+;
+
+: SPEAK ( $english -- , Speak english text. )
+    speak.init ( just in case it wasn't called )
+    translate
+    IF warning" SPEAK -- Translation error."
+    ELSE speak-rb-ptr @ ?dup
+        IF speak.phonemes
+        ELSE drop ." Speach device not open!"
+        THEN
+    THEN
+    ?dup
+    IF . true warning" SPEAK -- Narration Error"
+    THEN
+;
+
+: SPEAK.SEX! ( sex -- , Set speech request block )
+    speak-rb-ptr @ ?dup
+    IF ..! ndi_sex
+    ELSE drop
+    THEN
+;
+
+: SPEAK.RATE! ( rate -- , Set speech request block )
+    speak-rb-ptr @ ?dup
+    IF ..! ndi_rate
+    ELSE drop
+    THEN
+;
+
+: SPEAK.PITCH! ( freq -- , Set speech request block )
+    speak-rb-ptr @ ?dup
+    IF ..! ndi_pitch
+    ELSE drop
+    THEN
+;

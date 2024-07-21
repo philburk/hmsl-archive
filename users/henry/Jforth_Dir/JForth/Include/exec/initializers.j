@@ -1,0 +1,4 @@
+\ AMIGA JForth Include file.
+decimal
+EXISTS? EXEC_INITIALIZERS_H NOT .IF
+: EXEC_INITIALIZERS_H ;

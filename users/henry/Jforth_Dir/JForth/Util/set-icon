@@ -1,0 +1,103 @@
+
+\ this file initializes an icon structure to make it do what you want.
+\
+\ Initially, the '.info' file created with ICONED (in sys:system)
+\ is loaded in and the fields of the 'info' structure are set to
+\ bring up Your stuff.
+\
+\ 1. GET-ICON pathname    (do NOT include the '.info')
+\
+\    The address of the DiskObject structure will be in 'theICON'.
+\
+\ 2. use the following utilities to modify the icon attributes.
+\ 3. When done:
+\
+\    SAVE-ICON pathname     (to put the modified .info file on the disk,
+\                            close the icon, and recover allocated memory.
+\
+\    ABORT-ICON             (to not save, just recover the memory)
+\
+\
+
+\ Detailed information is available in the
+\ Amiga ROM Kernel Manual, Chapter 2, WorkBench (page 4-23).
+
+getmodule includes
+include? DiskObject ji:workbench/workbench.j
+include? WBstartup ji:workbench/startup.j  \ not needed, useful for debug
+include? GetDiskObject() ju:icon-support
+
+anew task-set-icon
+
+user theIcon  user theStrings
+
+\ NOTE: the GET-ICON program here does not work for WBDRAWER type icons.
+ 
+: $GET-ICON  ( adr-forth-string -- )
+  \ NOTE: do NOT include the '.info' suffix in the pathname
+  theIcon @ ?ABORT" 'theIcon' currently holds another icon."
+  count >dos dos0   GetDiskObject() -dup 0=
+  ?ABORT" Can't Get the ICON file!"
+  theIcon !  MEMF_PUBLIC 1024 allocblock dup 0=
+  ?ABORT" No memory for strings!" thestrings !   ;
+
+: GET-ICON  ( -- ,eats icon name, places address in 'theIcon' )
+  fileword $GET-ICON  ;
+
+: ICON-OPEN?  ( -- , just checks for 0 )
+  theIcon @ 0=  ?ABORT" No Icon selected ... use GET-ICON"  ;
+
+: $SAVE-ICON  ( adr-forth-string -- ) 
+  \ AGAIN...do not append the '.info'
+  ICON-OPEN?  count >dos dos0  theIcon @  PutDiskObject() 0=
+  ?ABORT" Error while saving DiskObject!"
+  theIcon @  FreeDiskObject()  theIcon off  thestrings @ freeblock  ;
+
+: SAVE-ICON  ( -- , input name of Application like:  SAVE-ICON JForth )
+  fileword $SAVE-ICON  ;
+
+: ABORT-ICON  ( -- , just clear it out )
+  ICON-OPEN? theIcon @  FreeDiskObject()
+  theIcon off  thestrings @ freeblock  ;
+
+
+: $>null  ( adr-forth-string -- adr-null-terminated-allocated )
+  ICON-OPEN?  count >dos  ( -- )
+  dos0 1- c@  ( -- count )  1+   ( include null )
+  thestrings @ dup freebyte 2dup +   ( -- count memblk #used freeadr )
+  >r  2 pick + swap freebytea !  ( -- count )
+  dos0 swap  r@ swap  ( -- from to cnt )  move
+  r>  ;
+  
+  
+: $SET-DEFAULT-TOOL  ( addr-forth-string -- )
+  $>null  >abs   theIcon @  ..!  do_defaultTool  ;
+
+: SET-DEFAULT-TOOL  ( -- eats name from stream )
+  fileword  $SET-DEFAULT-TOOL  ;
+
+: SET-ICON-TYPE  ( type -- )
+  theIcon @ ..! do_Type  ;
+
+: $SET-TOOLWINDOW  ( adr-forth-string )
+  $>null  >abs   theIcon @  ..!  do_ToolWindow  ;
+
+: SET-TOOLWINDOW  ( -- , eats CON: or RAW: string to open )
+  fileword $SET-TOOLWINDOW  ;
+
+: SET-STACKSIZE  ( #bytes -- )
+  theIcon @ ..! do_Stacksize  ;
+
+: SET-DRAWERDATA  ( addr-of-newWindow-structure -- )
+  >abs   theIcon @  ..!  do_DrawerData   ;
+
+: SET-CURRENT-POS  ( x y -- )
+  theIcon @ >r
+  r@ ..! do_CurrentY
+  r> ..! do_CurrentX  ;
+
+: SET-NO-POSITION  ( -- , to let WorkBench place the window )
+  NO_ICON_POSITION  dup  SET-CURRENT-POS  ;
+
+\ : SET-GADGET  ( addr-gadget-structure -- )
+\   >abs  theIcon @ ..! do_Gadget  ;

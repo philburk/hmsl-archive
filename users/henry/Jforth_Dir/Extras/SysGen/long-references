@@ -1,0 +1,94 @@
+
+\ ************************ Long-References ***************************
+
+\ when a long reference is compiled...
+\ 1. A 'jsr.l  abs' is compiled, along with the ABSOLUTE address of the
+\    word being called.
+\ 2. The long reference must be recorded in the memory block returned by
+\    'RelocsAdr'. This block is included in saved executable images, and used
+\    by the dynamic loader to resolve them.
+\ 3. It is included again in the saved image to be loaded as a data area,
+\    the loader is setup to poke its absolute address into a user var
+\    called 'ABSRELOCS'.  The Pushreloc program can initialize the addresses
+\    the first time thru; i.e. ...
+\    a. IF #RELOCS = 0...allocate a block, put its relative adr in RELOCS
+\       and the abs addr in ABSADDR, inc #RELOCS to 1.
+\    b. IF #RELOCS \= 0, check if RELOCS is equal to 'ABSRELOCS @ >REL'
+\       if so, all ok, just add the new reference.  If not, initialize RELOCS
+\       to point to the correct place, then continue.
+
+\ NOW IN KERNAL -> user Relocs     ( rel addr of array for reloc storage )
+user AbsRelocs  ( abs addr of array for reloc storage )
+user #Relocs    ( number of relocs compiled in the system )
+
+: RelocsAdr  ( -- addr , make sure Relocs is pointing to a valid place )
+  relocs @ -dup 0=
+  IF   ( ...no block is allocated OR Relocs hasn't been initialized... )
+       AbsRelocs @ -dup 0=
+       IF   ( ...no block is allocated )
+            0 1024 XAllocblk   -dup 0=
+            IF   cr ." can't allocate relocation storage block!"   quit
+            THEN ( ...block was allocated ok )
+       ELSE ( block existed at boot, was relocated at ABSRelocs, update Relocs )
+            3 cells + >rel
+       THEN   dup relocs !  dup relocs +boots !
+  THEN ( address-of-block -- )
+;
+
+: ?forgotten  ( -- , update references if FORGET has invalidated some )
+( note: have FORGET erase from here to stack! )
+  #relocs @
+  IF   RelocsAdr dup  freebyte -dup
+       IF   ( ...relocs allocated and entries exist )  ( adr freebyte -- )
+            cell- + @ dup
+            here < 0=              \ is it above where we're now at?
+            swap 2- w@ $ 4eb9 - or   \ OR is there NOT a 'jsr' there?
+            IF   ( ...last reloc is above here, adjust till below )
+                 relocs @  dup freebyte
+                 dup >r  cell- + r> swap   ( freebyte adr-of-last-item-- )
+                 BEGIN   dup @ here < >r   over 0= r> or not
+                 WHILE   cell- swap cell- swap  -1 #relocs +!
+                 REPEAT  drop  relocs @ freebytea !
+            THEN
+       ELSE drop
+       THEN
+  THEN
+;
+
+: PushReloc  ( relative-address-needing-relocation -- )
+  ?forgotten
+  RelocsAdr ( address-of-block -- )
+  ( ...check if block is full )
+  dup freebyte  over sizemem  < 0=   ( adr flag -- )
+  IF   ( the current memory block is full, allocate a bigger one, copy to it )
+       \ version 1.201 ... changed Allocblock to XAllocBlk, next line...
+       dup sizemem  1024 +   0 swap xallocblk   ( oldblk newblk -- )
+       over freebyte over freebytea !          ( oldblk newblk -- )
+       over freebyte  0
+       DO   over i + @   over i + !   cell
+      +LOOP swap absrelocs @ 3 cells +  >rel  over -
+       IF   freeblock  ( free the old )
+       ELSE drop ( don't free what I didn't allocate )
+       THEN ( newblk -- )
+       dup relocs !  dup relocs +boots !
+  THEN 
+  push    1 #relocs +!
+; ' pushreloc 'pushreloc !
+
+
+: (LongCFA,)   ( pfa -- )
+  $ 4eb9  w,        \ the opcode for the3 'JSR.L'
+  here PushReloc    \ relative address of the reloc point
+  >abs ,            \ comma in the real runtime address
+;
+
+' (LongCFA,) is longcfa,
+
+: BYE    ( -- )
+  relocs @  -dup
+  IF   absrelocs @ 3 cells +  >rel  over -
+       IF   Xfreeblk  ( free the old )
+       ELSE drop ( don't free what I didn't allocate )
+       THEN
+  then bye
+;

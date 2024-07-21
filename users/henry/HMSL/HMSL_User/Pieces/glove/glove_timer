@@ -1,0 +1,104 @@
+\ Timer for glove delay: from timer.c, in JForth
+\ Construct a usec timer in JForth, using the timer.device
+
+\ Author: rnm 11/25/91
+\ Copyright (©) Robert Marsanyi 1991
+
+include? VALUE ju:value
+include? doIO() ju:Exec_Support
+include? timeval ji:devices/timer.j
+anew task-glove_timer
+
+\ Data structures
+
+0 VALUE GloveTimeRequest
+0 VALUE GloveReplyPort
+
+\ Open the timer
+
+: OpenTimer ( -- , open the device, handle errors )
+	TIMERNAME				( name )
+	UNIT_MICROHZ			( usec timer )
+	GloveTimeRequest		( my msg block )
+	0
+	OpenDevice()
+	0= NOT IF
+		abort" OpenTimer: couldn't open"
+	THEN
+;
+
+: InitRequest ( -- , set parameters into GloveTimeRequest )
+	NT_MESSAGE	GloveTimeRequest .. tr_node ..! ln_Type
+	0			GloveTimeRequest .. tr_node ..! ln_Pri
+	NULL		GloveTimeRequest .. tr_node ..! ln_Name
+;
+
+: CreateTimerIO ( -- timer_rb , allocate extra for timer stuff )
+	MEMF_PUBLIC MEMF_CLEAR | sizeof() timerequest allocblock
+;
+
+: AllocTimer ( -- , create message port and rb )
+	GloveReplyPort 0= IF
+		0 0 CreatePort() ?dup IF
+			-> GloveReplyPort
+		ELSE
+			abort" AllocTimer: couldn't allocate a message port"
+		THEN
+	THEN
+	GloveTimeRequest 0= IF
+		CreateTimerIO ?dup IF
+			-> GloveTimeRequest
+		ELSE
+			abort" AllocTimer: couldn't allocate the timer rb"
+		THEN
+	THEN
+	GloveReplyPort >abs GloveTimeRequest .. tr_node ..! mn_ReplyPort
+;
+
+\ Delay for n usec
+
+: usec ( usec -- , set value into structure and call )
+	dup 2 < IF drop ELSE
+		TR_ADDREQUEST GloveTimeRequest .. tr_node ..! io_Command
+		1000000 /MOD  GloveTimeRequest .. tr_time ..! tv_secs
+					  GloveTimeRequest .. tr_time ..! tv_micro
+		GloveTimeRequest
+		DoIO() drop
+	THEN
+;
+
+\ Close it
+
+: DeleteTimerIO ( timer_rb -- , shoot it )
+	FreeBlock
+;
+
+: DeallocTimer ( -- , free port and rb, if needed )
+	GloveTimeRequest ?dup IF
+		DeleteTimerIO
+		0 -> GloveTimeRequest
+	THEN
+	GloveReplyPort ?dup IF
+		DeletePort()
+		0 -> GloveReplyPort
+	THEN
+;
+
+: CloseTimer ( -- , close the access )
+	GloveTimeRequest CloseDevice()
+	DeallocTimer
+;
+
+\ Init and Term
+
+: gt.init
+	AllocTimer
+	InitRequest
+	OpenTimer
+;
+
+: gt.term
+	CloseTimer
+;
+
+

@@ -1,0 +1,897 @@
+
+\ btd sept 30 86.  fixed odd adr crash, tabs, added cycle calc.
+\ 36 sec to compiler from floppy, 28 sec from ram disk.  14,200 bytes. 
+
+\ 02-jan-87  mdh  for 1.1 ... NIB4:14 checks if calling thru +64k or ORG before
+\                 deciding it is calling within the kernal.  Also, modified
+\                 to decode both in DEF.  Also, DEF resets DISM-ORIGIN.
+
+\ 05-oct-87  mdh  fixed many problems...relative branch addresses now show
+\                 correct value based on DISM-ORIGIN...added RELDISM so that
+\                 an address can be DISM'ed relative to another address...
+\                 fixed JSR ABS.L to print the called name, if appropriate...
+\                 DC.W was not being initialized correctly; if seen, could
+\                 screw up next opcode.
+
+\ 27-may-88  mdh  NIB11 was using wrong value for checking cmpm.
+
+\ 27-feb-89  mdh  NIB4:4 printed MOVE <EA>,ccr arguments in wrong order
+
+\ 01-mar-89  mdh  re-instated '.w' size in word arguments (Why taken out?)
+
+\ 21-may-89  mdh  LINK must set word-size for operand data (nib4-reg)
+
+\ 05-aug-89  mdh  Print ascii values for opcodes if DISM-CYCLES off.
+
+\ 00001 25-sep-91 mdh     fix NIB14
+\ 00002 30-nov-91 mdh     incorporate Marty Kees' 68881 support
+\ 00003 26-dec-91 mdh     some words to FORTH vocab, better DISM control
+\ 00004 03-jan-92 mdh/plb removed OF ... ELSE abortions
+\ 00005 25-jan-92 mdh     remover USER definitions
+
+
+\ ********************** OK, lets get all our tools  ***********************
+FALSE .IF
+    known bugs: - some timings are inexact. off by as much as 4 cycles.
+.THEN
+  
+FORTH DEFINITIONS
+INCLUDE? CONDITION jf:CONDITION
+INCLUDE? @BITS jf:@BITS
+INCLUDE? SELECT jf:SELECT
+INCLUDE? $TABLE jf:$TABLE
+
+DECIMAL
+
+anew TASK-DISM
+
+: dism-words ;
+
+.NEED B->S
+: B->S   ( BYTE--- N ) 255 AND DUP 127 >
+      IF [ 127 COMP ] LITERAL OR   THEN ;
+.THEN
+
+.NEED >FIG-FLAG
+: >FIG-FLAG ( FLAG --- FIG-FLAG-1-OR-0 )  IF 1 ELSE 0 THEN ;
+.THEN
+
+.NEED ?EVEN
+: ?EVEN  ( ADR --- EVEN-ADR )  ( and a warning if odd ) DUP 1 AND 
+       IF   CR ." garbage odd address.  incrementing to even" 1+ CR 
+       THEN ;
+.THEN
+
+.NEED FIG-VAR
+: FIG-VAR  ( INIT-VALUE --- )  ( WORD --IN-- )
+   [] variable ( 00005 )  LATEST   NAME>   EXECUTE  ! ;
+.THEN
+
+
+.NEED COLUMN
+: COLUMN ( column --- )  dup out @ <
+  IF   CR
+  THEN OUT @ - ABS SPACES ; 
+.THEN 
+
+\ ********************** ready to start for real! ***********************
+
+ONLY FORTH DEFINITIONS 
+
+\ start 00003 -- moved to FORTH so 'showhunks' can use DISASSEM.MOD
+( 00005 )  variable DISM-ORIGIN 
+true fig-var .REGNAMES?
+( 00005 )  variable  SHOW-CYCLES  SHOW-CYCLES ON
+\ end 00003
+
+EXISTS? UNCODE
+.IF    FORGET UNCODE 
+.THEN
+
+VOCABULARY UNCODE IMMEDIATE
+
+ALSO  FORTH
+UNCODE DEFINITIONS
+
+DECIMAL
+0 FIG-VAR DISM-ADR
+0 FIG-VAR DISM-SIZE      0 FIG-VAR DISM-DONE
+0 FIG-VAR HIGH-BRANCH    0 FIG-VAR START-ADR
+-1 U2/ FIG-VAR LOW-BRANCH
+0 FIG-VAR NEW-DISM-ADR
+
+ 6 FIG-VAR  ADR.R
+ 8 FIG-VAR  OPCODE-COL   
+16 FIG-VAR  ARG-COL 
+43 FIG-VAR  CODE-COL 
+60 FIG-VAR  CYCLE-COL 
+74 FIG-VAR  FINAL-COL 
+
+: >ARG  ( --- )  ARG-COL @ COLUMN ;
+
+( 00005 )  variable  #CYCLES
+( 00005 )  variable  #CYCLES/
+: +CYCLES  ( N --- )  #CYCLES +! ;
+: +LONG  ( N --- )  ( add 4 cycles if size long )  DISM-SIZE @ 2 = 
+      IF 4 +  THEN +CYCLES ;
+
+: LONG?  ( --- FLAG ) DISM-SIZE @ 2 = ; 
+: +CYCLES/  ( N --- ) #CYCLES/ +! ;
+: +IF-LONG ( CYCLES +IF-LONG --- )  LONG? 
+      IF    + 
+      ELSE  DROP
+      THEN  +CYCLES ;
+
+( 00005 )  variable  MEM
+: IS-MEM  ( --- )  MEM ON ;
+( 00005 )  variable  APPROX
+: +MEM  ( CYCLE --- )  MEM @ IF DUP +CYCLES THEN DROP  ;
+
+: DONE? ( -- )  HIGH-BRANCH @    DISM-ADR @ >  NOT  DISM-DONE !  ;
+
+DECIMAL
+0 FIG-VAR OPCODE
+: OPP  ( --- OPP-WORD )  OPCODE @ ;
+
+: @OPP-BITS  ( OFF #BITS--- N ) >R >R OPP R> R> @BITS ;
+: OPP-BIT?  ( BIT# --- FLAG ) OPP SWAP BIT-SET? >FIG-FLAG  ;
+: OPP-BITS? CREATE ( BIT# --- )  ,
+        DOES>  ( <PFA> --- FLAG )    @ OPP-BIT? >FIG-FLAG  ;
+
+8   OPP-BITS?    8?
+6   OPP-BITS?    6?
+7   OPP-BITS?    7?
+5   OPP-BITS?    5?
+3   OPP-BITS?    3?
+
+: 6&7   ( --- VAL )  6 2 @OPP-BITS ;
+: 6&7?   ( --- FLAG )  6&7 3 = ;
+: OPP/9  ( --- OPP/9  )  OPP 9 -shift ;
+: OPP/6  ( --- OPP/6  )  OPP 6 -shift ;
+: OPP/3  ( --- OPP/3  )  OPP 3 -shift ;
+
+: A2+  ( --- ) 2 DISM-ADR @ + ?EVEN DISM-ADR ! ;
+: PAR1 ( --- paramter1 )  DISM-ADR @ 2+ W@ W->S ;
+: .#  ." #" ;
+: BIN.#  ( --- )  ( binary .IMM , byte-size )
+    ." #%" PAR1   0 .R        A2+   ;
+
+: .,  ( --- )  ." ," ;
+
+\ : CHECK-EA-ABS  ( -- flag , check for valid effective address combos )
+\   3 3 @opp-bits 7 =
+\   IF    0 3 @opp-bits 2 <
+\   ELSE  true
+\   THEN  ;
+\ 
+\ : CHECK-EA-&PC  ( -- flag , check for valid effective address combos )
+\   3 3 @opp-bits 7 =
+\   IF    0 3 @opp-bits 5 <
+\   ELSE  true
+\   THEN  ;
+
+DECIMAL
+: SET-SIZE  ( --- ) 6 2 @OPP-BITS  DISM-SIZE ! ;
+
+4 $TABLE SIZE-TEXT  ".b" ".w" ".l" "?"
+: SIZE$  SIZE-TEXT  >ARG  ;
+: .SIZE  ( --- ) DISM-SIZE @ 3 MIN SIZE$  ;
+
+: .LONG  2 SIZE$  ;
+: .WORD  1 SIZE$  ;
+: .BYTE  0 SIZE$  ;
+
+DECIMAL
+: .BASE-CHAR  ( --- )  BASE @
+    CASE   16  OF ." $"   ENDOF
+            2  OF ." %"   ENDOF
+    ENDCASE  ;
+
+: .IMM  ( --- )  .#   .BASE-CHAR
+     DISM-ADR @ 2+  DISM-SIZE @
+     CASE   0   OF  1+   C@    B->S   ENDOF
+            1   OF  W@   W->S         ENDOF
+            2   OF  @    A2+          ENDOF
+     ENDCASE  A2+  0 .R    4 +LONG       ;
+
+DECIMAL
+8 $TABLE AREGS
+     "a0"     "a1"     "loc"    "+64k"   "org"     "up"   "dsp"   "rp"
+8 $TABLE AREGS-68K
+     "a0"     "a1"     "a2"     "a3"     "a4"      "a5"   "a6"    "a7"
+8 $TABLE DREGS
+     "d0"     "d1"     "d2"     "d3"     "d4"    "iloop" "jloop"  "tos"
+8 $TABLE DREGS-68K
+     "d0"     "d1"     "d2"     "d3"     "d4"      "d5"   "d6"    "d7"
+
+DECIMAL
+: .AREG  ( opp --- )   7 AND  .REGNAMES? @
+  IF   AREGS
+  ELSE AREGS-68K
+  THEN  ;
+: .DREG  ( opp --- )   7 AND  .REGNAMES? @
+  IF   DREGS
+  ELSE DREGS-68K
+  THEN  ;
+
+\ 0 CONSTANT DUMMY \ named dummy value for such functions as endcase
+\ : .DREG  ( 0-7 --- )   7 AND  
+\     CASE    7  OF  ." TOS"   ENDOF
+\             6  OF  ." LOOP2" ENDOF
+\             5  OF  ." LOOP1" ENDOF 
+\       ." D"  0  .R   DUMMY 
+\     ENDCASE  ;
+
+: .(  ." ("  ;
+
+: .)  ." )"  ;
+: .AN     ( opp --- )  .AREG     ;
+: .A@     ( opp --- )  .( .AREG .)      4 +CYCLES IS-MEM  ;
+: .A@+    ( opp --- )  .( .AREG ." )+"  4 +CYCLES IS-MEM  ;
+: .-A@   ( opp --  )  ." -(" .AREG .)   6 +CYCLES IS-MEM  ;
+: .NUM ( n --- )   .BASE-CHAR  0 .R     ;
+
+FALSE FIG-VAR DC.W?
+: .DW   ( --- )
+  BEGIN  out @  opcode-col @ >
+  WHILE  bsout @ emit
+  REPEAT ." dc.w " >ARG  OPP .num   DC.W? ON    ;
+
+: .PAR1-SIZE ( --- )   PAR1 11 BIT-SET?
+   IF    ." .l"
+   else  ." .w"
+   THEN    ;
+
+DECIMAL
+
+: IN-DICT?   ( adr -- flag , true if in side image and valid nfa )
+  >R  R 0< NOT   R HERE <     AND
+  R>  >NAME  VALID-NAME? AND  ;
+
+: .ADR  ( ADR --- )  ( ." ADR" )  DISM-ORIGIN  @ -  ADR.R @ .R   ;
+
+FALSE FIG-VAR DOING-CALL
+: .CALLED-NAME?  ( cfa -- , IF calling a cfa, print name )
+  DOING-CALL @  .REGNAMES? @ AND  DISM-ORIGIN @ 0= AND
+  IF   OPP JSR+64K-CODE =
+       IF  $ 1,0000 +
+       THEN DUP IN-DICT?
+       IF   DUP ."  = " >NAME ID.
+       THEN
+  THEN DROP  ;
+
+: .ARGS-ADR  ( ADR -- )   \  (this is ABSOLUTE!)  DISM-ORIGIN @ -
+  BL  ARG-COL @  EMIT-TO-COLUMN DUP .NUM
+  dism-origin @ -  .CALLED-NAME?   ;   
+
+: .ARGS-RELADR  ( ADR -- )    DISM-ORIGIN @ -
+  BL  ARG-COL @  EMIT-TO-COLUMN DUP .NUM
+  dism-origin @ -  .CALLED-NAME?   ;   
+
+DECIMAL
+: .,R)  ( --- )  .,  PAR1 12 3 @BITS  PAR1 15 BIT-SET? ( OPP-BIT?  ) 
+   IF    .AREG
+   ELSE  .DREG
+   THEN  .PAR1-SIZE  .)  ;
+
+: .AN+W    ( opp --- )   PAR1  .NUM  .A@ 
+  DISM-ADR @ 2+ W@ W->S    .CALLED-NAME?
+  A2+  4 +LONG  IS-MEM  ;
+
+: .PAR1   ( --- )  PAR1  B->S .NUM ;
+
+: .AN+R+B  ( opp--- ) .PAR1  .( .AREG   .,R)
+  A2+  10 +CYCLES IS-MEM  ;
+
+: .PC+R+B  (  --- )   .PAR1  ." (pc"    .,r)    A2+  10 +CYCLES IS-MEM ;
+
+: .PC+W (  --- )    PAR1 .NUM  ." (pc)"   A2+   8 +CYCLES IS-MEM ;
+
+: .ABS.W  ( --- )  PAR1
+  >rel .ARGS-RELADR  ." .w"  A2+   8 +CYCLES IS-MEM ;
+
+: .ABS.L ( --- )  DISM-ADR @ 2+ @ \ dup   .ARGS-ADR  >rel .CALLED-NAME?
+  >rel .ARGS-RELADR  4 DISM-ADR +!  12 +CYCLES  ;
+
+: .EXT   ( OPP --- )   7  AND
+      SELECT      .ABS.W .ABS.L .PC+W .PC+R+B   .IMM  .DW  .DW  .DW
+      END-SELECT   ( --- )  ;
+
+: .SOURCE  ( --- )  OPP     3 3  @OPP-BITS
+      SELECT     .DREG     .AN       .A@       .A@+
+                 .-A@      .AN+W     .AN+R+B   .EXT
+      END-SELECT  ( opp selector--- )  ;
+
+: ,SOURCE  ., .SOURCE ;
+
+: ,AREG    ., .AREG  ;
+
+: ,DREG    ., .DREG  ;
+
+FALSE FIG-VAR .ED-M
+: ?., (  --- )  .ED-M @ IF .,      THEN .ED-M  ON  ;
+: ?./ (  --- )  .ED-M @ IF   ." /" THEN .ED-M  ON  ;
+
+DECIMAL 
+: dismCR?  ( --- )   OUT @ CODE-COL @ 3 - > 
+    IF    CR  ARG-COL @ COLUMN   
+    THEN ;
+
+variable laston  variable lastoff  variable leadchar
+variable #seq    variable rtype    variable #mcyc
+variable dstart  variable astart   variable .movr'd
+
+: .MOVR  ( reg# -- )  rtype @ ascii a -
+  IF   .dreg
+  ELSE .areg
+  THEN .movr'd on dismcr? ;
+
+: .leadchar  ( -- )
+  leadchar @ ?dup
+  IF
+     .movr'd @
+     IF
+        dup emit
+     THEN
+     drop
+  THEN
+;
+
+: .on  ( #b -- ) dup laston @ - 1-
+  IF   .leadchar  dup .movr  ascii - leadchar !  #seq off
+  ELSE 1 #seq +!
+  THEN laston !  #mcyc @ dup +IF-LONG  ;
+
+: .off ( #b -- )  dup lastoff @ - 1-
+  IF   #seq @
+       IF   .leadchar  laston @ .movr
+       THEN   ascii / leadchar !
+  THEN lastoff !  0 #seq !  ;
+
+: initmovm   ( char -- )  rtype !
+  -10 laston !  -1 lastoff !  leadchar off #seq off  ;
+
+: ?last  lastoff @ 2+ .off   ;
+
+: .REGLIST  ( par #cycles A-start D-start --- )
+  dstart !  astart !  #mcyc !    ascii d  .movr'd off  initmovm   8 0  
+  DO   dup  dstart @ i - abs bit-set?  i swap
+       IF    .on
+       ELSE  .off
+       THEN
+  LOOP ?last  8 0  ascii a initmovm  ascii / leadchar !
+  DO   dup  astart @ i - abs bit-set?  i swap
+       IF    .on
+       ELSE  .off
+       THEN
+  LOOP ?last  DROP    ;   DECIMAL
+
+: .MOVEM  ( --- )  .ED-M OFF  PAR1  3 3 @OPP-BITS 4 =
+  IF   ( A7-A0,D7-D0 )  4  7 15
+  ELSE ( d0-d7,a0-a7 )  5 -8  0
+  THEN .reglist  a2+  ;
+
+
+: NIB4:0   ( --- )   6&7?
+     IF     ." move"  .WORD   ." sr,"   6   +CYCLES 
+     ELSE   ." negx"  .size             4 2 +IF-LONG 
+     THEN  .SOURCE  ;
+
+: DISM-CLR  (  --- )  ." clr"  .SIZE  .SOURCE  4 2 +IF-LONG ;
+
+: NIB4:4  (  --- )    6&7?
+     IF     ." move" .WORD  .SOURCE  ." ,ccr"  ( WRONG? ) 12 +CYCLES
+     ELSE   ." neg"  .SIZE  4 2 +IF-LONG .SOURCE
+     THEN   ;
+
+: NIB4:6   ( --- )   6&7?
+     IF      ." move"  .WORD  .SOURCE  ." ,sr"  12 +CYCLES
+     ELSE    ." not"   .LONG  .SOURCE           6  +CYCLES  2 +MEM   
+     THEN      ;
+
+: NIB4:8  ( --- )  6&7
+  CASE
+   0  OF     ." nbcd"   .BYTE   .SOURCE 6 +CYCLES   2 +MEM  ENDOF
+   1  OF     ." pea"  ( .LONG ) >arg .SOURCE 4 +CYCLES           ENDOF
+   ." movem" 6? 1+  SIZE$      
+    .MOVEM  ., .SOURCE         12   +CYCLES     
+  ENDCASE     ;
+
+: NIB4:10  (  --- )   6&7?
+    IF      ." tas"  .BYTE       6 +MEM  
+    ELSE    ." tst"  6&7 SIZE$    
+    THEN  .SOURCE   4 +CYCLES ;
+
+: NIB4:14   (  --- )  7?
+   IF  6?   2 DISM-SIZE ! 
+       IF    ." jmp"   DONE?   APPROX ON  
+       ELSE  ." jsr"   8 +CYCLES
+             \ check if doing a call thru +64k or ORG
+             3 3 @OPP-BITS 5 =
+             0 3 @OPP-BITS dup 3 = swap 4 = or  ( -- an+w-flag a3-or-a4-flag )
+             AND opp $ 4eb9 = or  DOING-CALL !
+       THEN  ( .LONG ) >arg .SOURCE
+   ELSE   0 4 @OPP-BITS      ." trap"  >ARG  .#  .NUM
+   THEN  ;
+
+: NIB4:12  (  --- ) ( opp,movem-mask,ext)
+   ." movem"  6?  1+   SIZE$    8 +CYCLES  
+   DISM-ADR @ >R    (   6?  )  A2+ .SOURCE
+   R> DISM-ADR @ >R DISM-ADR !  .,    .MOVEM  
+   R> DISM-ADR !  ;
+
+: NIB4-UNIQUE  (  --- )    OPP/9 6?
+  IF      ." lea"  >ARG    .SOURCE ,AREG    APPROX ON 
+  ELSE    ." chk.w"  >ARG  OPP $ 3f and  $ 3c =
+          IF
+             1 DISM-SIZE !  ( set WORD size )
+          THEN
+          .SOURCE ,DREG   8 +CYCLES
+  THEN   ;
+
+: NIB4-SPECIAL ( --- ) 
+   OPP $ 100  AND
+   IF    NIB4-UNIQUE
+   ELSE  ( JMP )  9 3 @OPP-BITS
+          SELECT      NIB4:0    DISM-CLR    NIB4:4    NIB4:6
+                      NIB4:8    NIB4:10     NIB4:12   NIB4:14
+          END-SELECT
+   THEN ;
+
+DECIMAL
+: .NIB4-REG     ( --- )  OPP DUP   $ FFF8 AND CASE
+  $ 4E68  OF    ." move"  >ARG  ." usp,"   .AREG   6 +CYCLES 2 +MEM  ENDOF
+  $ 4E60  OF    ." move"  >ARG  .AREG    ." ,usp"  4 +CYCLES         ENDOF
+  $ 4E58  OF    ." unlk"  >ARG  .AREG             12 +CYCLES         ENDOF
+  $ 4880  OF    ." ext"  .WORD .DREG              4 +CYCLES         ENDOF
+  $ 4E50  OF    ." link"  >ARG  .AREG .,
+                1 dism-size !   .IMM  18 +CYCLES         ENDOF
+  $ 4840  OF    ." swap"  >ARG  .DREG              4 +CYCLES         ENDOF
+  $ 48C0  OF    ." ext"  .LONG .DREG              4 +CYCLES         ENDOF
+     DROP  NIB4-SPECIAL
+  ENDCASE  ;
+DECIMAL
+
+DECIMAL
+: NIB4  ( --- )   OPP
+CASE  
+  $ 4E76  OF  ." trapv"                4 +CYCLES  ( 34 +IF )  ENDOF
+  $ 4E75  OF  ." rts"           DONE? 16 +CYCLES          ENDOF
+  $ 4E73  OF  ." rte"           DONE? 20 +CYCLES          ENDOF
+  $ 4E72  OF  ." stop"   BIN.#  DONE?  4 +CYCLES          ENDOF
+  $ 4E70  OF  ." reset"              123 +CYCLES          ENDOF
+  $ 4E71  OF  ." nop"                  4 +CYCLES          ENDOF
+  $ 4E77  OF  ." rtr"           DONE? 20 +CYCLES          ENDOF
+  $ 4AFA  OF  ." illegal"             34 +CYCLES          ENDOF
+  $ 4AFB  OF  ." illegal"             34 +CYCLES          ENDOF
+  $ 4AFC  OF  ." illegal"             34 +CYCLES          ENDOF
+      .NIB4-REG
+ENDCASE  ;
+
+: .DEST  ( --- )  OPP  >R
+       9 3 @OPP-BITS    OPP/3  $ 38 AND     OR
+       OPCODE !   ,SOURCE R> OPCODE  !  ;
+
+DECIMAL
+: NIB1-3   ( --- )  12 2 @OPP-BITS  4 +CYCLES 
+   CASE  1 OF  0  ENDOF  
+         2 OF  2  ENDOF
+         3 OF  1  ENDOF
+       ." illegal move size "  decimal QUIT
+   ENDCASE   DISM-SIZE !    
+     ." move"  .SIZE
+   .SOURCE DC.W? @ NOT
+   IF  .DEST  
+   THEN   4 +MEM    ;
+
+4 $TABLE  DYN$  "btst"   "bchg"  "bclr"  "bset"
+
+: .STAT-BIT  ( --)  0 dism-size !  6&7  DYN$ >ARG
+  .IMM ( A2+ -- removed 1/24/87 mdh )
+  ,SOURCE ;
+
+: NIB0-UNIQUE  ( --- )
+  CONDITION   3 3 @OPP-BITS 1 =
+      IF    ." movep"   OPP/9  OPP 6? 1+  DISM-SIZE ! .SIZE 7?
+            IF    ( REG=>MEM )  .DREG  .,  .AN+W
+            ELSE    .AN+W  ,DREG
+            THEN   16 8 +IF-LONG 
+      ELSE  8?
+      IF    6&7 DYN$ >ARG OPP/9 .DREG ,SOURCE  6 2 +IF-LONG  2 +CYCLES/
+      ELSE   ." eori"  .SIZE  .IMM ,SOURCE  8 8 +IF-LONG  4 +MEM 
+   ENDCOND  ;
+
+7 $TABLE   NIB0$    "or"  "and"  "sub"   "add"  "???"  "eor"  "cmp"
+
+: NIB0-DEST  ( --- )  9 3 @OPP-BITS  NIB0$
+   .SIZE  .IMM    ,SOURCE  8 8 +IF-LONG  4 +MEM    ;
+
+: NIB0   ( --- )   OPP 
+  CASE   
+   $  3C  OF    ." or"    .BYTE   BIN.# ." ,ccr" ENDOF
+   $  7C  OF    ." or"    .WORD   BIN.# ." ,sr"  ENDOF
+   $ 23C  OF    ." and"   .BYTE   BIN.# ." ,ccr" ENDOF
+   $ 27C  OF    ." and"   .WORD   BIN.# ." ,sr"  ENDOF
+   $ A3C  OF    ." eor"   .BYTE   BIN.# ." ,ccr" ENDOF
+   $ A7C  OF    ." eor"   .WORD   BIN.# ." ,sr"  ENDOF
+     8 4 @OPP-BITS
+      SELECT  NIB0-DEST  NIB0-UNIQUE  NIB0-DEST   NIB0-UNIQUE
+              NIB0-DEST  NIB0-DEST    NIB0-DEST   NIB0-UNIQUE
+              .STAT-BIT  NIB0-UNIQUE  NIB0-UNIQUE NIB0-UNIQUE
+              NIB0-DEST  NIB0-UNIQUE  NIB0-UNIQUE NIB0-UNIQUE
+      END-SELECT  DROP EXIT 
+  ENDCASE  [ DECIMAL ] 20 +CYCLES  ;
+
+DECIMAL 
+16 $TABLE .COND$  "ra" "f" "hi" "ls" "cc" "cs" "ne" "eq" "vc" "vs" "pl" "mi" "ge" "lt" "gt" "le"
+
+
+: .COND  ( --- )  8 4 @OPP-BITS  .COND$  ;
+
+: SET-HIGH-BRANCH ( ADR --- )  HIGH-BRANCH @ MAX HIGH-BRANCH ! ; 
+
+: UNCOND-BRA?  ( ADR --- ) >R R  DISM-ADR @ - 50 >
+    DONE?  DISM-DONE @   AND  DISM-DONE !
+    R@  START-ADR @ < DISM-DONE !  R> SET-HIGH-BRANCH  ;
+
+: COND-BRA?  ( ADDR --- )   8 4 @OPP-BITS
+  IF     SET-HIGH-BRANCH
+  ELSE   UNCOND-BRA?
+  THEN ;
+
+: NIB5   ( --- )   6&7?
+  IF   ( DBCC OR SCC ) OPP  [ BINARY ]  111000 AND 1000 =
+         IF    ." db" .COND  .WORD  OPP .DREG  [ DECIMAL ]
+               PAR1  DISM-ADR @  +  2+  DUP COND-BRA? ., .ARGS-RELADR
+               A2+     10 +CYCLES ( 4 +DID'NT ) 
+         ELSE  ." s" .COND >ARG  .SOURCE 4 2 +IF-LONG  APPROX ON
+         THEN
+  ELSE  ( QUICK )  8?
+        IF    ." subq"   
+        ELSE  ." addq"  
+        THEN  .SIZE  9 3 @OPP-BITS DUP 0=
+        IF      8 +
+        THEN    .# .NUM   ,SOURCE   4 +LONG  4 +MEM  ( +4 AN ) APPROX ON  
+        ( : 2 +MEM-IF-LONG  4 +IF-AN ) 
+  THEN  ;
+
+: NIB6   ( --- )
+   OPP 255 AND 0=
+   IF    PAR1   A2+  1 DISM-SIZE !
+   ELSE  OPP B->S 2+  0 DISM-SIZE !
+   THEN   ( bra-offset )  DISM-ADR @ +  ( DISM-SIZE @ 2* + )
+   ( ABS-ADR )   8 4 @OPP-BITS  1 =
+   IF    ." bsr"       DOING-CALL ON        18 +CYCLES
+   ELSE  ." b" .COND   DUP    COND-BRA?     10 +CYCLES  ( -2 +2 IF-LONG-DID'T)
+   THEN  DISM-SIZE @ 
+   IF    ." .l"
+   ELSE  ." .s"
+   THEN  .ARGS-RELADR  ;
+
+: .MOVEQ  ( --- )  ." moveq.l" >ARG OPP 255 AND B->S ascii # emit .NUM
+     OPP/9  ,DREG  4 +CYCLES    ;
+
+DECIMAL
+: NIB8  ( --- )
+   6&7?
+   IF     8?  ." div" 
+          IF    ASCII s 158 +CYCLES  
+          ELSE  ASCII u 140 +CYCLES 
+          THEN  EMIT >ARG  1 dism-size !  .SOURCE  OPP/9  ,DREG   
+   ELSE    OPP $ 1F0 AND $ 100 = 
+          IF    ." sbcd"  .BYTE OPP/9 OPP  3?
+                IF     .-A@  .,  .-A@ 18 
+                ELSE  .DREG  ,DREG     8
+                THEN  +CYCLES 
+          ELSE  ." or" .SIZE   OPP/9   8?
+                IF     .DREG    ,SOURCE   8 2 
+                ELSE   .SOURCE  ,DREG     4 2 
+                THEN   +IF-LONG 
+          THEN
+   THEN     ;
+
+: NIB9  ( --- ) OPP/9
+  CONDITION OPP $ C0 AND $ C0 =  ( OPP/9  FLAG )
+    IF    ." suba"   8?  1+ DISM-SIZE ! .SIZE  .SOURCE ,AREG 
+          8 +CYCLES  -2 +MEM     
+    ELSE  OPP $ 130 AND $ 100 =  ( OP/9 FLAG )    8 +CYCLES  APPROX ON 
+    IF   ." subx" .SIZE   OPP  3?
+         IF      .-A@   .,   .-A@  [ DECIMAL ]     18 12  
+         ELSE   .DREG ,DREG                         4 4  
+         THEN   +IF-LONG 
+    ELSE   ." sub" .SIZE     8? NOT
+           IF   ( => EA )  .SOURCE  ,DREG  4 2     
+           ELSE  ( ->DN )  .DREG  ,SOURCE  4 2  ( +2 IF DN )  APPROX ON
+           THEN  +IF-LONG 
+  ENDCOND   ;
+
+: NIB11  ( --- ) OPP/9
+ CONDITION  6 2 @OPP-BITS  3 =
+     IF    ." cmpa"  8? 1+ DISM-SIZE ! .SIZE  .SOURCE ,AREG  6 +CYCLES 
+     ELSE  8?   NOT
+     IF    ." cmp"  .SIZE .SOURCE  ,DREG   4 2 +IF-LONG
+     ELSE  3 3 @OPP-BITS 1 =
+     IF    ." cmpm"  .SIZE  OPP   .A@+  .,  .A@+  12 8 +IF-LONG    
+     ELSE   ." eor"  .SIZE .DREG ,SOURCE    8 4 +IF-LONG 
+ ENDCOND ;
+
+DECIMAL
+: .MUL  (  --- )  OPP/9   6&7?
+    IF    8?
+         IF     ." muls"   
+         ELSE   ." mulu"
+         THEN    >ARG .SOURCE ,DREG  70 +CYCLES
+    ELSE  8?  ." and"  .SIZE
+        IF     .DREG  ,SOURCE  8 4 
+        ELSE   .SOURCE ,DREG   4 2  
+        THEN   +IF-LONG 
+    THEN  ;
+
+: .EXG    ." exg" >ARG ;
+
+: NIB12  ( --- ) OPP/9 OPP   DUP $ 1F8 AND
+  CASE
+    $ 188  OF  .EXG  .AREG ,DREG  ENDOF
+    $ 148  OF  .EXG  .AREG ,AREG  ENDOF
+    $ 140  OF  .EXG  .DREG ,DREG  ENDOF
+      >R  ( OP-9-ROT OPP  )  OPP   $ 1F0 AND $ 100 =
+      IF   3?    ." abcd"  .BYTE  ( ... op9-rot opp flag )
+           IF      .-A@ .,  .-A@  [ DECIMAL ]  18 
+           ELSE  .DREG ,DREG  8   
+           THEN  +CYCLES 
+      ELSE  DDROP .MUL
+      THEN  RDROP EXIT 
+   ENDCASE  6 +CYCLES ;
+
+\ 00001 fix "rot" -> "ro"
+4 $TABLE  .ROT$  "as"  "ls" "rox" "ro"
+
+: .ROTLR  ( --- )   3 AND  .ROT$  8?
+    IF    ASCII l  
+    ELSE  ASCII r   
+    THEN  EMIT  ;
+
+: NIB14 (  --- ) 6&7?
+    IF    OPP/9  .ROTLR  1 size$ ( 00001 ) .SOURCE
+          8 +CYCLES
+    ELSE  OPP/3  .ROTLR  .SIZE  ( REG )  OPP/9  5?
+          IF    .DREG             
+          ELSE  7 AND  .#  .NUM   
+          THEN   OPP ,DREG   6 2 +IF-LONG 
+   THEN   ;
+
+DECIMAL
+: NIB13  ( --- ) OPP/9
+ CONDITION  OPP $ C0 AND $ C0 =  ( OPP/9  FLAG )
+   IF    ." adda"  8? 1+ DISM-SIZE ! .SIZE  .SOURCE ,AREG  
+         8 +CYCLES  -2 +MEM 
+   ELSE  OPP  $ 130 AND $ 100 =
+   IF      ." addx"  .SIZE  ( OP/9 ) OPP  3?
+           IF      .-A@  .,   .-A@   18 12 
+           ELSE  .DREG      ,DREG         4   4 
+           THEN   +IF-LONG 
+   ELSE    ." add"  .SIZE   8?
+           IF    ( ->DN )   .DREG   ,SOURCE  4 2 ( +2 IF DN )  APPROX ON 
+           ELSE  ( => EA )  .SOURCE ,DREG    4 2  
+           THEN   +IF-LONG 
+   ENDCOND  ;
+
+DECIMAL 16 FIG-VAR DISM-BASE
+UNCODE DEFINITIONS
+TRUE FIG-VAR .DISM#
+
+: .ADDRESS   ( --- ) ( .DISM# @ )
+    ( IF )   BASE @ >R DISM-BASE @ BASE !  CR 0 OUT !
+             DISM-ADR @ .ADR    R> BASE !
+    ( THEN ) OPCODE-COL @ COLUMN  ;
+
+: .16bit ( n1 -- )
+  4 0
+  DO    dup $ f000 and  -12 shift .hx  4 shift
+  LOOP  drop  ;
+
+: .CODES ( ADR --- )  .DISM# @
+    IF    CODE-COL @ COLUMN     DISM-ADR @ SWAP
+          DO       I W@  ( 5 .R )  space .16bit
+          2 +LOOP  
+    ELSE DROP
+    THEN  ;
+
+: .:   ( --- )  ." :" ;
+variable  CLOCK 7 CLOCK ! 
+variable  TOTAL-CYCLES 
+
+: .CYCLES  ( op-adr --- )
+  CYCLE-COL @ COLUMN
+  SHOW-CYCLES @
+  IF
+     drop  ( -- )  .(  #CYCLES @ 2 .R  #CYCLES/ @ DUP 
+     IF
+        DUP  ." +" 0 .R ." /" 
+     THEN
+     DROP .: #CYCLES @ TOTAL-CYCLES @ + 
+     DUP TOTAL-CYCLES !    3 .R   TOTAL-CYCLES @ CLOCK @ / .: 2 .R  
+     .) APPROX @
+     IF
+        ASCII ? EMIT      
+     THEN ( FINAL-COL @ COLUMN )
+  ELSE
+     ascii " emit
+     dism-adr @ swap
+     DO
+        i c@  dup ?visible 0=
+        IF
+           drop ascii .
+        THEN
+        emit
+     LOOP
+     ascii " emit
+  THEN   ;
+
+ONLY FORTH ALSO UNCODE DEFINITIONS 
+DECIMAL
+
+: INIT-DISM-WORD  ( ADR --- )  DISM-ADR !  
+  .ADDRESS  
+   DISM-ADR @ ?EVEN W@ OPCODE !
+   NEW-DISM-ADR OFF
+   #CYCLES      OFF
+   #CYCLES/     OFF
+   APPROX       OFF
+   MEM          OFF
+   DOING-CALL   OFF
+   dc.w?        off ;
+
+ONLY FORTH UNCODE ALSO FORTH DEFINITIONS
+: DISM-DONE? ( --- FLAG )   NEW-DISM-ADR @
+     IF   NEW-DISM-ADR @  ?EVEN DISM-ADR     !  
+          NEW-DISM-ADR OFF
+     THEN  DISM-DONE @  ;
+
+1 .IF
+
+\ Thanx to Marty Kees for the 68881 support...   start 00002
+
+: .68881   ( --- )
+  BEGIN  out @  opcode-col @ >
+  WHILE  bsout @ emit
+  REPEAT 
+  ." 68881{ " >ARG  OPP .num   
+  OPP $ F23C =
+  IF
+     dism-adr @ 2+ w@ $ 1c00 and -10 shift
+     CASE       \ size of immediate + 4 byte opcode
+        0 OF 8  \ .l long
+          ENDOF
+        1 OF 8  \ .s single
+          ENDOF
+        2 OF 16 \ .x extended
+          ENDOF
+        3 OF 16 \ .p packed d r
+          ENDOF
+        4 OF 6  \ .w word
+          ENDOF
+        5 OF 12 \ .d double
+          ENDOF 
+        6 OF 6  \ .b byte but stored as word
+          ENDOF
+        4 swap
+      ENDCASE
+      2- dup dism-adr @ + ?even dism-adr ! 
+      dism-size !
+  ELSE
+      a2+
+  THEN
+  DC.W? ON   
+;
+
+: DISM-WORD?  ( Adr --- Adr+ Flag )
+  (COMMAS) @ >R NO-COMMAS INIT-DISM-WORD   ( -- )
+  BASE @ >R DISM-BASE @ BASE !   DISM-ADR @  >R  
+    SET-SIZE  12 4 @OPP-BITS
+    SELECT
+       NIB0 NIB1-3  NIB1-3  NIB1-3 NIB4   NIB5  NIB6  .MOVEQ
+       NIB8 NIB9    .DW     NIB11  NIB12  NIB13 NIB14 .68881
+    END-SELECT  A2+ 
+  R@ .CODES DECIMAL r> .CYCLES  R> BASE ! DISM-ADR @ DISM-DONE? 
+  R> (COMMAS) !  3 X>R ?PAUSE 3 XR> 
+;	\ end 00002
+
+.ELSE
+
+: DISM-WORD?  ( Adr --- Adr+ Flag )
+  (COMMAS) @ >R NO-COMMAS INIT-DISM-WORD   ( -- )
+  BASE @ >R DISM-BASE @ BASE !   DISM-ADR @  >R  
+    SET-SIZE  12 4 @OPP-BITS
+    SELECT
+       NIB0 NIB1-3  NIB1-3  NIB1-3 NIB4   NIB5  NIB6  .MOVEQ
+       NIB8 NIB9    .DW     NIB11  NIB12  NIB13 NIB14 .DW
+    END-SELECT  A2+ 
+  R@ .CODES DECIMAL r> .CYCLES  R> BASE ! DISM-ADR @ DISM-DONE? 
+  R> (COMMAS) !  3 X>R ?PAUSE 3 XR> ;
+
+.THEN
+
+: INIT-DISM ( FROM --- ) ?EVEN  START-ADR !  
+   $ -8000,0000 HIGH-BRANCH !
+   DISM-DONE     OFF 
+   TOTAL-CYCLES  OFF  ;
+
+ONLY FORTH DEFINITIONS
+
+false FIG-VAR DISM-CYCLES     TRUE FIG-VAR DISM-NAMES
+
+: SELECT-DISM-DEFAULTS  ( -- , select the system default dism state )
+  [ ALSO UNCODE ]   DISM-CYCLES @ SHOW-CYCLES !
+                    DISM-NAMES  @ .REGNAMES?  !   [ PREVIOUS ]  ;
+
+ONLY FORTH ALSO UNCODE DEFINITIONS
+: <DISM>  ( ADR --- )  DUP INIT-DISM
+    SELECT-DISM-DEFAULTS
+    BEGIN   DISM-WORD? 
+    UNTIL   DROP  CR  ;
+
+ONLY FORTH UNCODE ALSO FORTH DEFINITIONS
+
+: DISM  ( ADR --- )
+  DISM-ORIGIN OFF  <DISM> ;
+
+: RELDISM  ( origin-adr dism-adr -- )
+  swap DISM-ORIGIN !  <DISM>  ;
+
+: RISM  ( ADR --- ) ( * RELATIVE DISM )
+  DUP DISM-ORIGIN !  <DISM> ;
+
+: ADISM  ( abs-adr --- )
+  DUP >REL SWAP OVER - NEGATE DISM-ORIGIN ! <DISM> ;
+
+.NEED $SKIP
+: $SKIP  ( ADR --- ADR' )  DUP $SIZE + ;
+.THEN
+
+( 00005 )  variable THE-CFA
+DECIMAL 
+
+: DEF  ( --- )    SELECT-DISM-DEFAULTS
+    DISM-ORIGIN OFF
+    [COMPILE]  '     BASE @ >R  HEX   
+    DUP   DUP>R     DUP INIT-DISM 
+    BEGIN  DUP   W@ ( adr opcode )  
+ 
+           CONDITION DUP BSR-CODE =
+               IF   drop dup 2+ dup w@ w->s + THE-CFA !
+               ELSE DUP  jsr-code  =
+               IF   drop dup 2+ @ >rel THE-CFA !
+               ELSE DUP JSR+64K-CODE =
+               IF   drop dup 2+ w@ w->s $ 1,0000 + THE-CFA !
+               ELSE DUP JSR+ORG-CODE =
+               IF   drop dup 2+ w@ w->s THE-CFA !
+               ELSE drop THE-CFA OFF
+           ENDCOND  
+             1 rpick base !   
+             DISM-WORD?  
+             hex
+             >R  THE-CFA @ ' (.")       = 
+                 THE-CFA @ ' ($")       =  OR 
+                 THE-CFA @ ' (?ABORT")  =  OR
+           IF       cr CR  ." '"  DUP $TYPE $SKIP ." '"  CR
+           THEN R> 
+    UNTIL 2DROP r@ >NAME  
+    >newline  cr dup id. ."  is "  IMMEDIATE?  
+    IF    ." IMMEDIATE, "
+    THEN  r> r> base !   
+    dup  DISM-ADR @ - ABS  dup 1 .r ."  bytes long ("  
+          CELL/ .  ." cells), defined as '"
+          CELL- @
+          CONDITION
+            dup 0<              IF   drop ." inline'"  ELSE
+            dup $ 4000,0000 and IF   drop ." called'"  ELSE
+            drop ." both'"
+          ENDCOND
+    CR CR   ;
+
+: SEE DEF ;
+only forth definitions
+DECIMAL
+
+

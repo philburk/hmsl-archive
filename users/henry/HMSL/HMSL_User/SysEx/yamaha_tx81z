@@ -1,0 +1,205 @@
+\ TX-81Z system exclusive drivers (should also work for DX-11)
+\ voice parameters only; no performances or tunings yet
+\ Carter Scholz 
+\ rev. 24 Dec 89
+
+anew task-tx81z
+
+67 constant yamahaID
+
+: tx81z.sysex ( value param -- )
+        dup 255 >= if 19 else 18 then ( val param subgroup -- )
+        midi.start.sysex
+        yamahaID midi.data.xmit
+        midi-channel @ 1- 16 + midi.data.xmit
+        midi.data.xmit ( val param -- )
+        midi.data.xmit ( val -- )
+        midi.data.xmit ( -- )
+        midi.end.sysex
+;
+
+\ voice params are parameters that can be changed per-operator
+\ all other sysex params are global
+\ ACED parameters are additional 4-op params that are flagged
+\ in these drivers by adding 256 to their documented values
+
+: tx81z.voice.param ( op param value -- )
+        swap rot ( value param op -- )
+        4 swap - 13 * + ( value param -- )
+        tx81z.sysex
+;
+
+: tx81z.f.coarse ( op value  -- )
+        swap 1 4 clipto swap
+        0 63 clipto
+        11 swap ( op param value -- )
+        tx81z.voice.param
+;
+
+\ Later 4-op machines such as the TX81Z and DX11 allow fine-tuning of
+\ 16 steps for each of the 64 coarse frequency steps.  The formula
+\ for finding the final frequency from a combination of coarse and fine
+\ data is:
+\
+\    final_freq = coarse_freq + fine_value * .0625
+ 
+: tx81z.f.fine ( op value -- )
+        swap 1 4 clipto swap
+        0 15 clipto
+        2 256 + swap ( op param value -- )
+        tx81z.voice.param
+;
+
+: tx81z.f.wave ( op value -- )
+        swap 1 4 clipto swap
+        0 7 clipto
+        3 256 + swap ( op param value -- )
+        tx81z.voice.param
+;
+
+: tx81z.f.detune ( op value -- , value is +/-3 )
+        swap 1 4 clipto swap
+        -3 3 clipto
+        12 swap 3 + ( op param value+3 -- )
+        tx81z.voice.param
+;
+
+\ Yamaha 4-op machines have a strange arrangement of "coarse" frequencies.
+\ There are 64 in all.  Each is the product of an integer between 0 and 15
+\ (except that 0 is replaced by .50) and one of four factors.  The four factors
+\ are: 1.00, 1.41, 1.57, 1.73.  These factors are truncated decimals for 1,
+\ sqrt(2), pi/2, and sqrt(3).  So far so good.  Yamaha then makes life more
+\ difficult by arranging this set of 64 frequencies in ascending order.  That
+\ means that there is no easy way of indexing the set to get a particular
+\ factor or integer.
+\ Hence the following word:
+
+: tx81z.f.integer ( op integer -- )
+        0 15 clipto
+        case
+        0 of 0 endof
+        1 of 4 endof
+         2 of 8 endof
+         3 of 10 endof
+         4 of 13 endof
+         5 of 16 endof
+         6 of 19 endof
+         7 of 22 endof
+         8 of 25 endof
+         9 of 28 endof
+         10 of 31 endof
+         11 of 34 endof
+         12 of 36 endof
+         13 of 40 endof
+         14 of 42 endof
+         15 of 45 endof
+        endcase
+        tx81z.f.coarse
+;
+
+: tx81z.eg.ar ( op value -- )
+        swap 1 4 clipto swap
+        0 31 clipto
+        0 swap ( op param value -- )
+        tx81z.voice.param
+;
+
+: tx81z.eg.d1r ( op value -- )
+        swap 1 4 clipto swap
+        0 31 clipto
+        1 swap ( op param value -- )
+        tx81z.voice.param
+;
+
+: tx81z.eg.d2r ( op value -- )
+        0 31 clipto
+        2 swap ( op param value -- )
+        tx81z.voice.param
+;
+
+: tx81z.eg.rr ( op value -- )
+        swap 1 4 clipto swap
+        0 15 clipto
+        3 swap ( op param value -- )
+        tx81z.voice.param
+;
+
+: tx81z.eg.d1l ( op value -- )
+        swap 1 4 clipto swap
+        0 15 clipto
+        4 swap ( op param value -- )
+        tx81z.voice.param
+;
+
+: tx81z.eg.lev.scale ( op value -- )
+        swap 1 4 clipto swap
+        0 99 clipto
+        5 swap ( op param value -- )
+        tx81z.voice.param
+;
+
+: tx81z.eg.rate.scale ( op value -- )
+        swap 1 4 clipto swap
+        0 3 clipto
+        6 swap ( op param value -- )
+        tx81z.voice.param
+;
+
+: tx81z.eg.bias ( op value -- )
+        swap 1 4 clipto swap
+        0 7 clipto
+        7 swap ( op param value -- )
+        tx81z.voice.param
+;
+
+: tx81z.out.level ( op value -- )
+        swap 1 4 clipto swap
+        0 99 clipto
+        16 swap ( op param value -- )
+        tx81z.voice.param
+;
+
+\ global params
+
+: tx81z.algo ( algo -- , 1-8 )
+        1 8 clipto 1-
+        52 tx81z.sysex
+;
+
+: tx81z.feedback ( fb -- )
+        0 7 clipto
+        53 tx81z.sysex
+;
+
+: tx81z.lfo.speed ( speed -- )
+        0 99 clipto
+        54 tx81z.sysex
+;
+
+: tx81z.lfo.delay ( val -- )
+        0 99 clipto
+        55 tx81z.sysex
+;
+
+: tx81z.lfo.wave ( sawup sq tri s/h -- )
+        0 3 clipto
+        59 tx81z.sysex
+;
+
+: tx81z.pmd ( pitch-mod-depth -- )
+        0 99 clipto
+        56 tx81z.sysex
+;
+
+: tx81z.amd ( ampl-mod-depth -- )
+        0 99 clipto
+        57 tx81z.sysex
+;
+
+: tx81z.ops.onoff ( op1 op2 op3 op4 -- , 1-8 )
+\ no error checking -- 1 is on, 0 is off
+        0 4 0 do over i ashift + nip loop
+        0 15 clipto
+        93 tx81z.sysex
+;
+

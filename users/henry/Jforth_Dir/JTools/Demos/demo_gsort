@@ -1,0 +1,194 @@
+\ Demonstrate Batcher's Sort with graphics display.
+\
+\ Show random length rectangles then sort them.
+\
+\ Author: Phil Burk
+\ Copyright 1987  Delta Research
+\
+\ MOD: PLB 8/6/88 Display messages for shorter time.
+\ 00002 16-aug-91 mdh     Fix CHECK.DELAY to use >20 msec.  (min resolution
+\                         error too much effect on A3000...20 msec can
+\                         return right away.)
+
+include? msec ju:msec
+include? ev.getclass ju:amiga_events
+include? gr.init ju:amiga_graph
+include? bsort ju:bsort
+include? choose ju:random
+
+ANEW TASK-DEMO_GSORT
+
+12 constant GS_MAX
+GS_MAX ARRAY GS-DATA
+
+\ Set display geometry constants.
+15 constant GS_XMIN
+80 constant GS_LEFT
+GR_XMAX constant GS_XMAX
+20 constant GS_YMIN
+160 constant GS_YMAX
+GS_YMAX GS_YMIN - GS_MAX / constant GS_DELTAY
+
+: GS.RAND ( -- , randomize array )
+	gs_max 0
+	DO  gs_xmax gs_left - choose i gs-data !
+	LOOP
+;
+
+\ Draw elements of display.
+VARIABLE GS-I
+: GS.CALCY ( i -- )
+	gs_deltay * gs_ymin +
+;
+
+: GS.#.  ( i -- , print value of data )
+	dup gs-i ! 1+ gs.calcy 1-  ( calc y )
+	gs_xmin swap gr.move
+	gs-i @ gs-data @ gr.number
+;
+
+: GS.GRAPH.DATA ( i -- )
+	dup gs-i !
+	gs-data @ 3 * ( divide range into 3 colors )
+	gs_xmax gs_left - /  1+ gr.color!
+	gs_left gs-i @ gs.calcy
+	over gs-i @ gs-data @ +
+	over gs_deltay + 2-   gr.rect
+;
+
+: GS.SHOW.DATA ( i -- )
+	gs-i !
+	0 gr.color!
+	gs_xmin gs-i @ gs.calcy
+	gs_xmax over gs_deltay + 1- gr.rect
+	gs-i @ gs.graph.data
+	gs-i @ gs.#.
+;
+
+: GS.SHOW.ALL  ( -- , draw all data )
+	gs_max 0
+	DO  i gs.show.data
+	LOOP
+;
+
+: ADDR.EXCH?  ( a1 a2 -- , exchange if greater )
+	2dup @ swap @ 2dup <
+	IF rot !
+		swap !
+	ELSE 2drop 2drop
+	THEN
+;
+
+: GS.HIGHLIGHT  ( i -- , Highlight next pair. )
+	gs_xmin swap gs.calcy
+	gs_left over gs_deltay + 1- gr.highlight
+;
+
+VARIABLE GS-DELAY
+VARIABLE GS-QUIT
+
+: GS.CHECK.QUIT  ( -- , set flag if closebox hit )
+\ Change delay if closebox hit.
+	?CLOSEBOX
+	IF 0 gs-delay !
+		true gs-quit !
+	THEN
+;
+
+\ This the word that BSORT-EXCH? calls.
+: GS.EXCH? ( I1 I2 -- , exchange if [I1] > [I2] )
+\ Highlight two items
+	2dup gs.highlight gs.highlight  gs-delay @ msec
+\ Perform exchange.
+	2dup gs-data swap gs-data swap ( get addresses )
+	addr.exch?
+\ Show new order.
+	gs.show.data
+	gs.show.data
+	gs-delay @ msec
+\
+	gs.check.quit
+;
+
+NewWindow GSortWindow   ( Create a template for the new window. )
+
+: GS.INIT  ( -- window )
+	cr ." GSORT - Hit CLOSE BOX to stop!" cr
+	gr.init            ( Initialize graphics system. )
+	GSortWindow NewWindow.Setup     ( Set defaults for window )
+	180 GSortWindow ..! nw_height
+\ Create window from template and make it the current window.
+	GSortWindow  gr.opencurw
+\ Change this for different sorts.
+	' gs.exch? is bsort-exch?  ( Set sort vector )
+;
+
+: GS.SORT.ONCE ( -- , generate random values and sort them)
+	gs.rand
+	1 gr.color!
+	30 gs_ymin 4 - " Batcher's Sort Animation using JForth" gr.xytext
+	gs.show.all
+	gs-delay @ 4 * msec
+	gs_max bsort
+;
+
+: CHECK.DELAY  ( #msec -- , long delay but check for ?closebox )
+	100 / 0   \ 00002
+	DO  100 msec  \ 00002
+		gs.check.quit
+		gs-quit @ IF LEAVE THEN
+	LOOP
+;
+
+: GS.FAST.ONES  ( -- , sort four fast ones )
+	4 0
+	DO  gs.sort.once
+		?closebox
+		IF true gs-quit !   leave
+		ELSE  600 msec
+		THEN
+	LOOP
+;
+
+: GSORT.LOOP ( -- , sort graphically )
+	false gs-quit !
+	BEGIN
+\ First Message.
+		gr.clear 1 gr.color!
+		50 50 " Batcher Sort (slowed to reveal pattern)"
+			gr.xytext 3000 check.delay
+		gs.check.quit
+\ One slow one.
+		gs-quit @ 0=
+		IF  200 gs-delay !
+			gs.sort.once
+		THEN
+\
+\ Second Message.
+		gr.clear 3 gr.color!
+		100 50 " Four Fast Sorts! (faster if no graphics)"
+			gr.xytext 3000 check.delay
+		gs-quit @ 0=
+		IF  0 gs-delay !
+			gs.fast.ones
+		THEN
+\
+\ Terminate demo?
+		gs-quit @ 0=
+		IF  600 msec
+			?closebox ?terminal OR
+		ELSE true
+		THEN
+	UNTIL
+;
+
+: GSORT ( -- )
+	gs.init
+	IF  gsort.loop
+		gr.closecurw
+	THEN
+	gr.term
+;
+cr
+." Enter GSORT for demo!" cr
+cr

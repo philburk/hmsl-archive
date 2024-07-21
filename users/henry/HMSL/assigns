@@ -1,0 +1,5 @@
+assign HMSL_User: HMSL:HMSL_User
+assign HMSL_Source: HMSL:HMSL_Source
+
+execute HMSL_User:assigns
+execute HMSL_Source:assigns

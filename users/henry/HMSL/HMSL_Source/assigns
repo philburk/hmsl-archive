@@ -1,0 +1,7 @@
+; Assigns for HMSL_Source
+; These are "nicknames" for directories.
+assign h:   HMSL_source:source
+assign ho:  HMSL_source:ode
+assign hmod: HMSL_source:modules
+assign hh:  HMSL_source:hostdep
+assign hx:  HMSL_source:tests

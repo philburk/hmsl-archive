@@ -1,0 +1,45 @@
+
+\ proper match for case-sensitive/insensitive systems
+
+user mcase-sensitive       \ default = false
+
+: upperc@  ( addr -- upper-case )
+  c@ dup ?letter
+  IF   $ df and
+  THEN
+;
+
+: text=?  ( a1 cnt a2 -- flag )  swap -dup
+  IF   over + swap   mcase-sensitive @
+       IF   DO   dup c@  i c@ -
+                 IF   0= leave
+                 ELSE 1+
+                 THEN
+            LOOP
+       ELSE DO   dup upperc@  i upperc@ -
+                 IF   0= leave
+                 ELSE 1+
+                 THEN
+            LOOP
+       THEN
+  ELSE 2drop false
+  THEN
+;
+
+\ I gave this a new name 'cause it does the stack differently that fig MATCH.
+: match? ( adr1 c1 adr2 c2 -- matching-a1 / 0 )
+\ search for adr2 cnt2 within adr1 cnt1
+  4 x>r   0   4 xr>   ( 0 a1 c1 a2 c2 -- )
+  2swap over + swap   ( 0 a2 c2 enda1 a1 -- )
+  DO   2dup i  ( 0 a2 c2 a2 c2 a1 -- )
+       text=?  ( 0 a2 c2 flag -- )
+       IF      3 xdrop i 0 0    leave   ( a1 x x -- )
+       THEN
+  LOOP 2drop
+;
+
+\ : trytext  sp!
+\   bl lword pad $move     bl lword count pad 1+ text=?  ;
+
+\ : trymatch  sp!
+\   bl lword pad $move     bl lword count  pad count match?   here .s  ;

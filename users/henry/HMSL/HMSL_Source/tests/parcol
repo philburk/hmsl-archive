@@ -1,0 +1,73 @@
+\ Debug Parallel Collection Message Passing.
+
+ANEW TASK-PARCOL
+
+\ The following word will need to be modified to select
+\ the MIDI channels you want to play on in your studio.
+: SITE-RANGE ( -- lo hi , site specific range of available channels)
+    1 8
+;
+
+OB.COLLECTION COLL-TEST
+ACT.SEQUENTIAL: COLL-TEST
+
+\ Fill shapes with "melodies".
+: DC.FILL.SHAPES
+\ Make them big enough to add to in Shape Editor.
+    16 3 new: shape-1
+    20 20 60 add: shape-1
+    20 30 70 add: shape-1
+    20 25 80 add: shape-1
+    20 35 90 add: shape-1
+\
+    16 3 new: shape-2
+    30 24 100 add: shape-2
+    30 29 100 add: shape-2
+    30 12 100 add: shape-2
+    30 13 80  add: shape-2
+    30 22 100 add: shape-2
+    30 22 80  add: shape-2
+\
+;
+
+\ Build hierarchy of morphs.
+: DC.INIT
+    dc.fill.shapes
+    site-range put.channel.range: ins-midi-1
+    ins-midi-1 put.instrument: player-1
+    site-range put.channel.range: ins-midi-2
+    ins-midi-2 put.instrument: player-2
+
+    0 shape-1 0stuff: player-1
+    1 put.repeat: player-1
+\
+    0 shape-2 0stuff: player-2
+    1 put.repeat: player-2
+\
+\ Make available for Shape Editor.
+    clear: shape-holder
+    shape-1 add: shape-holder
+    shape-2 add: shape-holder
+\
+\ Put players in seq collection.
+    0 player-1 player-2 0stuff: coll-test
+    2000 put.repeat: coll-test
+\
+    ." Hierarchy of piece!" cr
+    print.hierarchy: coll-test cr
+    ." Hit any key to continue." key drop
+;
+
+: DC.PLAY  ( -- , Play the collection.)
+    coll-test hmsl.play
+;
+
+: DC.TERM  ( -- , Reset & Free allocated data. )
+    default.hierarchy: coll-test
+    free.hierarchy: coll-test
+;
+
+: TPARCOL  ( -- , Do whole thing. )
+    dc.init  dc.play  dc.term
+;
+." Enter:    TPARCOL     for collection demo." cr

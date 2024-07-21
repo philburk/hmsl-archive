@@ -1,0 +1,18 @@
+\ AMIGA JForth Include file.
+decimal
+EXISTS? DEVICES_INPUT_H NOT .IF
+: DEVICES_INPUT_H ;
+EXISTS?     EXEC_IO_H NOT .IF
+include ji:exec/io.j
+.THEN
+
+CMD_NONSTD  0 +  constant IND_ADDHANDLER
+CMD_NONSTD  1 +  constant IND_REMHANDLER
+CMD_NONSTD  2 +  constant IND_WRITEEVENT
+CMD_NONSTD  3 +  constant IND_SETTHRESH
+CMD_NONSTD  4 +  constant IND_SETPERIOD
+CMD_NONSTD  5 +  constant IND_SETMPORT
+CMD_NONSTD  6 +  constant IND_SETMTYPE
+CMD_NONSTD  7 +  constant IND_SETMTRIG
+
+.THEN

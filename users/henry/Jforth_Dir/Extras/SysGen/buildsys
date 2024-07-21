@@ -1,0 +1,785 @@
+decimal
+
+headtail on
+
+: version#    3100     inline ;
+
+: immediate   latest c@ $ 40 or latest c!   ;
+
+: (    $ 29 word drop    ;  immediate
+
+( ------------------ CHANGE HISTORY ----------------- )
+
+( 00001 18-aug-91 mdh     Incorporated XBLK )
+( 00002 13-sep-91 mdh     wb2.0 changes )
+( 00003 11-oct-91 mdh     fixed 'SAVE-FORTH COM:minimum' message )
+
+: depth
+  sp@ s0 @ swap - cell/  ;
+
+: CONSOLE@ ( -- console-in-use , stdout )
+    consoleout @ ;
+
+: skip-word   true skip-word? !  ;
+: skipword    skip-word  ;
+
+: [compile]  ( -- , <name> )
+  $ 20 word  find 0= 0 ?error   cfa,    ;   immediate
+
+: '  ( -- cfa , <name> )
+  $ 20 word  find  0= 0 ?error [compile] aliteral ;   immediate
+
+: cell 4 inline ;
+
+: ABSW!  ( w1 adr1 -- )
+  [ $ 2047,30ae ,   $ 2,588e ,  $ 2e1e w, ]  inline ;
+
+
+: ? @ . ;
+
+
+(  -----------VARIABLE, CONSTANT, USER, FREEZE, ?TERMINAL...   )
+
+max-inline @  6 max-inline !
+
+: CONSTANT  ( -- , <name> , allocate a constant )
+( takes advantage of the smart literal...  )
+  :create      ( make the name field... )
+  here >r      ( save addr... )
+  state @ >r  1 state !
+  [compile] literal   r> state !
+  here r -  ( negate ) $ 8000,0000 or  r> cell- !
+  unsmudge
+  $ 4e75 w,    ;
+
+max-inline !
+
+$ 400,0000 constant TAIL_BIT
+$ 200,0000 constant CLASS_BIT   ( marks an ODE Class child )
+$ 100,0000 constant :CLASS_BIT  ( marks an ODE Class parent )
+
+( -- TAIL now after conditionals ) 
+( : tail  latest name> cell- dup @  tail_bit or  swap !  ; immediate )
+
+  $   4EAB constant JSR+64K-CODE
+  $   4EAC constant JSR+ORG-CODE
+  $ 1,0000 constant 64k
+  $ 1,0000 constant VARIABLE_ID
+  $ 2,0000 constant USER_ID
+  $ 3,0000 constant CREATE_ID
+( $ 4,0000 constant USERDEF_ID )
+  $ 5,0000 constant GLOBDEF_ID   ( now both are the same... )
+GLOBDEF_ID constant USERDEF_ID
+  $ 6,0000 constant VALUE_ID
+
+( -----------  CONDITIONALS & CONTROL/LOOPING STRUCTURES...  )
+
+decimal
+
+: bl 32 ;
+
+: >us  ( n --- )   usp @  cell-  ( ?us-error ) dup usp !    ! ;
+
+: us>  ( --- n )   usp @ ( ?us-error )  @ cell  usp +!  ;  ' us> 'usp> !
+
+: us@  ( --- n )   usp @ ( ?us-error )  @ ; 
+
+
+max-inline @  20 max-inline !
+
+( : NOT0BRANCH  ( FLAG --- )
+(     0= 0BRANCH  inline ; )
+
+: NOT0BRANCH  ( FLAG --- )
+[ $ 4a87 w,        ( tst.l  tos          )
+  $ 4cde,0080  ,   ( movem.l {dsp}+,tos  )
+  $ 6600,0000  ,   ( bne     ??          )
+] inline ;     
+
+max-inline !
+
+
+( 1 constant ) : begin_flag 1 inline ; 
+
+( 2 constant ) : if_flag    2 inline ;
+
+( 3 constant ) : do_flag    3 inline ;  
+
+( 4 constant ) : leave_flag 4 inline ;
+
+( 5 constant ) : ?do_flag   5 inline ;
+
+: OptimizeOFF   IfOptimize OFF ;
+: BACK    ( adr --- )
+  ( flushopts )  ?comp HERE  -  2+   HERE  2-  W!  OptimizeOFF  ;
+( Note that BACK is for 0BRANCH and NOT0BRANCH only! )
+
+: BEGIN   ( run: ---) ( comp: --- here 1 )
+  ?COMP HERE  begin_flag   OptimizeOFF  ;
+    IMMEDIATE
+
+: FORWARD  ( adr --- )
+( flushopts )  ?comp HERE  dup last-forward-addr !
+  OVER - 2+ swap 2- W!  UseShortIf off  OptimizeOFF  ;
+
+: THEN  ( run: --- ) ( comp: adr 2 --- )  ?COMP if_flag ?PAIRS forward ;
+    IMMEDIATE
+
+: []  [compile]  [compile] ; immediate
+
+
+( compiles the cfa of the word following )
+: compile  ( --- ) ?comp  [] '  ' cfa, cfa,  ; immediate
+
+: (C0B)  compile 0branch  ;    ' (C0B) 'C0B !
+
+: COMPILE0BRANCH   'C0B @execute   ;
+
+: UNTIL ( ADR begin_flag <leave_pairs...> --- )   
+  ?comp    begin_flag ?PAIRS    COMPILE0BRANCH   BACK    ; IMMEDIATE
+
+: END ( adr begin_flag --- ) ?comp  [] UNTIL ; IMMEDIATE
+
+: AGAIN ( adr begin_flag --- )  ?comp
+      begin_flag ?PAIRS  COMPILE  BRANCH   BACK 
+        ; IMMEDIATE
+
+: REPEAT ( adr begin_flag wadr while-flag --- )    
+  ?comp    >R >R [] AGAIN R> R> ( CELL- )
+        [] THEN       ; IMMEDIATE
+
+: IF ( --- adr if_flag )  ?comp COMPILE0BRANCH HERE  if_flag
+  OptimizeOFF   ; IMMEDIATE
+
+
+: IF-NOT ( --- adr if_flag )  ?comp COMPILE NOT0BRANCH HERE  if_flag
+  OptimizeOFF   ; IMMEDIATE
+
+: ELSE ( adr if_flag --- adr if_flag )
+  ?comp if_flag ?PAIRS COMPILE BRANCH HERE
+  SWAP  forward  (   if_flag   [] THEN   ) if_flag  ; IMMEDIATE
+
+: WHILE ( --- adr while_flag )  ?comp compile0branch here if_flag
+  OptimizeOFF   ; IMMEDIATE
+
+: WHILE-NOT ( --- adr while_flag )  ?comp compile NOT0branch here if_flag
+  OptimizeOFF ; IMMEDIATE
+
+: UNTIL-NOT ( ADR begin_flag <leave_pairs...>--- )    ?comp
+    begin_flag  ?PAIRS
+    COMPILE  NOT0BRANCH   BACK    ; IMMEDIATE
+
+( DO LOOP support )
+
+: DO    ( --- )   ( --us-- loop-back do_flag laddr  ?do_flag )  ?comp
+  ( flushopts )
+    HERE  2+  ( leave-adr  )  OptimizeOFF  COMPILE (?DO) 
+    HERE  >us   do_flag >us       >us  ?do_flag >us 
+    OptimizeOFF  ; IMMEDIATE
+
+: LEAVE  ( --- )   ( --us-- resolve  leave_flag )  ?comp  ( flushopts )
+   HERE 6 + >us OptimizeOFF
+   COMPILE (LEAVE)   leave_flag >us      ; IMMEDIATE
+
+: ?LEAVE     ( --- )  ( --us-- resolve  leave_flag )  ?comp  ( flushopts )
+   HERE $ 0e + >us  OptimizeOFF COMPILE (?LEAVE)   leave_flag >us ; IMMEDIATE
+
+: ?STAY     ( --- )  ( --us-- resolve  leave_flag )  ?comp
+   COMPILE not  HERE $ 0e + >us  
+   OptimizeOFF compile (?leave)   leave_flag >us ; IMMEDIATE
+
+: -DO     ( --- loop-back  do_flag )
+   ?comp COMPILE (DO)
+   HERE  >us  do_flag  >us  OptimizeOFF  ; IMMEDIATE
+
+
+: LOOP-FORWARD  ( --- )  (  [resolves  leave_flag ...]  --us-- )
+   BEGIN   us@   leave_flag =  us@ ?do_flag = or
+   WHILE   ( <?do>, leave or ?leave was used )  ( flushopts )
+          us>   leave_flag =
+          IF    us> here          dup>r over -  swap w!
+          ELSE  us> dup 8 +  here dup>r swap -  swap !
+          THEN
+          r> last-forward-addr !
+  REPEAT  OptimizeOFF  ;
+
+: LOOP-BACK  ( do-adr do-flag --us-- ) ( flushopts )
+   us>  do_flag ?PAIRS  us>   HERE  -  6 +   HERE  6 -  W!
+   OptimizeOFF  ;
+
+: LOOP   ( --- )  ( HERE do_flag ... HERE do_flag --R-- )  ?comp
+   COMPILE (LOOP)  loop-forward  LOOP-BACK  ; IMMEDIATE    
+    
+: +LOOP  ( N -- , at run time ) ?comp
+   COMPILE (+LOOP) loop-forward  LOOP-BACK   ; IMMEDIATE
+
+: -LOOP ( N -- ) ?comp
+   COMPILE (-LOOP) loop-forward  LOOP-BACK ; IMMEDIATE
+
+: SMARTC0B  ( -- , smart COMPILE0BRANCH )
+  ( flushopts )  UseShortIf @  ?dup
+  IF
+     ( -- last-called-cfa )  LastHere @ dp !
+     dup 2- w@ 2+ +   ( -- 1st-adr-FAST-code )
+     BEGIN
+        dup w@ dup $ 4e75 -   ( -- adr opcode flag )
+     WHILE
+        w,  2+
+     REPEAT
+     2drop
+  ELSE
+     (C0B)
+  THEN
+;              ' SmartC0B  'C0B !
+decimal
+
+: \  ( -- , comment out rest of line )
+  LASTSCAN @ $ 0A = 0=
+  tib >in @ + c@ $ 0a = 0=   and
+  IF
+     $ 0a word drop
+  THEN
+; IMMEDIATE
+
+
+(    IF  #TIB @ >IN @ )
+(        DO i TIB + c@ )
+(           i 1+ >in ! )
+(           $ 0a = ?leave )
+(        LOOP )
+( \ >in @ #tib @ >= IF BL WORD DROP >in OFF THEN )
+(    THEN )
+
+\ now let's see if this type	comment works!
+
+max-inline @  6 max-inline !
+
+: SETVARSFA  ( <sfa> -- <sfa>' )
+  $ 3fff,ffff and   InlineVars @
+  IF
+       $ 8000,0000
+  ELSE
+       $ 4000,0000
+  THEN or
+;
+
+\ note: 'CLRCHAR' is defined in the kernal as a global variable, and holds the
+\ ascii char to send to the screen to clear it.  It is used here as a template.
+\
+\ a different 'variable' structure is assembled if compiling to a
+\ module because the normal (optimized) variable code does not work there.
+
+: MyRTS+2
+  [
+    ( move.l  tos,-<dsp> )   $ 2D07  w,
+    ( move.l  <rp>,tos   )   $ 2E17  w,
+    ( sub.l   org,tos    )   $ 9E8C  w,
+    ( addq.l  #$2,tos    )   $ 5487  w,
+  ]
+;
+
+
+: VARIABLE  ( -- , <name> , allocate a global variable )
+  \
+  \ inside the dictionary?
+  \
+  here  0 sp@  within?
+  IF
+     \
+     \ build a normal definition
+     \
+     :create                          \ make the name field...
+     here >r                         \ save addr...
+     ' clrchar  ( fromaddr -- )        \ asm args to move code...
+     r      ( fromaddr toaddr -- )
+     [ ' clrchar cell- @ $ ffff and 2+ ] literal     ( fromaddr toaddr cnt -- )
+     dup >r  move r> allot
+     here r 4 + !                    \ poke the address in the code
+     0 ,                             \ put a 0 in the data area...
+     [ ' clrchar cell- @ ] literal   \ get sfa contents...
+     VARIABLE_ID or
+     SETVARSFA  r@ cell- !           \ and make this the same
+     unsmudge
+     rdrop
+  ELSE
+     \
+     \ compiling to a module
+     \
+     [compile] :
+     compile MyRTS+2
+     [compile] ;
+     0 ,
+  THEN
+;
+
+max-inline !
+
+variable Hash-Damaged
+variable HASH-#K
+
+: turnkeying?  turnkeying @  ;
+
+\ ---------------------------  STRINGS and the NUMBER PRINTER ROUTINES...
+
+include jf:inline
+include jf:strings
+
+max-inline @  6 max-inline !
+
+: USER   ( -- , <name> , allocate a user variable )
+  user# @ cell/  #u @ < not  
+  ?abort" USER area exhausted, increase #U, then SAVE-FORTH"
+  :create                          \ make the name field...
+  here >r                         \ save addr...
+  ' s0   ( fromaddr -- )          \ asm args to move code...
+  r   ( fromaddr toaddr -- )
+  [ ' s0 cell- @ $ ffff and 2+ ] literal ( fromaddr toaddr cnt -- )
+  dup >r  move r> allot
+  user# @  r 4 + w!              \ now patch the correct offset...
+  0  up@ user# @ +  !             \ init the uservar to 0...
+  cell user#  +!                  \ get user# ready for next time...
+  [ ' s0 cell- @ ] literal        \ get s0's sfa contents...
+  USER_ID or
+  SETVARSFA r> cell- !            \ and make this the same
+  unsmudge
+  CacheClearU()  \ 00002  - requires jforth 2.08
+;
+
+max-inline !
+
+: HOLD          -1 HLD +! HLD @ C! ;
+
+: SIGN          ROT 0< IF $ 2D HOLD THEN  ;
+
+: #>  ( D1 --- ADDR COUNT )   2DROP   HLD @ PAD OVER -
+      (COMMAS) @  IF
+        HLD @ C@ $ 2D =   ( ADDR CNT FLAG )   ( ISIT - ? )
+           IF  HLD @ 1+ C@ $ 2C =  ( ADDR CNT FLAG )
+               IF   $ 2D HLD @ 1+ C!
+                    1- SWAP 1+ SWAP  ( ADJUST ADDR & CNT )
+               THEN
+           ELSE HLD @ C@ $ 2C =
+                IF 1- SWAP 1+ SWAP
+                THEN
+           THEN   THEN  ;
+
+: M/MOD  ( u1 u2 --- u3 u4  )  >R 0 R@ U/ R> SWAP >R U/ R> ;
+
+: <#     ( --- )  0 #DIGS !    PAD HLD ! ;
+
+\ : /      ( N1 N2 --- N1/N2 )   /MOD SWAP DROP ;
+
+: +-    0<  IF   negate   THEN   ;
+
+: M/   ( d1 n1 --- rem quo)    OVER >R >R DABS R@ ABS U/
+      R> R@ XOR  +-  SWAP R> +- SWAP ;
+
+: DIGS/,  ( --DIGITS-PER-, ) BASE @ DUP $ 10 = SWAP 2 = OR if 4 else 3 then ;
+( The above word, DIGS/, or DIGITS-PER-COMMA, will return the )
+( value 4 for HEX or BINARY modes...all others return 3.      )
+
+: COMMAS     1 (COMMAS) !  ;
+
+: NO-COMMAS  0 (COMMAS) !  ;
+
+max-inline @  6 max-inline !
+: #             BASE @ M/MOD ROT 9 OVER < IF 7 + THEN
+                $ 30 + HOLD
+                (COMMAS) @
+                   IF   1 #DIGS +!  #DIGS @  DIGS/, < 0=
+                        IF   $ 2C HOLD  0 #DIGS !
+                        THEN
+                   THEN  ;
+max-inline !
+
+: #S            BEGIN # 2DUP OR 0= UNTIL ;
+
+
+: D.R   ( d1 n1 --- )  >R SWAP OVER DABS <# #S SIGN #> R>
+                OVER - SPACES TYPE ;
+
+: D.  ( d1 --- )   0 D.R SPACE ;
+
+: .r >r s->d r> d.r ;
+
+: (.)   ( N --- )   S->D D. ;
+
+' (.) '. ! 
+
+: *   ( n1 n2 --- n3 )  M* DROP ;
+
+: */MOD   ( n1 n2 --- rem quo )  >R M* R> M/ ;
+
+: */  ( n1 n2 n3 --- n1*n2/n3 )  */MOD SWAP DROP ;
+
+: U.   ( n --- )  0 D. ;
+
+decimal
+
+\ -------------------------------------  +BOOTS & other includes ...
+
+max-inline @  6 max-inline !
+\ +BOOTS is used to reference the 'BOOTAREA' that initializes the
+\ 'kernal-defined' part of the userarea at COLD.  This area is totally
+\ overwritten by FREEZE and is how the image is 'frozen'.
+
+: +Boots  ( useraddr--bootsaddr )
+  dup spare >
+  IF    .err  ." illegal +BOOTS, user variable not in kernal" quit  
+  THEN  up@ - userboots +
+;
+
+
+\ need some vectors...'only, 'forth, 'definitions...init when 'vocs' loads
+user 'only          ' noop 'only !
+user 'forth         ' noop 'forth !
+user 'definitions   ' noop 'definitions !
+: FREEZE  ( -- , freeze the image where it is for cold )
+  'only        @execute
+  'forth       @execute
+  'definitions @execute
+  context   @ COLDcontext   !
+  KernalNFA @ COLDKernalNFA !
+  here fence !
+  ColdVocNFAS   #vocs @  0     \ initialize the voc pointers for cold...
+  DO   dup @ @   over cell+ !
+       [ 2 cells ] literal +
+  LOOP drop
+  up@  userboots  [ spare up@ - cell+ ] literal move
+  FreezeKDefered
+;
+max-inline !
+
+decimal
+
+
+1  0 shift constant MEMF_PUBLIC
+1  1 shift constant MEMF_CHIP
+1  2 shift constant MEMF_FAST
+1 16 shift constant MEMF_CLEAR
+1 17 shift constant MEMF_LARGEST
+
+
+$ 4e75 constant rts-code
+$ 4eb9 constant jsr-code
+$ 6100 constant bsr-code
+
+
+: mod   /mod drop  ;
+
+: ERASE  ( FROM CNT --- )  0 FILL ;
+
+\ ?PAUSE ------------------------------------------------------
+
+
+include jf:case
+include jf:create_does
+include jf:.if
+include jf:defer
+
+defer hash.off      ' noop  is hash.off
+defer hash.forget   ' noop  is hash.forget
+defer >#METHODS     ' noop  is >#METHODS     ( for clone to unravel a class )
+defer >CFATABLE     ' noop  is >CFATABLE     ( for clone to unravel a :class )
+defer >LASTIVAR     ' noop  is >LASTIVAR     ( for clone to unravel an ivar )
+defer >PREVIVAR     ' noop  is >PREVIVAR     ( for clone to unravel an ivar )
+defer >IVARCLASS    ' noop  is >IVARCLASS    ( for clone to unravel an ivar )
+\ defer FixHash;    ' noop  is FixHash;      ( now obsolete Hash support )
+defer CancelKey?    ' false is CancelKey?
+defer CancelNow?    ' noop  is CancelNow?
+defer UserCleanUp   ' noop  is UserCleanUp   \ for CLONED IMAGES ONLY!
+defer ErrorCleanUp  ' noop  is ErrorCleanUp  \ for CLONED IMAGES ONLY!
+
+variable hash-state
+
+turnkeying? .IF
+: (PAUSE)  key drop key drop  ;
+.ELSE
+max-inline @  6 max-inline !
+( MOD: PLB 8/8/88 - Pause extracted. )
+: (PAUSE)  ( -- , do one line of forth input )
+     flushemit  pushtib
+     xblk @ >r  ( 00001 )  fblk @ >r  blk @ >r     sp@ >r  out @ >r
+     fblk off  blk off  xblk off  0 out !
+\
+     query    r> out +!   interpret
+\
+     r> set-sp   r> blk !  r> fblk !  r> xblk !  ( 00001 )
+     pulltib  
+;
+max-inline !
+.THEN
+
+: ?PAUSE   ( -- )   ?terminal
+  IF (pause)
+  THEN
+;
+
+include jf:fastio
+fast
+
+include jf:files
+
+\  ----------------------------------------------------------
+decimal
+
+turnkeying? .IF
+: .s ;
+: u.s ;
+.ELSE
+max-inline @  6 max-inline !
+variable .S-UNSIGNED
+: .S   ( -- , non-destructive stack print )
+  >newline   depth dup 0<
+  IF   ." Stack Underflow!!! " quit
+  THEN
+  IF  ." Stack> " depth dup  cells  0
+      DO   s0 @  i - 8 - @
+      	.s-unsigned @ IF u. ELSE . THEN
+      	cell  ( Use . instead of U. , PLB )
+      +LOOP drop
+  ELSE ." Stack Empty "
+  THEN flushemit
+  .s-unsigned off
+;
+: U.S (  -- , print stack unsigned )
+	.s-unsigned on
+	.s
+;
+max-inline !
+
+.THEN
+
+max-inline @  6 max-inline !
+\ dump --------------------------------------------------------
+
+: N>TEXT ( n -- addr count , convert N to text representation)
+    s->d    swap over dabs
+    <# #S SIGN #>
+;
+
+: #DIGITS  ( n1 -- #hex columns to print )
+    n>text nip
+;
+
+turnkeying? not .IF
+
+: .HX ( n1-- )  dup 9 >
+  IF   $ 37 +
+  ELSE $ 30 +
+  THEN emit
+;
+
+user dumpcol
+: dumphdr  ( stadd-- )  cr
+  dumpcol @ 1+ spaces
+  $ 0f and dup $ 10 + swap 2dup
+  DO   i $ 0f and 2 spaces  .hx
+  LOOP 2 spaces 
+  DO   i $ 0f and   .hx
+  LOOP
+;
+
+: dump   ( adr cnt -- )
+  base @ >r   hex
+  over #digits >r   2dup + #digits r> max dumpcol !  \ calc offset for header..
+  over + swap dup rot rot
+  DO  dup i -  $ 17 mod  0=
+      IF  dup dumphdr
+      THEN   >r ?pause  cr r>
+      i  dumpcol @  .r space
+      i $ 10 +  i 2dup
+      DO   i c@ space  dup 2/ 2/ 2/ 2/ .hx  $ 0f and .hx
+      LOOP  2 spaces
+      DO   i c@ dup $ 20 <  over $ 7e > or
+           IF   drop $ 2e
+           THEN emit
+      LOOP   $ 10
+  +LOOP   cr  drop   r> base !
+;
+
+
+user linelimit  decimal 75 linelimit !
+
+: ?wrap  ( #columns -- )  linelimit @ swap -  out @ swap  < not
+  IF   ?pause cr
+  THEN
+;
+
+
+: emit-to-column  ( char column# -- )  dup   out @ < 0=
+  IF   linelimit @ 0
+       DO    out @ over = ?leave  over emit
+       LOOP
+  THEN 2drop
+;
+
+.THEN
+
+decimal
+
+: load-file include ;
+
+include jf:strings_extra
+
+turnkeying? NOT .IF
+include jf:find-data
+.THEN
+max-inline !
+
+\ can now use ?include jf:!!!!!
+include jf:utilities
+
+: LOOPCHK  ( -- , abort if unresolved loop on user stack )
+  usp cell-    us-depth 0
+  DO
+     dup @   ( -- us@ )
+     do_flag ?do_flag within?
+     IF
+        " Unresolved LOOP structure in "  pad $move
+        latest 1+  latest c@ $ 1f and   pad $append
+        pad $error
+     THEN  cell-
+  LOOP
+  drop
+;        ' loopchk 'loopchk !
+
+include jf:match
+include jf:files_extra
+include jf:vocs
+
+max-inline @  6 max-inline !
+: y/n  ( -- flag )
+  ." ...Yes, No or Quit (y/n/q)? " flushemit
+  true
+  BEGIN   key  bl or      ( flag char -- )
+          ascii y over =
+          IF    emit        drop true false
+          ELSE  ascii n over =
+                IF    emit   drop false false
+                ELSE  ascii q =
+                      IF     quit
+                      THEN  ( true -- )  true
+                THEN
+          THEN
+  WHILE   7 emit
+  REPEAT  cr  ;
+
+turnkeying? NOT .IF
+include? (hello) jf:SayHello
+include jf:fromfile
+.THEN
+
+include jf:calls
+include jf:save-forth
+include jf:cleanup
+include jf:forget
+
+: ROLL ( NX ... N0 X --- NX-1 ... N0 NX )
+    >r r@ ( -- nx..n0 x )
+    pick sp@ ( -- nx..n0 NX &n0 )
+    dup cell- swap ( -- nx..n0 NX &NX &n0 )
+    r> 1+ cells  ( -- nx..no nx &NX &n0 [x+1]cells )
+    cmove> drop
+; ( -- nx-1..n0 nx )
+
+: RECURSE  ( --- )
+   ?comp latest name> cfa,
+;  IMMEDIATE   
+
+: RDEPTH ( -- #r )
+    r0 @ rp@ - cell/
+;
+
+: TAIL  latest c@ $ 20 and
+  IF
+     latest name> cell- dup @ $ 0400,0000 or swap !
+  ELSE
+     >newline cr
+     ." TAIL must occur before the ; or END-CODE statement" cr
+     ." TAIL operation ignored" cr
+     where
+  THEN
+; immediate
+
+\ Support to allow the Debugger and locals to work with ODE.
+defer ;M immediate
+variable current-method
+
+\
+turnkeying? NOT .IF
+
+: memcells?  ( memblk -- size )  dup
+  IF    freebyte cell/    THEN  ;
+: .on/off  ( flag -- )  4 spaces
+  IF   ."  on"
+  ELSE ." off"  THEN  ;
+
+: .any?  ( n1 -- ) dup 0=
+  IF  3 spaces ." none" drop
+  ELSE 7 .r  THEN  ;
+
+: .(K)  ( num -- )
+  1024 /mod swap
+  IF
+     1+
+  THEN
+  ascii ( emit     0 .r     ." K)"
+;
+
+: map  ( -- )
+  cr ." JForth image size  = " up@ #u @ cells + .any?
+  cr ." Current HERE       = " here .any?
+  cr ." Dictionary left    = " sp@ here - .any?
+  cr ." Vocabularies used  = " #vocs @ .any?
+  cr ." Vocabularies left  = " Maxvocs #vocs @ - .any?
+  cr ." USER vars in use   = " user# @ cell/ dup .any?
+  cr ." USER vars left     = " #u @ swap - .any?
+  cr ." Long Relocations   = " #relocs @ .any?
+  cr ." Files open         = " fcloseatbye @ memcells? .any?
+  cr ." Memory areas open  = " freeatbye   @ memcells? .any?
+  cr ." Current max-inline = " max-inline @ .any?
+  cr ." Verify-Libs        = " verify-libs @ .on/off
+  cr ." Fileheaders        = " fileheaders @ .on/off
+  " .MODULES" find
+  IF
+     cr ." MODULE Status:"  dup execute
+  THEN
+  drop
+  hash-state @
+  IF
+     >newline
+     ." Using HASHed Vocabulary Search.  "
+     hash-#k @ 1024 * .(K)  \ will line up with .MODULES (#K)
+  THEN
+  >newline  ;
+
+.THEN
+max-inline !
+
+100 #k !    \ for 'minimum' image
+600 #U !   \ leaves about 150 available
+
+turnkeying? NOT .IF
+Verify-Libs on
+.ELSE
+Verify-Libs off
+.THEN
+
+here fence !
+
+cr ." You will now save the current JForth image to"   \ 00003
+cr ." a file called MINIMUM." cr
+ 
+cr ." If 'com:' is on a hard disk, you probably have room"
+cr ." to save MINIMUM there (with the other executables)." cr
+
+cr ." If 'com:' is on a floppy, you will have to save MINIMUM"
+cr ." on another disk (possibly ram:...it's just over 100k in size)" cr
+
+cr ." NOTE: the MINIMUM image is only useful during sysgen...you"
+cr ."       don't really NEED to save it permanently." cr
+
+cr ." Enter:    SAVE-FORTH COM:Minimum   or  SAVE-FORTH <other>"
+cr
+

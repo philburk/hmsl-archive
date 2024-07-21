@@ -1,0 +1,12 @@
+assign ja: JTools:appls
+assign JRX: JTools:JARexx
+assign JAnim: JTools:JAnim
+assign JReq: JTools:JReq
+assign JARP: Jtools:JArp
+assign jiff: JTools:iff
+assign jdoc:  Jtools:doc
+assign jd:  JTools:demos
+assign jtx: JTools:Textra_dir
+assign jdev: JTools:DevTools
+assign JPics: JTools:JPics
+

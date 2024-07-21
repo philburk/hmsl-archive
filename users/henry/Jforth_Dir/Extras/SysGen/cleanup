@@ -1,0 +1,86 @@
+decimal
+\ MOD: PLB 8/31/90 Removed -CONSOLE -TIMER -POTGO
+\ 00002 13-jan-92 mdh     changed wb to workbench
+
+\ ------------ close all libs at BYE ------------------
+
+: closealllibs   ( -- , get all AmigaLibs that are open & closeem )
+                 ( 'cept for exec & dos, they're close by the shutdown pgm)
+  -clist
+  -graphics
+  -layers
+  -intuition
+  -mathffp
+  -mathtrans
+  -mathieeedoubbas
+  -translator
+  -icon
+  -diskfont
+\         -console
+  -mathieeedoubtrans
+\         -potgo
+\         -timer
+  -asl
+  -battclock
+  -battmem
+  -commodities
+  -romboot
+  -cstrings
+  -misc
+  -rexxsyslib
+  -utility
+  -disk
+  -gadtools
+  -input
+  -keymap
+  -mathieeesingtrans
+  -ramdrive
+  -workbench   \ 00002
+  -mathieeesingbas
+  -expansion
+  -iffparse
+;
+
+' closealllibs 'closealllibs !
+
+
+\ ----------------- clean up memory ---------------
+
+: >BYEFREE   ( mem-pointer -- , record the memblock on the BYEFREE stack )
+  NoTrack on  FREEATBYE +stack   ;
+
+\ an now a word to pull the memory-pointer from the stack, wherever it is
+: BYEFREE>  ( mem-pointer -- )
+  INBYE @ 0=
+  IF
+     freeatbye -stack
+  ELSE
+     drop
+  THEN   ;
+
+
+\ words to do similar things for files...
+: >BYECLOSE   ( file-pointer -- , record the file on the FCLOSEATBYE stack )
+  NoTrack on  FCLOSEATBYE +stack   ;
+
+: BYECLOSE>  ( file-pointer -- )
+  INBYE @ 0=
+  IF
+     fcloseatbye -stack
+  ELSE
+     drop
+  THEN   ;
+
+
+\ ----------------  & this makes it final!  -----------------
+
+' >byeclose   '>byeclose !
+' byeclose>   'byeclose> !
+' >byefree    '>byefree  !
+' byefree>    'byefree>  !
+
+\ you'll probably be dead soon, if this doesn't work!
+
+
+\ tested  9/27/86 mdh    
+\ include testcleanup

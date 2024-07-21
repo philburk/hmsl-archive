@@ -1,0 +1,73 @@
+Quick Dial Utility
+
+Copyright by Phil Burk 1991
+
+written using JForth Professional V3.0
+
+DIAL may be freely redistributed as ShareWare when accompanied by
+this file.  If you like DIAL, please send $10.00 to:
+
+	Phil Burk, PO Box 151051, San Rafael, CA, 94915-1051
+
+DIAL is a CLI based utility that will look up and dial
+telephone numbers through your modem.  All you have to do
+is enter in a CLI:
+
+	DIAL FRED
+	
+then pick up the phone and wait for Fred to answer.  DIAL will
+search a text file containing names and phone numbers.  When
+it finds a match it opens the SER: device and send a Hayes
+compatible message to your modem to dial.
+
+DIAL was written as a shell command because a mouse driven interface
+would take longer to use then just dialing the phone directly.
+
+To install DIAL you must:
+
+    1) Copy DIAL to your C: directory or other command directory.
+    
+    2) Set your serial preferences to match your modem.
+       Eg. 1200 baud, 8 data bits, etc.
+       
+    3) Create a file called S:PHONELIST containing names and phone
+       numbers.  Names and phone numbers cannot have spaces
+       inside them.  For example:
+
+         JOE  1(707)555-1212                <-- GOOD
+         FRED FLINTSTONE 1 (707) 555-1234   <-- BAD
+         
+       There are two ways to do this. One is using a text editor.
+       The other is to use the ADD option of DIAL.
+       For example:
+       
+         DIAL ADD  WILMA  1(415)555-9876
+         
+       The above will add WILMA's name to your phone list.  
+       To delete names, or to change names, just edit the 
+       file using a normal text editor like EMACS or Textra.
+       If the phonelist file does not exist, DIAL will create it.
+
+You can optionally specify a filename other than S:PHONELIST.
+For example:
+
+	DIAL IRMA MYSTUFF:MYLIST
+	
+Since that would be more typing than just dialing it yourself,
+I recommend making an alias as follows:
+
+	ALIAS  DL DIAL [] MYSTUFF:MYLIST
+	
+Put that alias in your S:SHELL-STARTUP file.
+
+If you would like information about JForth, write to:
+
+    Delta Research
+    PO Box 151051
+    San Rafael, CA
+    94915-1051
+    
+or phone:       (415) 461-1442
+
+or e-mail to:   phil@mills.edu
+

@@ -1,0 +1,10 @@
+\ currently, these bits are used in the SIZE-FILEDS...
+
+$ 8000,0000 constant INLINE_BIT
+$ 4000,0000 constant CALLED_BIT
+$ 2000,0000 constant USED_BIT    ( used in ju:unused )
+$ 1000,0000 constant MODULE_BIT  ( marks a module header )
+
+$  400,0000 constant TAIL_BIT    \ if last opcode is  MOVE.l (DSP)+,TOS
+$  200,0000 constant CLASS_BIT   ( marks an ODE Class child )
+$  100,0000 constant :CLASS_BIT  ( marks an ODE Class parent )

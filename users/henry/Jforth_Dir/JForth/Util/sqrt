@@ -1,0 +1,29 @@
+\ Square Root
+\ This is based on a very nice algorithm published
+\ in Forth dimensions VOL 8 , Number 4 , 1986
+\
+\ The algorithm was developed a student of R.L. Davies
+\ named Hunter Moseley.
+\
+\ Convergence check added by Phil Burk
+\ Copyright 1987 Delta Research
+
+ANEW TASK-SQRT
+
+\ Perform succesive approximation,
+\ Exit loop when answer repeats.
+: SQRT ( N -- N**1/2 )
+    1 tuck ( 1 N 1 -- SET UP LOOP )
+    19 0 DO
+        2dup / + u2/ ( -- old N new , Make guess )
+        dup 3 pick  = ?LEAVE
+        [ $ 2d470004 , ]  ( 68000 equivalent to:   rot drop tuck )
+    LOOP
+    nip nip
+;
+
+\ : SQRT  ( N -- N**1/2 , Original version converted to 32 bit)
+\    1 19 0
+\    DO  2dup / + u2/
+\    LOOP nip
+\ ;

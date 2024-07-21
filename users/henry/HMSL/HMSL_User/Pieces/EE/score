@@ -1,0 +1,44 @@
+anew score.spot
+\
+\ some kind of scoring test
+\
+\
+\ the stupid score list structure : 
+
+:Struct SCList
+long	scl_lower	\ id number of this element
+long	scl_higher	\ id number of this element
+long	SCL_Time	\ absolute time
+byte	SCL_TType	\ type of timing etc.
+byte	SCL_MIDI	\ type of MIDI signal if not non/off
+short	SCL_Track	\ track number
+byte	SCL_Chan	\ channel number
+byte	SCL_Note	\ note number
+byte	scl_Vel		\ velocity (basic)
+long	scl_Non		\ NON cue
+long	scl_Nof		\ NOFF cue
+;struct
+
+\ types:
+0 K: SCT_MARKER	\ a barline or something like that
+1 K: SCT_ABS	\ absolute timing in here
+2 K: sct_rel	\ relative timing
+
+0 K: SCTM_Non	\ a noteon/off
+1 K: SCTM_PB	\ a pitchbend
+
+
+\ use & and ^ to be various markers???
+: & ( create a new element, insert it into tree )
+
+;
+
+
+: sc
+start-list
+\ in theory, all you need is wait and send bytes.
+\ in practice, this would drive me nuts.
+\ what i'll do is make some lists and sort them together to produce
+\ the stupid output.
+end-list
+;

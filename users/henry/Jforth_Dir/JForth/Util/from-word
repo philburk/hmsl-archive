@@ -1,0 +1,29 @@
+\ 00001 PLB 5/25/92 Removed CR from .FROM
+
+ANEW TASK-FROM-WORD
+
+\ These should be USER but the user area was full. 
+VARIABLE BEST-GUESS
+VARIABLE FROM-ADR
+VARIABLE SAVED-VOC
+VARIABLE FROM-VOC
+
+
+: SAVE-VOC   ( VOC --- )  SAVED-VOC ! ;
+    
+: <FROM-WORD>  ( NFA --- )  DUP  FROM-ADR  @ <   
+     IF   DUP BEST-GUESS @ >  
+          IF   DUP BEST-GUESS !  SAVED-VOC @ FROM-VOC !  
+          THEN
+     THEN DROP ;
+
+: FROM-WORD  ( adr --- NFA VOC-LINK  )   ( of word containing adr ) 
+   FROM-ADR !  0 BEST-GUESS  ! 
+    [ ' <FROM-WORD>  ] LITERAL IS WHEN-SCANNED 
+    [ ' SAVE-VOC     ] LITERAL IS WHEN-VOC-SCANNED 
+   SCAN-ALL-VOCS BEST-GUESS @  FROM-VOC @  ;
+
+: .VOC  ( VOC-LINK --- )  VLINK>'   '>NAME  ID. ;
+: .from  ( adr --- )  from-word  ." in voc: " .voc ."  in word: "   id.  ;
+
+

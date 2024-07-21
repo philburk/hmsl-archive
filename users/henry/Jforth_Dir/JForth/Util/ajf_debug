@@ -1,0 +1,19 @@
+\ Host dependant for debugging ODE and HMSL
+\
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research
+
+
+ANEW TASK-AJF_DEBUG
+
+: WORD.DUMP ( -- , print the last word read from input )
+     here count type
+;
+
+: TIB.DUMP ( -- , Dump current line or part of buffer )
+     tib  #tib @ dup 80 >
+     IF  drop >in @ + ( current position )
+         40 - tib max  ( go back just a bit )
+         80 ( reasonable count )
+     THEN type
+;

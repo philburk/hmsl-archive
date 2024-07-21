@@ -1,0 +1,54 @@
+
+\ ONLY LOAD THIS ONCE.
+
+EXISTS? PATCHED
+.IF FORGET PATCHED
+.THEN
+
+: PATCHED ;
+
+\ F83 NUMBER?
+: NUMBER? (  ADR --- D1 TRUE | 0. FALSE )  NUMBER?  DUP NOT
+    IF  0. ROT
+    THEN ;
+
+
+\   names:           FIG    79       83       JFORTH
+\  d n -- r q        M/     M/MOD     M/MOD    M/MOD 
+\  ud u -- ur udq    M/MOD  MU/MOD ?? MU/MOD   MU/MOD 
+\  ud u --- ur uq    U/     U/MOD     UM/MOD   UM/MOD    
+\  u  u --- ud       U*     U*        UM*      UM* 
+
+: UM*    U*     ;
+: UM/MOD U/     ;
+: MU/MOD M/MOD  ;
+: M/MOD  M/     ;
+
+FALSE .IF  \ ************** fixed **************************
+
+: XPICK  ( ... CELLS-DEEP #CELLS --- ... XCELL-FROM-CELLS-DEEP ) 
+    >R CELLS SP@ + R> X@ ;
+
+: DOUBLE?  ( --- FLAG )  DPL @ -1 = NOT  ;
+: $  ( --- N-or-D ) ( in hex ) BASE @ HEX >R BL WORD NUMBER R> BASE ! DOUBLE?
+    IF        [COMPILE] DLITERAL 
+    ELSE DROP [COMPILE]  LITERAL  
+    THEN ; IMMEDIATE 
+
+: DIGIT  ( CHAR BASE --- DIGIT TRUE | CHAR FALSE ) OVER >R DIGIT DUP 
+   IF    RDROP 
+   ELSE  R> SWAP 
+   THEN ;
+: D2/  ( D1 --- D1/2 )  DUP 1 AND >R 2/ SWAP U2/ R> 
+           IF  $ 8000,0000 OR 
+           THEN  SWAP ;
+
+: D2*  ( D1 --- D2 )  2DUP D+ ;
+
+: DU2/  ?COMP COMPILE D2/ ." DU2/ not working, using D2/ " ; immediate
+: DU2*  ?COMP COMPILE D2* ." DU2* not working, using D2* " ; immediate
+
+\ COMPARE has a different stack use than F83 
+
+.THEN
+

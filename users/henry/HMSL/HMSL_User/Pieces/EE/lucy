@@ -1,0 +1,358 @@
+\
+\
+include?  ee.spot ee:ee
+\
+No-commas 
+anew j1.spot
+\ C. Lucy /  J.  Harrison  scale (sort-of)
+\ based on T/s : T= 2PIth root of 2, s= (1200-5T)/2
+\  
+\  T T s T T T s
+\ C D E F G A B C
+\ 
+
+\ 
+\ actually, provide for a whole series of T/s scales
+\ base on KTone between 1200/7 cents and 0 cents...
+variable KTone
+variable KSemi
+\ actually use points for ktone, ttt etc.
+\
+\ some tones:
+\  BigT  : 5th root of 2     = 819 points 
+819.2001 ( s=0 here ) Constant BigT
+\  s17   : 3rd degree 17et   = 723 points 
+722.8236 ( s*3=t ) Constant s17
+\  9/8   : just tone #1      = 696 points 
+969.0123 ( 3T+s = 3/2) Constant 9/8
+\  12-et : 2nd degree 12et   = 683 points 
+682.6657 Constant 12ET
+\  31-et : 5th degree 31 et  = 660 points 
+660.6451 Constant 31ET
+\  5/4=2t: 5/4 = 2 tones     = 659 points 
+659.3087 Constant 5/4=2T
+\  Phi   : see calc below    = 657 points 656.8241 
+\  L/H   : 2*PIth root of 2  = 652 points 651.8986
+\  19-et : 3rd note          = 646 points 
+646.7368 Constant 19ET
+\  10/9  : just tone #2      = 623 points 
+622.6049 Constant 10/9
+\  T=s   : 7th root of 2     = 585 points 
+585.1429 ( below this, s > t ) Constant T=S
+\
+\
+\ nth degree x et = 4096.*n/x
+\
+
+5. Fsqrt 1. F+ 2. F/ Constant PHI
+
+\ phi calculation: if 4096      = 5 T + 2 S
+\                 and 1.6180339 = T/s       S = T/phi
+\                     4096 = t (5 +2/phi)
+\                    then T = 4096/(5+2/phi) = 4096/(6.236068) = 656.82
+4096. 5. 2. phi F/ F+ F/ Constant PhiTone
+\                     note: 2pi = 6.28318 so it's easy to see why the two 
+\                     are confused! I must conclude that the HARRISON
+\                     claim is a coincidence, since there is no physical 
+\                     way that PI could enter into it.
+2. 1. 2pi f/ f** fln log2 f/ 4096. F* Constant PiTone 
+
+\ floating point version...
+
+
+
+
+: FR>P ( floating ratio --   floating points )
+fln log2 f/ 4096. f*
+;
+: K! ( n. --) \ sets ktone and ksemitone if they make an octave
+dup Ktone ! 4096. swap 5. F* F-  2. F/ 
+KSemi !
+;
+\ preset to Lucy
+PiTone K!
+
+: TTT
+KTone @ 
+;
+: SSS ( the 1 + is for rounding... )
+KSemi @
+;
+: T+ Ktone @ F+ ;
+: S+ KSemi @ F+ ;
+
+
+: TsVerify
+TTT 5. F* sss 2. F* F+ F. 
+;
+
+\ sometimes. print  values (round the value with FIX)
+floatee .if
+: @.% @% ;
+.else
+: @.%   FIX ( dup . ) 25 msec   @% ;
+.then
+\
+: Lucy cr
+." In this tuning, a Tone is " ttt F. ." points and a semitone is " sss F. 
+." points." cr
+." Accuracy (compare to 4096) is:" TsVerify cr
+
+start-list
+0
+10 0 do
+( dup . ." :" )
+i 0.            @.%  \ C
+i 0. S+         @.%  \ C#
+i 0. T+         @.%  \ D
+i 0. T+ S+       @.%  \ Eb
+i 0. T+ T+       @.%  \ E
+i 0. T+ T+ S+    @.%  \ F
+i 0. T+ T+ T+    @.%  \ F#
+i 0. T+ T+ S+ T+ @.%  \ G
+i 0. T+ T+ S+ T+ S+           @.%  \ Ab
+i 0. T+ T+ S+ T+ T+           @.%  \ A
+i 0. T+ T+ S+ T+ T+ S+        @.%  \ Bb
+i 0. T+ T+ S+ T+ T+ T+        @.%  \ B
+ ( cr )
+loop
+end-list
+drop
+cr
+;
+: Lucy2 cr
+." In this tuning, a Tone is " ttt F. ." points and a semitone is " sss F. 
+." points." cr
+." Accuracy (compare to 4096) is:" tSVerify cr
+
+start-list
+9
+10 0 do
+( dup . ." :" )
+i 0.                            3072. F+ @.%  \ a
+i 0. S+                         3072. F+ @.%  \ bb
+i 0. T+                         3072. F+ @.%  \ b 
+i 0. T+ s+                      3072. F+ @.%  \ c 
+i 0. T+ T+                      3072. F+ @.%  \ c#
+i 0. T+ T+ S+                   3072. F+ @.%  \ d
+i 0. T+ T+ S+ S+                3072. F+ @.%  \ eb
+i 0. T+ T+ T+ S+                3072. F+ @.%  \ e
+i 0. T+ T+ T+ S+ S+             3072. F+ @.%  \ f  
+i 0. T+ T+ T+ T+ S+             3072. F+ @.%  \ F#
+i 0. T+ T+ T+ T+ S+ S+          3072. F+ @.%  \ g 
+i 0. T+ T+ T+ T+ S+ S+ S+       3072. F+ @.%  \ Ab
+ ( cr )
+loop
+end-list
+drop
+cr
+;
+
+: 4..
+s->d <# ascii : hold # # # # #>  type ."  "
+;
+
+: SnT
+cr 
+5 -4 do
+\ i .  ." : "
+4 -3 do
+j . i .
+i FLOAT SSS F* j FLOAT TTT F* F+ dup F0< if 4096. F+ then
+F.
+loop cr
+loop cr
+;
+
+: Scale.
+cr cr
+ 0. 
+." C :" f. 
+ SSS  
+." C#:" f. 
+ TTT 
+." D :" f. 
+ TTT SSS F+ 
+." Eb:" f. 
+ TTT TTT F+ 
+." E :" f. 
+ TTT TTT F+ SSS F+  
+." F :" F. cr
+ TTT TTT F+ TTT F+ 
+." F#:" F. 
+ TTT TTT F+ SSS F+ TTT F+ 
+." G :" F. 
+ TTT TTT F+ SSS F+ TTT F+ SSS F+ 
+." Ab:" F. 
+ TTT TTT F+ SSS F+ TTT F+ TTT F+ 
+." A :" F. 
+ TTT TTT F+ SSS F+ TTT F+ TTT F+ SSS F+ 
+." Bb:" F. 
+ TTT TTT F+ SSS F+ TTT F+ TTT F+ TTT F+ 
+." B :" F. 
+;
+
+: 4..X FIX  3072 F+ dup 4096 > if 4096 - then 4.. ;
+ 
+: Scale2.
+cr
+ 0 ." C :" 4..x
+ SSS ." C#:"  4..x
+ TTT  ." D :"  4..x
+ SSS TTT F+  ." Eb:"  4..x
+ TTT TTT F+  ." E :"  4..x
+ TTT TTT F+ SSS F+  ." F :"  4..x cr
+ TTT TTT F+ SSS F+ SSS F+ ." F#:"  4..x 
+ TTT TTT F+ TTT F+ SSS F+  ." G :"  4..x
+ TTT TTT F+ TTT F+ SSS F+ SSS F+  ." Ab:"  4..x
+ TTT TTT F+ TTT F+ TTT F+ SSS F+  ." A :" 4..x
+ TTT TTT F+ TTT F+ TTT F+ SSS F+ SSS F+ ." Bb:"  4..x
+ TTT TTT F+ TTT F+ TTT F+ SSS F+ SSS F+ SSS F+ ." B :" 4..x 
+ TTT TTT F+ TTT F+ TTT F+ TTT F+ SSS F+ sss F+ ." C :" 4..x 
+;
+\
+\ many scales with different tone sizes...
+: many>
+819 585 do
+." ----->" i . cr
+i float K! 
+scale.
+lucy2
+10 60 <> 10 62 <> 10 64 <> 10 65 <> 10 67 <> 10 69 <> 10 71 <> 10 72 <>
+." next?" key  ascii q = if leave then
+
+20 +loop
+
+;
+
+Create The21
+\ 0 = s, 1 = t
+binary
+\ series 5+0
+1111100 c, 0111110 c, 0011111 c, 1001111 c, 1100111 c, 1110011 c, 1111001 c,
+\ series 4+1
+1111010 c, 0111101 c, 1011110 c, 0101111 c, 1010111 c, 1101011 c, 1110101 c,
+\ series 3+2
+1110110 c, 0111011 c, 1011101 c, 1101110 c, 0110111 c, 1011011 c, 1101101 c,
+
+decimal
+
+even-up
+variable octs
+4096 5 * Octs !
+: Load21 { | pile  pattern -- }
+cr 
+start-list
+\ this puts the 21 possible 5+2 diatonic scales on the white keys,
+\
+the21 -> pile
+21 0 do i . ." )  "
+pile  c@ -> pattern
+\ here is a pattern to be played ...
+0.
+8 0 do
+\ play top of stack
+ dup fix .  60 over fix octs @ + e!> 8 60 <>
+pattern 1 and if 
+t+
+else
+s+
+then
+pattern 2/ -> pattern
+loop
+drop cr
+10 !!
+pile 1+ -> Pile
+loop
+end-list
+;
+
+: super17
+\ trust me - this 17 note scale contains all the notes needed
+\ to play any of the above 21-tone scales (and more... )
+\ order assumes T>2*s , which may not be true... 
+\ 17 = 6*3 -1 (n+1)(M+1) -1
+start-list
+0
+8 3 do
+i 0.              @.% \ C  c     0,0
+i 0. s+           @.% \ C# c#    0,1
+i 0. S+ S+        @.% \ D  D-    0,2
+i 0. T+           @.% \ Eb D     1,0
+i 0. T+ S+        @.% \ E Eb     1,1
+i 0. T+ S+ S+     @.% \ F E-     1,2
+i 0. T+ T+        @.% \ F# E     2,0
+i 0. T+ T+ S+     @.% \ G F      2,1
+i 0. T+ T+ S+ S+  @.% \ Ab F+    2,2
+i 0. T+ T+ T+     @.% \ A F#     3,0
+i 0. T+ T+ T+ S+  @.% \ Bb G     3,1
+i 0. T+ T+ T+ S+ S+     @.% \ B Ab 3,2
+i 0. T+ T+ T+ T+        @.% \ C A- 4,0
+i 0. T+ T+ T+ T+ S+     @.% \ C# A  4,1
+i 0. T+ T+ T+ T+ S+ S+  @.% \ D Bb  4,2
+i 0. T+ T+ T+ T+ T+     @.% \ eb B- 5,0 
+i 0. T+ T+ T+ T+ T+ S+  @.% \ E B   5,1
+i 0  T+ T+ T+ T+ T+ S+ S+   @.% \ F C 5,2
+i 0.  @.%
+i 0. @.%
+i 0.  @.%
+i 0. @.%
+i 0. @.%
+i 0. @.%
+loop
+cr
+drop
+cr
+end-list
+;
+\
+\ some other fun tones:
+\
+\ 3/2 is 3t+s, 5/4 is 2t .. octave is not 2/1
+5. 4. f/ fsqrt fr>p constant 5/4tone
+9. 8. f/ fr>p constant 9/8tone
+3. 2. f/ fr>p   5/4tone 3. F* f- constant 3/2semi
+
+: Lucy3 { | m -- }
+." In this tuning, a Tone is " ttt F. ." points" cr
+." and a semitone is " sss F. ." points." cr
+." Accuracy (compare to 4096) is:" tSVerify cr
+\ 3072.0 -> m \ set up to a-440
+\ set up to a-440 (after 5th octave)
+0  T+ T+ S+ T+ T+ T+ S+ -> m 
+3072. m 4096. f- 5. f* f- -> m
+." offset fo a is " m f. cr
+
+start-list
+9
+10 0 do
+( dup . ." :" )
+0 m     @.%  \ a
+0 m S+  @.%  \ bb
+0 m T+  @.%  \ b 
+0 m T+ s+   @.%  \ c 
+0 m T+ T+   @.%  \ c#
+0 m T+ T+ S+    @.%  \ d
+0 m T+ T+ S+ S+    @.%  \ eb
+0 m T+ T+ T+ S+    @.%  \ e
+0 m T+ T+ T+ S+ S+   @.%  \ f  
+0 m T+ T+ T+ T+ S+     @.%  \ F#
+0 m T+ T+ T+ T+ S+ S+   @.%  \ g 
+0 m T+ T+ T+ T+ S+ S+ S+  @.%  \ Ab
+m  T+ T+ S+ T+ T+ T+ S+ -> m \ reset M
+ ( cr )
+loop
+end-list
+drop
+;
+
+: P5P3  cr
+3/2semi Ksemi ! 5/4tone Ktone !
+." Note how octaves are wide... " cr
+lucy3
+cr
+;
+
+
+\ lucy
+

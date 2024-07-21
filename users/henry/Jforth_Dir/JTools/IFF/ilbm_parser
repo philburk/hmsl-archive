@@ -1,0 +1,152 @@
+\ Process an ILBM FORM
+\
+\ Parse an ILBM file by saving parts of the file in allocated
+\ memory then processing them after file read.
+\
+\ Allow vectoring of parser using deferred words.
+\
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk
+\
+\ MOD: PLB 2/28/90 Added DEFAULT_CAMG
+\ 00001 PLB 11/14/91 Improve error handling,
+\	change $ILBM.PARSE.FILE to $ILBM.PARSE.FILE?
+\ MOD: PLB 1/22/92 Removed def of FREEVAR
+
+include? AllocRaster() ju:graph_support
+include? { ju:locals
+include? unpackrow jiff:unpacking
+include? iff.read jiff:iff_support
+decimal
+ANEW TASK-ILBM_parser
+
+: HEADER>BITMAP ( bitmapheader -- bitmap | NULL , build one based on )
+	dup>r ( save bmh )
+	..@ bmh_nplanes
+	r@ ..@ bmh_w
+	r> ..@ bmh_h
+	3 xdup * * 0= abort" HEADER>BITMAP - BitMapHeader has zeroes!"
+	alloc.bitmap
+;
+
+\ Allocate and fill a BitMap based on BMHD and BODY chunk.
+: ILBM.MAKE.BITMAP ( body bsize bmheader | bmap -- bitmap | NULL )
+	dup header>bitmap ?dup
+	IF  swap ..@ bmh_compression body>bitmap
+	ELSE 3 xdrop NULL
+	THEN
+;
+
+
+\ Declare a scratch header if not already present.
+.need ILBM-Header
+BitMapHeader ILBM-Header
+.THEN
+
+variable ILBM-BODY   ( address of alocated BODY )
+variable ILBM-BSIZE  ( size of BODY )
+variable ILBM-CMAP   ( address of allocated CMAP )
+variable ILBM-CMSIZE ( size in bytes of CAMP )
+variable ILBM-GRABXY ( contains short x and y )
+variable ILBM-CAMG   ( contains actual CAMG data )
+
+: ILBM.CLEANUP ( -- , free any data allocated )
+	ilbm-cmap freevar
+	ilbm-body freevar
+;
+
+\ Deferred word for processing unknown chunks.
+defer ILBM.OTHER.HANDLER
+
+: ILBM.HANDLER ( size chkid -- , default handler used to parse )
+	CASE
+		'BMHD'
+		OF ilbm-header sizeof() BitMapHeader iff.read -
+			IF ." ILBM.HANDLER - Oddly sized BitMapHeader!" cr
+				goto.error \ 00001
+			THEN
+		ENDOF
+		'BODY'
+		OF dup ilbm-bsize !
+			iff.read.data dup ilbm-body !
+			0= ?goto.error
+		ENDOF
+		'CMAP'
+		OF dup ilbm-cmsize !
+			iff.read.data dup ilbm-cmap !
+			0= ?goto.error
+		ENDOF
+		'GRAB'
+		OF ilbm-grabxy 4 iff.read -
+			IF ." Oddly sized GRAB" cr
+				goto.error
+			THEN
+		ENDOF
+		'CAMG'
+		OF ilbm-camg 4 iff.read -
+			IF ." Oddly sized CAMG" cr
+				goto.error
+			THEN
+		ENDOF
+		( -- size chkid )
+		tuck ilbm.other.handler
+	ENDCASE
+	exit
+\
+ERROR:
+	iff-stop on
+	iff-error on
+;
+
+: ILBM.PARSER ( size chkid -- , recursively parse ILBM )
+	2dup iff.special?
+	IF 2drop
+	ELSE ( -- size chkid )
+		ilbm.handler
+	THEN
+;
+
+: ILBM.MAKE.CTABLE  ( -- ctable num_colors | 0 0 , allocate from CMAP )
+	ilbm-cmap @
+	IF  memf_clear ilbm-cmsize @ 3 / dup>r 2* allocblock ?dup
+		IF ( -- ctable )
+			dup ilbm-cmap @ swap r@ cmap>ctable  ( fill ctable )
+			r>  ( -- ctable n )
+		ELSE rdrop ." Couldn't allocate CTABLE" cr 0 0
+		THEN
+	ELSE 0 0
+	THEN
+;
+
+: ILBM.ALLOC.BITMAP ( -- bitmap | 0)
+	ilbm-header header>bitmap ( bitmap )
+;
+
+: ILBM.FILL.BITMAP ( bitmap -- bitmap | 0)
+	ilbm-body @ 0=
+	IF ." No Body" cr 0 RETURN
+	THEN
+\
+	>r ilbm-body @ ilbm-bsize @ r>
+	ilbm-header ..@ bmh_compression
+	body>bitmap ( bitmap | 0 )
+;
+
+: ILBM.INIT ( -- , set vectors )
+	ilbm.cleanup
+	' ilbm.parser is iff.process.chunk
+	' iff.not.proc is ilbm.other.handler
+;
+
+ilbm.init
+
+0 value DEFAULT_CAMG
+
+: $ILBM.PARSE.FILE? ( $filename -- error? , parse an IFF file )
+	ilbm-cmap @ warning" CMAP was still allocated!"
+	ilbm-body @ warning" BODY was still allocated!"
+	0 ilbm-grabxy !
+	default_camg ilbm-camg !
+	ilbm-header sizeof() BitMapHeader erase
+	$iff.dofile?
+;

@@ -1,0 +1,36 @@
+\ Use MIDI clock to drive HMSL
+ANEW TASK-MC
+
+: TIME+1  ( -- )
+    1 time+!
+;
+: TIME+2  ( -- )
+    2 time+!
+;
+
+: START.SHEP  ( -- )
+    ." Started!" cr rtc.time@ 0 execute: se-player
+    'c time+1 mp-clock-vector !
+;
+
+
+: STOP.SHEP  ( -- )
+    'c noop mp-clock-vector !
+;
+
+: CONTINUE.SHEP  ( -- )
+    'c time+1 mp-clock-vector !
+;
+
+: TEST
+    mp.reset
+    'c start.shep mp-start-vector !
+    'c stop.shep mp-stop-vector !
+    'c continue.shep mp-continue-vector !
+    rtc.stop
+    midi.clear
+    midi.parser.on
+    hmsl
+    mp.reset
+;
+

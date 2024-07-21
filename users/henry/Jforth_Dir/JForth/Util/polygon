@@ -1,0 +1,63 @@
+\ Draw POLYGONs, ie. Amiga "AREADRAW"
+\
+\ This system will set up a temp rastport the same size as
+\ the current rastport.  See jd:demo_polygon for an example.
+\
+\ Copyright 1987 - Phil Burk
+
+include? gr-currport ju:amiga_graph
+include? allocraster() ju:graph_support
+
+ANEW TASK-POLYGON
+
+\ Declare structures.
+tmpras PG-TMPRAS
+areainfo PG-AREAINFO
+
+100 constant pg_max_points
+
+create PG-AREABUFFER pg_max_points 2* 50 + 2* allot
+
+: INITAREA() ( areainfo areabuffer count -- )
+    callvoid>abs graphics_lib initarea
+;
+
+: GR.AREA.INIT  { | rpcur rpx rpy -- , setup current rastport for AREAFILL }
+    gr-currport @ dup 0= abort" GR.AREA.INIT - no current rastport !"
+    >rel -> rpcur
+    pg-areainfo  pg-areabuffer  pg_max_points initarea()
+    pg-areainfo >abs rpcur  ..! rp_areainfo
+    pg-tmpras  rpcur ..@ rp_bitmap >rel bitmap>wh -> rpy -> rpx
+    rpx rpy allocraster()
+    rpx rpy rassize() 
+    inittmpras()
+    pg-tmpras if>abs rpcur ..! rp_tmpras
+;
+
+: GR.AREA.TERM  ( -- )
+    gr-currport @ dup 0= abort" GR.AREA.TERM - no current rastport !"
+    >rel  ..@ rp_tmpras >rel
+    ..@ tr_rasptr >rel
+    gr-currport @ >rel ..@ rp_bitmap >rel bitmap>wh freeraster()
+;
+
+: GR.AREAMOVE ( x y -- )
+    gr-currport @ -rot
+    callvoid graphics_lib areamove
+;
+
+: GR.AREADRAW ( x y -- )
+    gr-currport @ -rot
+    callvoid graphics_lib areadraw
+;
+
+: GR.AREAEND ( -- )
+    gr-currport @
+    callvoid graphics_lib areaend
+;
+
+: GR.TRIANGLE ( x1 y1 x2 y2 x3 y3 -- )
+    gr.areamove
+    gr.areadraw gr.areadraw
+    gr.areaend
+;

@@ -1,0 +1,68 @@
+
+\ -------------------------------  ReLoad  ----------------------------
+\
+\   Once you have compiled your application and then changed one of its
+\ files, this word will:
+\
+\ 1. FORGET the dictionary from the beginning of that file.
+\ 2. Recompile the application from that file.
+\
+\   It is used:      ReLoad <filename>
+\
+\   To implement it, just follow these few, simple steps...
+\
+\ ------------------------------------------------------------------------
+\
+\ 1. Before compiling your application the first time, load this file.
+\
+\ 2. Write a word which returns the address of a forth string which is the
+\    name of the last file in your application...  ( -- $addr )  for example:
+\
+\             : DemoName  ( -- $addr )  " jd:load_demos"  ;
+\
+\ 3. This file defines THELASTFILE, a deferred word.  Set it up to execute
+\    the word you just wrote.  for example:
+\
+\             ' DemoName is theLastFile
+\
+\    (NOTE: this word is initialized here to "TopFile".  If you don't mind
+\           giving your topmost file this name, you can skip steps 2 & 3...
+\           Just 'cd' to it's directory when you compile).
+\
+\ 4. That's all!  Go ahead and compile/develop your program.  After changing
+\    one of its files, just type  RELOAD <filename>.
+\
+\ NOTE: In each of your files, you must have preserved the convention that
+\       the first defined word is an "ANEW" word consisting of the filename
+\       preceeded by "TASK-"  (see below)
+\
+\ -------------------------------------------------------------------------
+
+
+ANEW Task-Reload
+
+
+defer TheLastFile
+
+: DefaultName  ( -- $addr )   " TopFile"   ;
+
+' DefaultName is TheLastFile
+
+
+: RELOAD  ( -- , <filename> )
+  \
+  \ Move the filename to pad...
+  \
+    bl word pad $move    ( no spaces in filename! )
+  \
+  \ Generate ANEW precursor, append filename, then FORGET that...
+  \
+    " TASK-"   here $move
+    pad count here $append
+    skip-word? on  forget
+  \
+  \ Now just INCLUDE what TheLastFile is set to...
+  \
+    TheLastFile $include
+;
+

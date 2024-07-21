@@ -1,0 +1,287 @@
+\ Control Yamaha FB-01 with System Exclusive Commands
+\ 
+\ Author: Phil Burk
+\ Copyright 1986 -  Phil Burk, Larry Polansky, David Rosenboom.
+\ All Rights Reserved
+\
+\ MOD: PLB 3/9/90 Improve handling of checksums and packets.
+\ MOD: PLB 9/15/91 Convert all hex to $, remove MIDI-IF-OPT ref.
+
+ANEW TASK-FB-01
+.need !=
+: !=  ( a b -- flag , true if not = )
+    = not
+;
+.THEN
+." Move != to tools!" cr
+
+: FB.START.SYSEX ( -- , send first two bytes, $F0 $43 )
+    midi.start.sysex
+    $ 43 midi.xmit  ( Yamaha vendor code )
+;
+
+: FB.START.EVENTS ( -- , Start event mode for FB-01 )
+    fb.start.sysex
+    $ 75 midi.xmit  ( codes for event mode )
+    $ 70 midi.xmit
+    midi.flush
+\    false midi-if-opt !  ( make sure no optimization )
+;
+
+: FB.STOP.EVENTS
+    midi.end.sysex
+;
+
+\ The next two words allow fine control of intonation.
+\ The fraction is in semitones/128.
+\ In other words:  fraction = cents * 128 / 100
+: FB.FRACT.ON  ( note fraction velocity -- , play fractional note)
+    $ 10 midi.cvm+3D
+;
+
+: FB.FRACT.OFF  ( note fraction -- )
+    $ 00 midi.cvm+2D
+;
+
+: FB.CENTS->NF  ( cents -- note fraction , convert )
+    100 /mod
+    swap 7 ashift 100 /  ( f = c * 128/100 )
+    dup 0<
+    IF  abs >r 1-  ( lower note )
+        128 r> -   ( invert fraction )
+    THEN
+;
+    
+CREATE FB-SYSTEM-CHANNEL 1 ,
+
+: FB.OR.SYSCH  ( n -- n|s )
+    $ F0 and fb-system-channel @ 1- $ 0F and or
+;
+
+: FB.DREQUEST.V0 ( -- , send dump request for voice 0 )
+    fb.start.sysex
+    $ 20 fb.or.sysch midi.xmit
+    $ 0C midi.xmit
+    midi.end.sysex
+;
+
+: FB.DREQUEST.IV ( instr -- , send dump request for voice 0 )
+    fb.start.sysex
+    $ 75 midi.xmit
+    0 fb.or.sysch midi.xmit
+    1- 7 and $ 28 or midi.xmit  ( instrument )
+    0 midi.xmit
+    0 midi.xmit
+    midi.end.sysex
+;
+
+\ Thanks to Carter Scholz for helping with these words.
+
+: FB.CONFIG.PARAM!  ( value parameter -- , change configuration parameter)
+    fb.start.sysex
+    $ 10 midi.orch midi.xmit
+    $ 15 midi.xmit
+    midi.data.xmit  ( send parameter )
+    midi.data.xmit  ( table 1 )
+    midi.end.sysex
+;
+
+: FB.VOICE.DATA!  ( value offset -- , change voice data parameter )
+    fb.start.sysex
+    $ 10 midi.orch midi.xmit
+    $ 15 midi.xmit
+    $ 40 + midi.data.xmit  ( convert to parameter # )
+    midi.xmit.lohi
+    midi.end.sysex
+;
+
+: FB.OPER.BLOCK! ( value offset operator#[0-3] -- )
+    3 ashift $ 10 + + fb.voice.data!
+;
+
+: FB.SYSTEM!  ( value parameter -- set system function )
+    fb.start.sysex
+    $ 75 midi.xmit
+    0 fb.or.sysch midi.xmit
+    $ 10 midi.xmit
+    midi.xmit
+    midi.xmit
+    midi.end.sysex
+;
+
+\ A few words to illustrate the use of these commands.
+\ The page numbers refer to the FB-01 manual.
+
+: FB.BANK  ( bank#[1-7] -- , select bank on current channel)
+    1- 4 fb.config.param!  ( subtract 1 to match display )
+; \ from pg. 52 )
+
+CREATE FB-DELAY 1 ,
+
+: FB.VOICE.NAME ( $name -- )
+    count tuck 7 min 0
+    DO dup c@
+       i fb.voice.data!
+       1+ fb-delay @ msec  ( needed so FB-01 won't choke )
+    LOOP drop
+    7 swap  ( add trailing blanks )
+    DO BL i fb.voice.data! fb-delay @ msec
+    LOOP
+; \ from pg. 53
+
+: FB.FEED.ALG  ( feedback algorithm -- )
+    swap 3 ashift + $ 0C fb.voice.data!
+;
+
+: FB.LFO.SPEED ( rate -- , set voice LFO rate )
+    8 fb.voice.data!
+;
+
+: FB.CONFIGURATION  ( configuration# -- , select it, pg. 49 )
+    1- $ 22 fb.system!
+;
+
+: FB.#NOTES! ( #notes -- )
+	0 fb.config.param!
+;
+
+: FB.PAN! ( 0-127 -- )
+	9 fb.config.param!
+;
+
+\ Packet Dumps ------------------------------------------
+
+exists? ob.list
+.IF
+ob.list fb-1voice
+variable fb-checksum
+
+: FB.CALC.CHECKSUM ( -- checksum , calc from accumulated sum )
+    fb-checksum @ negate $ 7F and
+;
+
+: FB.TEST.CHECKSUM ( -- , compare incoming checksum )
+    fb.calc.checksum
+    midi.key 2dup =
+    IF drop ." Checksum = " . cr
+    ELSE ." Checksum Error, theirs = " . ." , ours = " . cr
+    THEN
+;
+
+: FB.GET.PACKET ( -- , get 1 packet with length, data, checksum)
+    0 fb-checksum !
+\
+\ Get number of bytes
+    midi.key midi.key swap 7lo7hi->14 2/
+\
+\ Allocate more space in list if needed.
+	dup limit: fb-1voice =
+    IF
+		clear: fb-1voice
+    ELSE
+		free: fb-1voice   
+		1 set.width: fb-1voice
+		dup new: fb-1voice ." Allocate FB-1VOICE" cr
+    THEN
+\
+\ load data
+    0
+    DO  midi.key dup fb-checksum +!
+        midi.key dup fb-checksum +! 
+        swap hilo->byte
+        add: fb-1voice
+    LOOP
+    fb.test.checksum
+;
+
+variable FB-XMIT-DELAY
+5 fb-xmit-delay !
+
+: FB.SEND.PACKET ( -- , send packet contained in FB-1VOICE )
+    0 fb-checksum !
+    many: fb-1voice
+    dup 2* 14->7lo7hi midi.xmit midi.xmit
+    0
+    DO  i get: fb-1voice
+        byte->hilo
+        dup midi.xmit fb-checksum +!
+        dup midi.xmit fb-checksum +!
+\        fb-xmit-delay @ delay
+    LOOP
+    fb.calc.checksum midi.xmit
+;
+
+2 constant FB_ACK
+3 constant FB_NAK
+4 constant FB_CANCEL
+
+: FB.GET.HANDSHAKE ( -- s code  )
+    $ F0 midi.get.byte
+    $ 43 midi.get.byte
+    midi.key  $ 0F and
+    midi.key
+    $ F7 midi.get.byte
+;
+: FB.GET.DUMP.V0 ( -- , request of voice bank 0 )
+    fb.drequest.v0
+    $ F0 midi.get.byte
+    $ 43 midi.get.byte
+    midi.key drop
+    $ 0C midi.get.byte
+    49 0
+    DO fb.get.packet
+    LOOP
+    $ F7 midi.get.byte
+;
+
+: FB.GET.DUMP.IV ( instr -- )
+    fb.drequest.iv
+    $ F0 midi.get.byte
+    $ 43 midi.get.byte
+    $ 75 midi.get.byte
+    midi.key drop
+    midi.key drop
+    0 midi.get.byte
+    0 midi.get.byte
+    fb.get.packet
+    $ F7 midi.get.byte
+;
+
+: FB.SEND.DUMP.IV ( instr -- error? )
+    fb.start.sysex
+    $ 75 midi.xmit
+    0 fb.or.sysch midi.xmit
+    1- 7 and 8 or midi.xmit
+    0 midi.xmit
+    0 midi.xmit
+    fb.send.packet
+    midi.end.sysex
+    fb.get.handshake nip
+    FB_ACK !=
+;
+
+.THEN
+ 
+: A.OR.B  ( a b flag -- a | b )
+    IF drop
+    ELSE nip
+    THEN
+;
+
+DECIMAL
+
+true .IF
+\ Test fractions.
+: FB.TEST1  ( -- , random melody in semitone range)
+    fb.start.events
+    80 0
+    DO  100 choose 52 over 120 ( -- fract note fract vel )
+        fb.fract.on   ( -- fract )
+        100 300 3 choose a.or.b msec
+        52 swap ( -- note fract ) fb.fract.off
+        100 msec
+    LOOP
+    fb.stop.events
+;
+.THEN
+

@@ -1,0 +1,42 @@
+\ Monday 13-Oct-86 05:28:13 ...  Mike Haas
+
+\ 02-jan-87  mdh  use LWORD to pass rest of input line in same case.
+\ MOD: PLB MOD: 8/19/88 Add $DOS
+\ MOD: PLB 1/12/89 Removed LIST because of conflict with Amiga Exec.
+
+: DOSCommand ( <name> -- )  \ usage:  DOSCOMMAND DIR
+    \    when executed, will take rest of the input string for DOS
+  CREATE \ ... thass all I need here, thank you
+  DOES>  >newline   do-does-size -  >name   \ NFA -- )
+         dup 1+ swap   c@  $ 1f and   \ TEXT CNT -- ) must strip header stuff
+         >dos       "  " count +dos   \ -- )   put command and a blank there
+         eol lword  count +dos        \ -- )   put in rest of input line
+         dos0 >abs ( string-adr -- ) 0 ( infile ) CONSOLEOUT @ ( outfile )
+         call dos_lib execute  drop     ( consider it done! )
+;
+
+
+\ NOTE: cd is predefined in JForth...do not redefine!
+\ also, keep the forth names in mind!  (like DO and EXECUTE ... both taken!)
+
+\    And REMEMBER...AmigaDOS does not support input through the Execute()
+\ call, so it is probably a good idea not to define commands which could
+\ go on forever, or require keyboard input (like DiskCopy).
+
+\    Instead, use NewCLI to create a regular AmigaDOS window for
+\ fancy stuff!  (This is a quick and dirty convienience...NOT an all-out
+\ interface to the CLI environment!)
+
+\ DO NOT define TYPE, DO, EXECUTE or LIST.  They conflict with Forth!!
+doscommand dir        doscommand status
+doscommand run        doscommand delete
+doscommand copy       doscommand rename
+doscommand newcli     doscommand date
+doscommand avail      doscommand info
+doscommand assign     doscommand path
+
+: $DOS ( $string -- , execute as dos command )
+    count >dos
+    dos0 >abs 0 consoleout @
+    call dos_lib execute drop
+;

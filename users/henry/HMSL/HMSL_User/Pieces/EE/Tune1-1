@@ -1,0 +1,107 @@
+\ various just intonations from 1/1  Winter 1990 (july actually)
+\
+\
+\
+anew tune1-1.spot
+
+Variable BaseNote
+: %P
+{ Note Oct Num Den -- }
+Note  0 127 within?  If
+note oct num den %? BaseNote @ + E!>
+else note  ." :>>bad" .
+then 
+Note 1+
+;
+
+: Archytas
+0 BaseNote ! 
+
+Start-list
+Zero-set
+0 
+
+10 0 do
+I 1 1 %P	\ C	I
+I 28 27 %p	\ C#	
+I 5 4 %p	\ D	II
+I 16 15 %p	\ Eb	
+I 9 7 %p	\ E	III
+I 4 3 %P	\ F	IV
+I 4 3 %p	\ F#	
+I 3 2 %P	\ G	V
+I 14 9 %p	\ Ab	
+I 15 8 %P	\ A	VI
+I 8 5 %P	\ Bb	
+I 27 14 %p	\ B	VII
+loop
+
+cr
+drop
+end-list
+
+;
+
+
+: AVICENNA
+0 BaseNote ! 
+
+Start-list
+Zero-set
+0 
+
+10 0 do
+I	 1 1 %P		\ C	I
+ I	 7 6 %p		\ C#	
+I	 10 9 %p	\ D	II
+ I	 6 5 %p		\ Eb	
+I	 8 7 %p		\ E	III
+
+
+I	 4 3 %P		\ F	IV
+ I	 4 3 %p		\ F#	
+I	 3 2 %P		\ G	V
+ I	 7 4 %p		\ Ab	
+I	 5 3 %P		\ A	VI
+ I	 9 5 %P		\ Bb	
+I	 12 7 %p	\ B	VII
+loop
+
+cr
+drop
+end-list
+
+;
+
+: AlFarabi
+0 BaseNote ! 
+
+Start-list
+Zero-set
+0 
+
+10 0 do
+I	 1 1 %P		\ C	I
+ I	 49 48 %p		\ C#	
+I	 8 7 %p		\ D	II
+ I	 7 6 %p		\ Eb	
+I	 64 49 %p	\ E	III
+
+I	 4 3 %P		\ F	IV
+ I	 4 3 %p		\ F#	
+I	 3 2 %P		\ G	V
+
+ I	 49 32 %p		\ Ab	
+I	 12 7 %P	\ A	VI
+ I	 7 4 %P		\ Bb	
+I	 96 49 %p	\ B	VII
+loop
+
+cr
+drop
+end-list
+
+;
+
+."  Archytas  AVICENNA  AlFarabi " cr
+

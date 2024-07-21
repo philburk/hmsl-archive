@@ -1,0 +1,169 @@
+( SMART FORGET ) 
+
+\ 06-07-88 mdh ANDIFPROTECTED? prints name, incorporatd REHASH.
+\  MOD: PLB 09/09/88 Use found [FORGET]
+\  MOD: PLB 08/22/89 Make FORGET reclaim link field by adding
+\                    CELL- to (FORGET)
+\ 00001 mdh 04/24/91 adjust for new defered words
+
+FORTH DEFINITIONS
+decimal
+\ INCLUDE? Y-OR-QUIT Y-OR-QUIT
+USER FORGOTTEN
+
+: isuser?  ( cfa -- 0 / user# )    \ this is user-structure dependant!
+  >r ' s0  ( -- real-one )  ( --r-- maybe )
+  dup cell- @   r cell- @ = swap   ( -- flag real-one )
+        dup @         r @ =  swap  ( -- f1 f2 real )
+   6 +  dup @     r 6 + @ =  swap  ( -- f1 f1 f3 real )
+   drop and and
+   IF   r cell+ w@
+   ELSE false
+   THEN r> drop   ;
+
+: yes?  .s  y/n  ;
+
+: ANDIFPROTECTED? ( NFA --- flag )  dup >r   FENCE @ U<  dup
+   IF    drop  cr r@ id. ."  is protected. FORGET anyway? "  y/n 0=
+   THEN  0= rdrop  ;
+
+: ?FORTH  ( NFA ---  ) CONTEXT @ U<
+   IF    FORTH DEFINITIONS
+   THEN  ;
+  
+: FORGET-VOCS ( NFA --- )  VOC-LINK 
+   BEGIN   @  2DUP  ( NFA VOC@ )   U> 
+   UNTIL   VOC-LINK ! DROP   ;
+
+: FIX-VOC  ( NFA VLINK --- )   VLINK>VLATEST DUP>R @  ( V-NFA ) 
+    BEGIN  ( NFA  V-NFA )  2DUP U>   
+    WHILE-NOT  N>LINK  @
+    REPEAT  R>  ! DROP ;
+   
+: SET-VOC-LATESTS ( NFA --- )   VOC-LINK 
+   BEGIN  @ DUP
+   WHILE  ( NFA VLINK )  2DUP FIX-VOC
+   REPEAT 2DROP ;
+
+variable highuser
+
+: huser?  ( nfa -- )
+  name> isuser?  \ 00001 removed check if defered word (no longer uservar)
+  highuser @ max highuser !  ;
+
+: (FORGET) ( --- , primary definition of forget )
+  DEFINITIONS
+\ replace   [] '  with following line to avoid using deferred FIND
+  bl word voc-find 0= 0 ?error
+  >NAME
+  dup  [ latest cell+ ] literal <
+  IF   .err ." Absolutely won't FORGET below FORGET!" quit
+  THEN
+  DUP  ANDIFPROTECTED?
+  IF   DUP ?FORTH  DUP FORGET-VOCS  DUP SET-VOC-LATESTS
+\ This was not reclaiming the link field.
+\       DP  !  FENCE @ HERE MIN FENCE ! TRUE FORGOTTEN !
+       CELL- DP  !  FENCE @ HERE MIN FENCE ! TRUE FORGOTTEN !
+\ following fixes cold-stuff...
+       maxvocs  coldvocnfas  #vocs @ 0
+       DO  dup @ here >
+           IF   ( #vocsleft coldvocnfa -- ) 2dup
+                swap cells 2* erase  leave
+           ELSE [ 2 cells ] literal +     swap 1- swap
+           THEN
+       LOOP ( #vocsleft adr -- )   drop  maxvocs - abs #vocs !
+\ and, just to be safe, force cleaning up of any Long Relocation Tables...
+       ?forgotten
+\ and fixup user#
+       0 highuser !  ' huser? is when-scanned
+       ' drop is when-voc-scanned  scan-all-vocs
+       highuser @ cell+ user# !
+\ now check...are we forgetting below where COLD will crash?
+       here  dp +boots @ <
+       IF    freeze
+       THEN
+       Hash-Damaged on
+       hash.forget  ( in case there is a faster way )
+  ELSE drop
+  THEN
+\
+[ 1 .IF ]
+  FBLK @  CLINEFILE @ here >  and
+  IF
+     CLINEFILE @ dup>r odd@ $ ff,ff,ff and  $ 3a,3a,3a =
+     IF
+        r@ c@ $ 1f and r@ c!   r@ voc-find
+        IF
+           dup >name CLINEFILE !
+        THEN
+        drop
+     THEN
+     rdrop
+  THEN
+[ .THEN ]
+;
+
+
+\ Link words together to be executed if forgotten.
+\
+\ If you forget one of these words
+\ it will execute a cleanup function.
+\
+\ For an example of this see JU:LOGTO and JU:MODULES
+\
+\ If you redefine [FORGET] you must call the old [FORGET]
+\ from the new one.
+\
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk
+
+variable last-forget
+
+: IF.FORGOTTEN ( <name> -- , place links in dictionary without header)
+    32 word find
+    IF here  last-forget @ , \ Cell 1 = back link to previous 
+      last-forget !
+      ,   ( save cfa )       \ Cell 2 = cfa to call if forgotten
+    ELSE ." IF.FORGOTTEN couldn't find " here count type cr
+    THEN
+;
+
+if.forgotten noop
+
+: [FORGET] ( -- , forget then exec forgotten words)
+    (FORGET)
+    last-forget
+    BEGIN @ dup 0>
+    WHILE dup here >
+        IF dup cell+ @execute
+        ELSE last-forget ! RETURN
+        THEN
+    REPEAT drop
+;
+
+
+: FORGET ( -- , execute latest [forget] )
+    " [FORGET]" find
+    IF execute
+    ELSE count type ." not found!" cr
+    THEN
+;
+
+: ANEW ( <word> -- , forgets if defined, redefines )
+    >in @
+    bl word find
+    IF over >in ! forget
+    THEN drop
+    >in !   variable
+;
+
+: COLD  ( -- , cleanup 'IF.FORGOTTEN' words... )
+  last-forget
+  BEGIN @ dup 0>
+  WHILE dup fence @ >
+      IF dup cell+ @execute
+      ELSE last-forget ! cold
+      THEN
+  REPEAT drop
+  cold
+;

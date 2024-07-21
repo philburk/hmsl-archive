@@ -1,0 +1,44 @@
+\
+\ 00001 14-may-90 mdh LoadJForth files now in jf:
+
+decimal
+
+include? module jf:module  \ 00001
+
+.need includes
+      module includes
+.then
+
+
+' includes M.LOADED @
+.IF
+      DetachModule includes
+.THEN
+
+
+makeinc? @
+
+.IF
+
+   105 MakeModule includes
+
+   include? INTUITION_INTUITION_H  ji:intuition/intuition.j
+   include? GRAPHICS_RASTPORT_H    ji:graphics/rastport.j
+   include? GRAPHICS_TEXT_H        ji:graphics/text.j
+   include? GRAPHICS_REGIONS_H     ji:graphics/regions.j
+   include? EXEC_INTERUPTS_H       ji:exec/interrupts.j
+   include? EXEC_LIBRARIES_H       ji:exec/libraries.j
+   include? EXEC_EXECBASE_H        ji:exec/execbase.j
+   include? LIBRARIES_DOS_H        ji:libraries/dos.j
+   include? LIBRARIES_DOSEXTENS_H  ji:libraries/dosextens.j
+   include? DEVICES_NARRATOR_H     ji:devices/narrator.j
+   include? GRAPHICS_SPRITE_H      ji:graphics/sprite.j
+   include? WB_DISKMAGIC           ji:workbench/workbench.j
+   include? WBSTARTUP              ji:workbench/startup.j
+   include? INTUITION_INTUITIONBASE_H  ji:intuition/intuitionbase.j
+
+   cr ." Writing MOD:INCLUDES.MOD" cr cr
+
+   SealModule includes    DetachModule includes
+
+.THEN

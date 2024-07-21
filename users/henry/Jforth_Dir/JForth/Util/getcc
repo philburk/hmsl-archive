@@ -1,0 +1,34 @@
+\
+\ get the status register in the Amiga-approved way...
+\
+\ This file is necessary because the statement:  CALL EXEC_LIB GETCC
+\ will not work.  Code produced by the call compiler does not
+\ preserve the condition codes.
+\
+\ NOTE: this operation, if compiled inline, takes about 28 usec...
+\       and about 34 usec if called.  (Amiga 1000, 68000 cpu, fastram)
+\
+\     Mike Haas   03-nov-88
+
+
+asm GetCC     ( -- n1 , get contexts of condition-codes reg )
+	movem.l	a6,-(a7)            save dsp on return stack
+	move.l	4,a6                get execbase in a6
+	jsr		$-210(a6)           call the function
+	move.l  (a7)+,a6            restore the dsp
+	move.l	tos,-(a6)           push tos out to stack
+	moveq.l	#0,tos              clear tos
+	move.w  d0,tos              set the bottom word
+	forth{	both  }             allow expansion based on MAX-INLINE
+end-code
+
+
+\ testword for above...
+\
+\ asm cmp2
+\     move.l  tos,d0
+\     move.l  (dsp)+,d1
+\     move.l  (dsp)+,tos
+\     cmp.l   d1,d0
+\     callcfa GetCC
+\ end-code

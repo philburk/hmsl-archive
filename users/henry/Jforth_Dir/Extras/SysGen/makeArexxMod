@@ -1,0 +1,15 @@
+\ rexxmodule
+
+getmodule includes
+
+\ module ARexxmod
+
+10 makemodule AREXXmod
+
+include ji:rexx/storage.j
+include ji:rexx/rxslib.j
+
+cr ." Writing MOD:AREXXMOD.MOD" cr cr
+
+sealmodule ARexxmod
+

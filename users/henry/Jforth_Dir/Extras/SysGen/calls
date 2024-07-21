@@ -1,0 +1,558 @@
+\ provide the ability to 'call' the amiga stuff...
+
+\ usage example...
+
+\ 1. graphics library has a call to 'set an entire area to a specified color':
+\
+\    SetRast( RastPort, pen )
+\
+\ where:
+\ 'RastPort' is a pointer to the rastPort you wish to use, and
+\ 'pen' is the pen value to fill the port to (0-255)
+\
+\ in JForth, the equivalent call would be:
+\
+\     ThePort @    23    call Graphics_lib SetRast
+\
+\ where:
+\
+\      'ThePort' is the address where you've stored the rastPort pointer.
+\           '23' is the pen value
+\         'call' invokes the call-assembler, which reads...
+\ 'Graphics_lib' as the name of a user variable which the application has
+\                placed the pointer returned by 'openLibrary' at startup.
+\                NOTE: the call-assembler will append '.fd' to find the
+\                      'function definition' file.
+\      'SetRast' is the name of the function within the library.
+
+\ 'call' is an immediate word which:
+\ -- ASSEMBLES 'movem.l <forth regs>,-(sp)' to save all important stuff.
+\ -- scans for the 'library_lib' text and opens the 'fd' file.
+\    -- find library base offset.
+\    -- find name of call in file, using line position and base offset,
+\       calculate the function absolute offset.
+\    -- calculates the number of regs required, and which regs, ASSEMBLES
+\       the correct 'move' opcodes to load the regs from the stack.
+\ -- finds the 'library_lib' text in the dictionary and executes it.  It should
+\    return the address of a variable/user holding the pointer to the library
+\    (gotten when the application called 'openlibrary' at startup).  It then
+\    fetches and ASSEMBLES a 'move.l' opcode to a6.
+\ -- a JSR neg_offset(a6) is then ASSEMBLED.
+\ -- a 'push d0' is then ASSEMBLED to return any result.
+\ -- a 'movem.l (sp)+,<forth regs>' is ASSEMBLED to restore the forth
+\    environment.
+
+\ -- example of assembled system call:
+\    NOTE: this hypothetical function requires regs (a0,d1) to be set up...
+\
+\ ,save.....   48e7 movem.l   d5-d6/a2-a6,-(rp)   save forth regs (cept tos)
+\              063e
+\ ,calc_lib..  307c move.w    #useroffset,a0
+\              xxxx
+\              d1cd add.l     up,a0  up=a5
+\              2f10 move.l    (a0),-(rp)          save pointer on rp
+\ ,args.....   xxxx move.l    (forthsp)+,d1       load regs..
+\              xxxx move.l    (forthsp)+,a0
+\ ,get_lib..   2c5f move.l    (rp)+,a6            put in the lib pointer
+\ ,jsr......   4eae jsr       index(a6)
+\              xxxx
+\ ,restore..   4cdf movem.l   (rp)+,d5-d6/a2-a6
+\              7c60
+\              ddfc adda.l    #xx,dsp
+\              0000
+\              xxxx
+\ ,pushd0....  2e00 move.l    d0,tos
+
+\ -- t-t-t-h-h-hat's all, f-f-olks !!!!!!!!
+
+\ support words...
+\
+\ Author: Mike Haas
+\ Copyright 1986 Delta Research
+\ MOD: PLB 8/29/88 Add CONVERT-AREGS
+\ MOD: PLB 9/4/88 Add RET:SR RET:VOID RET:DOUBLE AREGS>ABS
+\ MOD: PLB 1/16/91 Print library offset in ARGS
+\ 00001 plb/mdh 15-aug-91 Parser immune to comments after regs
+\ 00002 plb 16-aug-91 MAKE CALL>ABS do equivalent of IF>ABS
+\ 00003 mdh 26-jan-92 handle multiple ##bias statements, obey ##Private
+
+variable theLIB
+variable theFDFILE
+variable theBIAS
+variable #args
+variable Padwas
+variable Verify-Libs
+
+variable CONVERT-AREGS  ( automatically do >ABS if in areg )
+variable RETURN-VOID  ( don't return anything )
+variable RETURN-SR
+variable ##IsPublic  \ 00003
+
+: libOpen?  ( name_field var-addr -- )  @ 0=
+  IF     " You must open " pad $move
+         dup dup 1+ swap c@ $ 1f and 2dup   pad $append
+         "   (use "  count pad $append
+         4 - pad $append
+         " ?)" count pad $append   pad $error
+  THEN   drop ;
+  
+: set_theLIB  ( -- , eats: NAME_lib )
+  ##IsPublic on  \ 00003
+  bl word  find  ( pfa flag -- )  dup   \ is it there?
+  IF   over >name dup c@ $ 1f and  ( pfa flag nfa cnt -- )
+       3 - + odd@  ( pfa flag last-4-chars-of-name -- )
+       $ 5f4c4942  ( "_LIB" ) =  and
+  THEN 0=
+  IF   ( not found )
+       " SET_THELIB: " pad $move
+       here count pad $append 
+       "  is not a Library  (expecting 'name_LIB')" count pad $append
+       pad $error
+  THEN
+  dup >name swap
+  ( -- lib_nfa lib_var )  dup theLIB !  execute
+  Verify-libs @  #args @ -1 > and
+  IF   here pad dup >r $move
+       over [compile] literal  \ compile name-addr
+       dup  [compile] literal  compile libopen?
+       r> here $move
+  THEN 2drop
+;
+
+: fd-dir   $" FD:"  ;
+
+
+: open_theFDFile  ( -- handle / FALSE , wants name at here )
+  ( build 'fd:NAME_lib.fd' in dos name-buffer... )
+  fd-dir   count >dos
+  here     count +dos
+  $" .FD"  count +dos
+  dosstring 2+ (fopen)
+  pad padwas !
+;
+
+: ##Bias?  ( lineadr linecnt -- flag )   ( 00003 )
+\ >newline ." bias?: " ?pause .s
+  dup 7 >
+  IF
+     over + 0 swap c!  ( la )
+     dup  " ##bias" count swap text=?  ( la flag )
+     IF
+        base @ >r   6 +  0 0 rot decimal convert  r> base !  2drop ?dup
+        IF
+           ( n )  theBIAS !  true
+        ELSE
+           false
+        THEN
+     ELSE
+        drop  0
+     THEN
+  ELSE
+     2drop false
+  THEN
+\ >newline ." bias? end: " .s
+;
+
+: ##Private?  ( lineadr lcnt -- flag )  ( 00003 )
+  drop " ##private" count swap text=?
+  IF
+     ##IsPublic off  true
+  ELSE
+     false
+  THEN
+;
+
+: ##Public?   ( lineadr lcnt -- flag )  ( 00003 )
+  drop " ##public" count swap text=?
+  IF
+     ##IsPublic on  true
+  ELSE
+     false
+  THEN
+;
+
+: calcBIAS?  ( -- bias true / false )
+\ >newline ." calcbias: " ?pause .s
+  false   
+  BEGIN
+     tempfile @ tempbuff
+     padwas @ 256 readline  ( 0 padwas linelen -- )  dup -1 >
+     IF
+       ( 0 padwas linelen )  ##Bias?   ( 00003 )
+        IF
+           drop theBIAS @  true  true
+        ELSE
+           false
+        THEN
+     ELSE
+        " CALL: bias not found in "  pad $move
+              dosstring 1+ count pad $append  pad $error
+        \ 2drop true
+     THEN
+  UNTIL
+\ >newline ." calcbias end: " .s
+;
+
+: IsAFunction?  ( padwas cnt -- flag , returns name length if a function )
+  over c@ ?letter
+  IF
+       dup >r  ( save cnt )  0 -rot
+       over + swap
+       DO   i c@  ascii ( =  ?leave
+            1+
+       LOOP dup r> =
+       IF   drop 0
+       THEN
+  ELSE 2drop 0
+  THEN
+;
+
+: thisFunction?  ( here cnt padwas funnamecnt -- flag )
+  ##IsPublic @  ( 00003 )
+  IF
+     2 pick =
+     IF    text=?
+     ELSE  3 xdrop false
+     THEN
+  ELSE
+     2drop 2drop false
+  THEN
+;
+
+: FindFunction?  ( -- flag , adds to 'theBIAS' user variable )
+  bl word count  ( adr cnt -- )
+  BEGIN
+     2dup  tempfile @ tempbuff
+     padwas @ 256 readline    ( a c a c pad pcnt -- ) ( or -1 if eof )
+     dup padwas @ 1- c!
+     dup 0 < 0=               ( a c a c pad pcnt flag -- )
+     IF
+        2dup  isafunction?  ( a c a c pad pcnt len/0 -- ) -dup
+        IF
+           swap drop     ( a c a c pad fcnt -- )
+           thisfunction? ( a c flag -- )
+           IF
+              2drop true true  ( stop, leave true )
+           ELSE
+              6 theBIAS +!   false      ( doit again )
+           THEN
+        ELSE
+           ( -- a c a c pad pcnt )  ( 00003 )
+           2dup ##Bias? 0=
+           IF
+              2dup ##Public? 0=
+              IF
+                 2dup ##Private? drop
+              THEN
+           THEN
+           2drop 2drop  false      ( doit again )
+        THEN
+     ELSE
+        2drop 2drop 2drop false true   ( stop, leave false )
+     THEN
+  UNTIL
+;
+
+: register?  ( adr -- flag , proper register notation? )
+  dup c@  $ 20 or  dup ascii a = swap ascii d =  or
+  swap  1+ c@  ascii 0  ascii 7 within? and
+;
+
+\ 00002
+: CONVERT.AREGS.TST ( reg# type -- , convert areg params to absolute )
+  IF ( address register )
+     convert-aregs @
+     IF ( reg# )
+     	4 = IF
+     	  " CALL: Can't use AREGS>ABS when A4 passes a parameter!" $error
+     	THEN
+     	$ 4A96 w, \ tst.l  (dsp)
+     ELSE drop
+     THEN
+  ELSE drop
+  THEN
+;
+
+: CONVERT.AREGS.ADD ( reg# type -- , convert areg params to absolute )
+  IF ( address register )
+     convert-aregs @
+     IF ( reg# )
+        $ 6702 w,     \ BNE  past adda.l
+     	7 and 9 shift $ D1CC or w,   \ adda.l org,ar
+     ELSE drop
+     THEN
+  ELSE drop
+  THEN
+;
+
+: xr!   ( reg# type -- )
+  2dup convert.aregs.tst \ 00002
+  2dup
+  6 shift  $ 40 and  swap  ( type reg# -- )
+  9 shift or   $ 201e or   ( opcode assembled )  ( move.l  <sp>+,?? )
+  w,
+  convert.aregs.add
+;
+
+\ : dr!   ( data reg# -- )
+\   0 xr!
+\ ; immediate
+
+\ : ar!   ( data reg# -- )
+\   1 xr!
+\ ; immediate
+
+\ ,args.....   xxxx move.l    (forthsp)+,d1       load regs..
+
+: ,args  ( -- , fd text/cnt at pad-1 )
+  padwas @ 1- count   ( -- pad cnt )
+  ascii ) scan ( -- addr' count' , 00001 )
+  dup 0= abort" ,ARGS - bad .fd file!"
+  1- swap 1+ swap ( move past that paren )
+  ascii ) scan ( -- addr'' count'' )
+  drop \ find second ')' just past args , ignores comments past regs
+  2-  ( points to last reg text )
+  0 swap ( #args adr -- )
+  BEGIN  ( #args adr -- )  dup register?
+  WHILE  dup 1+ c@ $ 0f and   ( gets register #)   ( #args adr reg# -- )
+         over c@  $ 20 or   ascii a =
+         ( #args adr reg# type -- )
+         [compile] xr!  ( #args adr -- )  3 -
+         swap 1+ swap
+  REPEAT drop    #args !
+;  
+
+\ ,dropargs  add.l #args*4,dsp 
+: ,dropargs ( -- , asm code to add to dsp )
+  #args @ -dup
+  IF    cells        \ amt on stack
+        $ ddfc  w,   \ adda.l  #??,dsp   dsp=a6
+        ,            \ the amount to add
+  THEN  ;
+
+: ,sp    ( -- , put in code to save proper stack value with args gone )
+  $ 2f0e w,         ;
+
+\ ,save.....   48e7 movem.l   d5-d6/a3-a6,-(rp)   save forth regs (cept tos)
+\              061e
+: ,save  ( -- , put in the movem.l instruction )
+  $ 48e7,063e ,   ;  ( movem.l   d5-d6,a2-a6 )
+
+\ 'calc_lib..  ???? jsr      lib-var
+\              xxxx
+\              2f34 move.l   0(org,tos.l),-(rp)
+\              7800
+\              2e1e move.l   (dsp)+,tos
+: ,calc_lib  ( -- , asm code to get lib pointer )
+  theLIB @ cfa,  $ 2f34,7800 ,  $ 2e1e w,  ;
+
+\ ,get_lib..   2c5f move.l    (rp)+,a6            put in the lib pointer
+: ,get_lib  ( -- , asm code to load user addr holding lib pointer )
+  $ 2c5f w,  ;
+
+: ,jsr  ( -- , asm code to do the call )
+  $ 4eae w,  theBIAS @ negate w,   ;
+
+: ,!sp  ( -- asm code to restore stack )
+  $ 2c5f w,          ;
+
+\ ,restore..   4cdf movem.l   (rp)+,d5-d6/a2-a6
+\              7c60
+: ,restore  ( -- , asm code to restore forth regs )
+  $ 4cdf,7c60 ,    ;
+
+: ,dummypush  ( -- , get all items on the stack )
+  $ 2d07    w,     ;
+
+: ,pushd0  ( -- , asm code to push the result on the stack )
+  $ 2e00    w,     ;
+
+: ,MOVESR,D2 ( -- , move sr,d2 )
+  $ 48E7 w, $ 8000 w, \ movem.l d0,-(rp)          
+  $ 2078 w, $ 0004 w, \ move.l  $-2803D4,a0       
+  $ 4EA8 w, $ FDF0 w, \ jsr     $-210(a0)         
+  $ 2400 w,         \ move.l  d0,d2             
+  $ 201F w,         \ move.l  (rp)+,d0          
+;
+
+: ,PUSHD2 ( -- , push d2 to tos to return SR )
+    $ 2d07 w, $ 2e02 w, ;
+
+USER PUSHD1
+: ,PUSHD0/D1  $ 2D00 W, $ 2E01 W, ;
+
+: <call>  ( -- , eats: <NAME_lib>  <function_name>  )  #args off
+  ?comp set_theLIB             ( -- )
+  open_theFDFile -dup
+  IF   ( the file opened ok )
+       dup tempfile !    ( fh -- ) \ save the filehandle
+       markfclose        ( -- )    \ mark it for auto-closing by quit...
+       tempbuff openfv   ( adr-- ) \ I need a new area!
+       markfreeblock
+       calcBIAS?         ( bias true / false -- )
+       2drop    ( 00003 )
+       \ IF-NOT ( 00003 )
+       \    cr ." CALL: no BIAS found in " dosstring 1+ count type 0sp quit
+       \ THEN
+       \ theBIAS !
+       FindFunction?     ( flag -- )
+       IF   ( name found AND theBIAS recalculated... )
+            ,dummypush
+            ,save       ( -- )    \ asm the 'save-state' opcode...
+            ,calc_lib
+            ,args       ( -- )    \ asm the args loading codes...
+            ,get_lib    ( -- )    \ asm code to load lib ptr in a6...
+            ,jsr        ( -- )    \ asm the actual jsr...
+            ,restore    ( -- )    \ asm the 'restore-state' opcode...
+            return-sr @
+            IF ,movesr,d2
+            THEN
+            ,dropargs
+            return-void @
+            IF compile drop  ( no return value )
+            ELSE PUSHD1 @ 
+              IF   ,pushd0/d1    \ For double number returns: MATHIEEEDOUBBAS
+              ELSE ,pushd0     ( -- )    \ asm code to push any result...
+              THEN
+            THEN
+            return-sr @
+            IF ,pushd2
+            THEN
+       ELSE
+            " CALL: " pad $move
+            here count pad $append
+            " () not found in " count pad $append
+            dosstring 1+ count pad $append
+            pad $error
+       THEN
+       tempbuff @ unmarkfreeblock
+       tempbuff closefvread
+       tempfile @ dup unmarkfclose fclose
+  ELSE
+       " CALL: " pad $move
+       dosstring 1+ count pad $append
+       "  not found."  count pad $append
+       pad $error
+  THEN
+  convert-aregs off
+  return-void off
+  return-sr off
+  pushd1 off
+; 
+
+: CALL    ( -- , eats: <NAME_lib>  <function_name>  )  ( returns 32 bit d0)
+  PUSHD1 OFF <CALL> ; IMMEDIATE
+
+\ Words for combining calling options.
+: RET:VOID ( -- ) return-void on  pushd1 off ; IMMEDIATE
+: RET:DOUBLE ( -- ) pushd1 on return-void off ; IMMEDIATE
+: RET:SR ( -- ) return-sr on ; IMMEDIATE
+: AREGS>ABS ( -- ) convert-aregs on ; IMMEDIATE
+
+: DCALL   ( -- , eats: <NAME_lib>  <function_name>  )  ( returns d0/d1 )
+  PUSHD1 ON  <CALL> ; IMMEDIATE
+
+: CALL>ABS  (  <NAME_lib>  <function_name> --  ) ( returns 32 bit d0)
+\ Convert any parameters in address registers to absolute.
+  convert-aregs ON  <CALL>
+; IMMEDIATE
+
+: CALLVOID  (  <NAME_lib>  <function_name> --  ) ( returns nothing)
+  return-void ON  <CALL>
+; IMMEDIATE
+
+: CALLVOID>ABS  (  <NAME_lib>  <function_name> --  ) ( returns nothing)
+  return-void ON  convert-aregs ON <CALL>
+; IMMEDIATE
+
+turnkeying? NOT .IF
+: args  ( -- , eats: <NAME_lib>  <function_name>  )  -1 #args !
+  set_thelib
+  open_theFDFile -dup
+  IF   ( the file opened ok )
+       dup tempfile !    ( fh -- ) \ save the filehandle
+       markfclose        ( -- )    \ mark it for auto-closing by quit...
+       tempbuff openfv   ( adr-- ) \ I need a new area!
+       markfreeblock
+       calcBIAS?
+       IF   theBIAS !
+       ELSE 0 theBIAS !
+       THEN
+       FindFunction?     ( flag -- )
+       IF   ( name found ... )cr cr
+            padwas @ 1- count type
+            ."  $-" theBIAS @ .hex cr cr
+       ELSE
+            cr ." ARGS: " here count type
+            ." () not found in " dosstring 1+ count type  0sp quit
+       THEN
+       tempbuff @ unmarkfreeblock
+       tempbuff closefvread
+       tempfile @ dup unmarkfclose fclose
+  ELSE
+       cr ." ARGS: " dosstring 1+ count type ."  not found" 0sp quit
+  THEN
+; immediate
+.THEN
+
+1 .if
+
+include jf:LibDefs
+
+.then
+
+: LOCK()   ( 0name accessmode -- lock OR 0 if fail )
+  swap  >abs  swap    call dos_lib Lock
+;
+
+: $LOCK()  ( &forth-string access-mode -- lock or 0 , NOT converted via >rel )
+  swap count >dos dos0 swap Lock()
+;
+
+: MyDir  ( -- lock on current directory )
+  TASKBASE @ >rel    ( ..@ pr_CurrentDir )  $ 98 + @
+;
+
+: UNLOCK()  ( lock -- , always handled in ABS form, just as received )
+  \ UnLock IF:
+  \ It's not equal to my CurrentDir              AND
+  \ It's not equal to the original CLI lock      AND
+  \ It's not equal to the original WB lock....
+  dup MyDir -
+  IF
+     dup WBMESSAGE @  \ 00001
+     IF
+        wbLOCK
+     ELSE
+        cliLOCK
+     THEN
+     @ -
+     IF
+        call dos_lib UnLock
+     THEN
+  THEN
+  drop
+;
+
+: CURRENTDIR()  ( lock -- prevlock )
+  call dos_lib CurrentDir
+;
+
+: cd    ( -- , eats name from input )
+  fileword ACCESS_READ $Lock()  -dup
+  IF     CurrentDir()  ( -- prevlock )  UnLock()
+  ELSE   .err dosstring 1+ $type ."  not found" quit
+  THEN   ;
+
+: (?TERMINAL.DELAY) ( micros -- flag )
+	consolein @ dup
+	IF
+		swap 1 max
+		call dos_lib WaitForChar
+	ELSE
+		nip
+	THEN
+;
+
+defer ?TERMINAL.DELAY  ' (?TERMINAL.DELAY) is ?TERMINAL.DELAY
+

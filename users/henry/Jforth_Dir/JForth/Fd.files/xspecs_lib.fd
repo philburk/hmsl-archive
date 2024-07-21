@@ -1,0 +1,29 @@
+##base _Xspecsbase
+##bias 30
+##public
+* XSpecs Library rev0 by Richard Horne FileDescription by Ed Tannenbaum
+XSpecsAllocateView(ViewModes)(D0)
+XSpecsDeallocateView()
+XSpecsOn(IDCMPFlags)(d0)
+XspecsOff()
+XSpecsSetAPen(PenNumber)(d0)
+XSpecsSetRGB4(PenNumber,R,G,B)(d1/d2/d3)
+XSpecsLoadRGB4(ColorData,Count)(a0/d0)
+XSpecsText(Text,x,y,z,Count)(a0,d0,d1,d2,d3)
+XSpecsWritePixel(x,y,z)(d0/d1/d2)
+XSpecsDraw(x,y,z)(d0/d1/d2)
+XSpecsChangeSprite(SpriteImage,SpriteNumber)(A0/D0)
+XSpecsMoveSprite(x,y,z,xoffset,yoffset,SpriNum)(d0/d1/d2/d3/d4/d5)
+XSpecsLeftXY(x,y,z)(d0/d1/d2)
+XSpecsRightXY(x,y,z)(d0,d1,d2)
+XSpecsLeftRastPort()
+XSpecsRightRastPort()
+XSpecsLeftViewPort()
+XSpecsRightViewPort()
+XSpecsSetDrMd(DrawMode)(d0)
+XSpecsPolyDraw(Points,Count)(a0/d0)
+XSpecsMove(x,y,z)(d0/d1/d2)
+XSpecsGetSprite(SimpleSpri,SpriImage,SpriNum)(a0/a1/d0)
+XSpecsFreeSprite(SpriteNumber)(d0)
+XSpecsTime()
+##end

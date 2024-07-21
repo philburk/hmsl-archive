@@ -1,0 +1,558 @@
+\ Command Line History
+\ Provide Shell like History for JForth
+\
+\ Useful words for you to know are:
+\ HISTORY.ON   HISTORY.OFF
+\ HISTORY      HISTORY#     XX
+\ $>EXPECT   FKEY-VECTORS
+\
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk
+\
+\ MOD: PLB 1/22/98 Fixed bad comment in HISTORY.RESET
+\ MOD: PLB 2/13/89 Use value of EXPECT as flag for ON/OFF.
+\ MOD: PLB 7/10/89 Change SMART.KEY to allow special keys > 128.
+\ MOD: PLB 6/11/90 Added KH.SHIFT.DOWN.ARROW
+\ MOD: PLB 12/12/90 Fixed KH.SHIFT.DOWN.ARROW , KLINES OFF
+\ MOD: PLB 12/31/90 LIST.FKEYS c/20 1/21 1/ , thanks M. Kees
+\ MOD: PLB 1/8/91 Add hooks to allow word completion.
+\ MOD: PLB 7/9/91 Recovered from old disk, c/ju:ansi/jf:ansi/
+\ 00001 PLB 1/17/92 Clear TIB in AUTO.INIT to prevent INTERPRET
+\				from picking up old input.
+\ 00002 PLB 1/21/92 Use ANSI.BACKWARDS and ANSI.DELETE in KH.BACKSPACE
+\ 00003 mdh 20-jan-92 KH.GETLINE examines ExpectNulls variable
+\               This was added because the AmigaDOS 2.04 Cut/Paste
+\               inserts NULS for some unknown reason.
+\ 00004 PLB 1/24/92 Replace TABs with the correct number of spaces.
+\ 00005 PLB 1/24/92 Moved zeroing of TIB to kernel.
+
+include? ansi.backwards jf:ansi
+
+ANEW TASK-HISTORY
+decimal
+
+.NEED ODDW@   ( this should be in kernal )
+: ODDW@ ( addr -- w )
+    dup c@ 8 shift
+    swap 1+ c@ or
+;
+.THEN
+
+\ You can expand the history buffer by increasing this constant.
+512 constant KH_HISTORY_SIZE
+
+create KH-HISTORY kh_history_size allot
+
+\ An entry in the history buffer consists of
+\   a Count byte = N,
+\   N chars,
+\   16 bit line number,
+\   another Count byte = N
+\
+\ The most recent entry is put at the beginning,
+\ older entries are shifted up.
+
+: KH-END ( -- addr , end of history buffer )
+    kh-history kh_history_size +
+;
+
+variable KH-LOOK   ( index of history line , point to count )
+variable KH-LINES  ( count of lines back )
+variable KH-COUNT  ( temporary storage )
+variable KH-MAX
+variable KH-COUNTER ( 16 bit counter for line # )
+variable HIGHLIGHT-INPUT  ( if true, input in f:3 )
+variable KH-MATCH-SPAN  ( span for matching on shift-up )
+
+highlight-input on  ( turn on as default !! )
+
+
+variable KH-CURSOR ( points to next insertion point )
+variable KH-ADDRESS  ( address to store chars )
+
+variable TAB-WIDTH \ 00004
+4 tab-width !
+
+: KH-BUFFER ( -- buffer )
+    kh-address @
+;
+: KH.MAKE.ROOM ( N -- , make room for N more bytes at beginning)
+    >r  ( save N )
+    kh-history dup r@ + ( source dest )
+    kh_history_size r> - 0 max move
+;
+
+: KH.RECENT.LINE  ( -- addr count , most recent line )
+    kh-history count
+;
+
+: KH.CURRENT.ADDR ( -- $addr , count byte of current line )
+    kh-look @ kh-history +
+;
+
+: KH.CURRENT.LINE ( -- addr count )
+    kh.current.addr count
+;
+
+: KH.COMPARE ( addr count -- flag , true if redundant )
+    kh.recent.line nip =
+    IF  kh.recent.line compare 0=
+    ELSE drop false
+    THEN
+;
+
+: KH.NUM.ADDR ( -- addr , address of current line count )
+    kh.current.line +
+;
+
+: KH.CURRENT.NUM ( -- # , number of current line )
+    kh.num.addr oddw@
+;
+
+: KH.ADDR++  ( $addr -- $addr' , convert one kh to previous )
+    count + 3 +
+;
+: KH.ADDR--  ( $addr -- $addr' , convert one kh to next )
+    dup 1- c@ - cell-
+;
+
+: KH.ENDCOUNT.ADDR ( -- addr , address of current end count )
+    kh.num.addr 2+
+;
+
+: KH.ADD.LINE ( addr count -- )
+    dup 256 >
+    IF ." KH.ADD.LINE - Too big for history!" 2drop
+    ELSE   ( add to end )
+\ Compare with most recent line.
+        2dup kh.compare
+        IF 2drop
+        ELSE
+            >r ( save count )
+\ Set look pointer to point to first count byte of last string.
+            0 kh-look !
+            r@ cell+ kh.make.room
+\ Set count bytes at beginning and end.
+            r@ kh-history c!  ( start count )
+            r@ kh.endcount.addr c!
+            kh-counter @ kh.num.addr oddw!  ( line )
+\ Number lines modulo 1024
+	    kh-counter @ 1+ $ 3FF and kh-counter !
+            kh-history 1+   ( calc destination )
+            r> cmove  ( copy chars into space )
+        THEN
+    THEN
+;
+
+: KH.ADD.BUFFER ( -- , add text currently in buffer )
+    span @ 0>
+    IF kh-buffer span @ kh.add.line
+    THEN
+;
+
+: KH.BACKUP.LINE  ( -- atend? , advance KH-LOOK if in bounds )
+    true  ( default flag, at end of history )
+\ KH-LOOK points to count at start of current line
+    kh.current.addr c@ ( -- count )
+    IF  kh.current.addr kh.addr++ kh-end <
+        IF  kh.current.addr kh.addr++ kh-history - kh-look !
+            1 kh-lines +!
+            drop false
+        THEN
+    THEN
+;
+
+: KH.PREVIOUS.LINE ( -- addr count | 0 , find previous line in history )
+    kh.current.line
+    kh.backup.line
+    IF 2drop 0
+    THEN
+;
+
+: KH.FORWARD.LINE ( -- atstart? )
+\ KH-LOOK points to count at start of current line
+    kh-lines @ 0>
+    IF  kh.current.addr kh.addr--
+	    kh-history - kh-look !
+        -1 kh-lines +! false
+    ELSE
+        kh-lines off
+        0 kh-look ! true
+    THEN
+;
+
+: KH.NEXT.LINE ( -- addr count | 0 , find next line if there )
+    kh.forward.line
+    IF 0
+    ELSE kh.forward.line 
+        IF 0 
+        ELSE kh.current.line kh.backup.line drop
+        THEN
+    THEN
+;
+
+: KH.OLDEST.LINE   ( -- addr count | 0, oldest in buffer )
+    BEGIN kh.backup.line
+    UNTIL
+    kh-lines @
+    IF  kh.forward.line drop kh.current.line
+    ELSE 0
+    THEN
+;
+
+: ?WAIT  ( -- )
+    ?terminal
+    IF  key drop f:2 ."  ?q" f:1
+        key $ 20 or ( convert to lower case ) ascii q =
+        IF  abort
+        THEN
+        3 ansi.backwards ansi.erase.eol
+    THEN
+;
+
+: HISTORY# ( -- , dump history buffer with numbers)
+    cr kh.oldest.line ?dup
+    IF  BEGIN kh.current.num 3 .r ." ) " type ?wait cr
+            kh.forward.line 0=
+        WHILE kh.current.line
+        REPEAT
+    THEN
+;
+
+: HISTORY ( -- , dump history buffer with numbers)
+    cr kh.oldest.line ?dup
+    IF  BEGIN type ?wait cr
+            kh.forward.line 0=
+        WHILE kh.current.line
+        REPEAT
+    THEN
+;
+
+: KH.FIND.LINE ( -- $addr )
+    BEGIN kh.current.num over -
+    WHILE kh.backup.line
+        IF ." Line not in History Buffer!" cr drop 0 exit
+        THEN
+    REPEAT
+    drop kh.current.addr
+;
+
+: XX  ( line# -- , execute line x of history )
+    kh.find.line ?dup
+    IF count $interpret
+    THEN
+;
+
+
+: KH.RETURN ( -- , move to beginning of line )
+    13 emit ( true carriage return )
+;
+
+: KH.REPLACE.LINE  ( addr count )
+    kh.return
+    ansi.erase.eol
+    dup span !
+    dup kh-cursor !
+    2dup kh-buffer swap cmove
+    highlight-input @ IF f:3 THEN
+    type
+    highlight-input @ IF f:1 THEN
+;
+
+: KH.SHIFT.UP.ARROW ( -- , search for line with same start )
+    kh-match-span @ 0=  ( keep length for multiple matches )
+    IF span @ kh-match-span !
+    THEN
+    BEGIN kh.previous.line
+    WHILE kh-match-span @ kh-buffer text=?
+        IF kh.forward.line drop kh.current.line kh.replace.line
+           kh.backup.line drop exit
+        THEN
+    REPEAT
+;
+
+: KH.SHIFT.RIGHT.ARROW ( -- )
+    span @ kh-cursor @ - dup 0>
+    IF
+    	ansi.forwards
+    	span @ kh-cursor !
+    ELSE drop
+    THEN
+;
+
+: KH.SHIFT.LEFT.ARROW ( -- )
+    kh.return
+    kh-cursor off
+;
+
+: KH.UP.ARROW ( -- , goto previous line )
+    kh.previous.line ?dup
+    IF kh.replace.line
+    THEN
+;
+
+: KH.DOWN.ARROW ( -- , next line )
+    kh.next.line ?dup
+    IF kh.replace.line
+    ELSE tib 0 kh.replace.line
+    THEN
+;
+
+: KH.GOTO.HOME  ( -- )
+	0 kh-look !
+	0 kh-lines !
+;
+
+: KH.SHIFT.DOWN.ARROW ( -- , most recent line )
+    kh.goto.home
+    kh.current.line
+    kh.replace.line
+;
+
+: KH.RIGHT.ARROW
+    kh-cursor @ span @ <
+    IF 1 kh-cursor +!
+       1 ansi.forwards
+    THEN
+;
+
+: KH.LEFT.ARROW ( -- )
+    kh-cursor @ ?dup
+    IF 1- kh-cursor !
+       1 ansi.backwards
+    THEN
+;
+
+: KH.REFRESH  ( -- , redraw current line as is )
+    13 emit  ( true return )
+    highlight-input @ IF f:3 THEN
+    kh-buffer span @ type out @
+    highlight-input @ IF f:1 THEN
+    13 emit kh-cursor @ ?dup 
+    IF ansi.forwards
+    THEN out !
+;
+
+21 ARRAY FKEY-VECTORS  ( f0 not used, f1-f20 )
+
+: EXEC.FKEY  ( # -- , do function )
+    fkey-vectors @execute flushemit
+;
+
+: LIST.FKEYS ( -- )
+    >newline ." Function key assignments." cr
+    21 1
+    DO
+        i fkey-vectors @ dup ' noop -
+        IF  i 1- 10 /mod
+            IF ."   Shift-F" 1+ .
+            ELSE 8 spaces ASCII F emit 1+ .
+            THEN ."  = " >name id. cr
+        ELSE drop
+        THEN
+    LOOP cr
+;
+    
+: KH.SPECIAL.KEY ( char -- , handle fkeys or arrows )
+    155 =  ( HIGH ESCAPE? )
+    IF ansi.parse.skr
+       dup 1 20 within?  ( function key )
+       IF exec.fkey kh.refresh
+       ELSE
+           CASE
+           25 OF kh.shift.up.arrow    ENDOF
+               0 kh-match-span ! ( reset if any other key )
+           21 OF kh.up.arrow    ENDOF
+           22 OF kh.down.arrow  ENDOF
+           23 OF kh.right.arrow ENDOF
+           24 OF kh.left.arrow  ENDOF
+           26 OF kh.shift.down.arrow  ENDOF
+           27 OF kh.shift.right.arrow ENDOF
+           28 OF kh.shift.left.arrow  ENDOF
+           29 OF list.fkeys kh.refresh ENDOF
+           ENDCASE
+       THEN
+    THEN
+;
+
+: SMART.KEY ( -- char )
+    BEGIN  key
+\        dup 128 >
+        dup 155 =  ( allow special ALT keys ! )
+    WHILE kh.special.key
+    REPEAT
+;
+
+: KH.BACKSPACE ( -- , backspace character from buffer and screen )
+    kh-cursor @ ?dup  ( past 0? )
+    IF
+		1 ansi.backwards \ 00002
+		1 ansi.delete
+    	span @ <
+        IF  ( inside line )
+            kh-buffer kh-cursor @ +  ( -- source )
+            dup 1- ( -- source dest )
+            span @ kh-cursor @ - cmove
+        THEN
+        -1 span +!
+        -1 kh-cursor +!
+    ELSE 7 emit ( beep )
+    THEN
+;
+
+: KH.DELETE ( -- , forward delete )
+    kh-cursor @ span @ <  ( before end )
+    IF  ( inside line )
+        1 ansi.delete
+        kh-buffer kh-cursor @ + 1+ ( -- source )
+        dup 1- ( -- source dest )
+        span @ kh-cursor @ - 0 max cmove
+        -1 span +!
+    THEN
+;
+
+: KH.CONTROLX ( -- , kill line )
+    13 emit  ( true carriage return )
+    span @ 0 DO 1 ansi.delete LOOP
+    kh-cursor off span off out off
+;
+        
+: KH.INSCHAR  ( char -- )
+    kh-cursor @ span @ <
+    IF  ( inside line )
+        1 ansi.insert
+\ Move characters up
+        kh-buffer kh-cursor @ +  ( -- source )
+        dup 1+ ( -- source dest )
+        span @ kh-cursor @ - cmove>
+    THEN
+    highlight-input @ IF f:3 THEN
+    dup emit
+    highlight-input @ IF f:1 THEN
+    kh-buffer kh-cursor @ + c!
+    1 kh-cursor +!
+    1 span +!
+;
+
+: TEXT>EXPECT ( addr count -- , insert into input )
+	kh-max @ span @ - min 0
+    DO dup i + c@ kh.inschar
+    LOOP drop
+;
+
+: $>EXPECT ( $address -- , insert a string into input stream )
+    count text>expect
+;
+
+: KH.TAB ( -- , insert the proper number of spaces for a tab 00004 )
+	out @
+	tab-width @ tuck mod -  \ calculate # of spaces to add
+	0
+	DO BL kh.inschar
+	LOOP
+;
+
+: KH.GETLINE ( max -- )
+    kh-max !
+    span off
+    kh-cursor off
+    0 kh-look !
+    0 kh-match-span !
+    BEGIN
+        kh-max @ span @ >
+        IF
+           BEGIN
+              smart.key  ExpectNulls @   \ 00003 
+              IF
+                 true
+              ELSE
+                 ?dup
+              THEN
+           UNTIL
+           dup 13 -  ( <cr?> )
+        ELSE 0 false
+        THEN  ( -- char flag )
+    WHILE ( -- char )
+        CASE
+        bsin @ OF kh.backspace ENDOF
+        127  OF kh.delete ENDOF
+         24  OF kh.controlx ENDOF
+          9  OF kh.tab ENDOF \ 00004
+        dup kh.inschar
+        ENDCASE
+    REPEAT drop
+    span @ kh-cursor @ - ?dup
+    IF 1+ ansi.forwards  ( move to end of line )
+    ELSE space
+    THEN
+    flushemit
+;
+
+: KH.EXPECT ( addr max -- )
+    swap kh-address !
+    kh-lines off
+    kh.getline
+    kh.add.buffer
+;
+
+: HISTORY.ON ( -- , install history vectors )
+    what's expect ' (expect) =
+    IF ' kh.expect is expect
+    THEN
+;
+
+: HISTORY.OFF ( -- , deinstall )
+    what's expect ' kh.expect =
+    IF ' (expect) is expect
+    THEN
+;
+
+: "INCLUDE" ( -- , add string to input )
+    " INCLUDE " $>EXPECT ;
+: "WORDS-LIKE" ( -- )
+    " WORDS-LIKE " $>EXPECT ;
+: "FILE?" ( -- )
+    " FILE? " $>EXPECT ;
+: "EACH.FILE?" ( -- )
+    " EACH.FILE? " $>EXPECT ;
+
+: PANIC.BUTTON ( -- , reset things in system in attempt to recover)
+    ." Attempt Reset - HASH.OFF ONLY FORTH ALIGN " cr
+    ."   DETACHMODULES HISTORY.OFF ABORT" cr
+    ." Proceed? " y/n
+    IF  hash.off
+        ." Hashing OFF!" cr
+        only forth definitions order
+        align
+        detachmodules
+        history.off
+        abort
+    THEN
+;
+
+: HISTORY.RESET  ( -- , reset vectors and clear table )
+    21 0 DO ' noop i fkey-vectors ! LOOP
+    ' "include" 1 fkey-vectors !
+    ' map 2 fkey-vectors !
+    ' history# 3 fkey-vectors !
+    ' dir 4 fkey-vectors !
+    ' vlist 5 fkey-vectors !
+    ' "words-like" 6 fkey-vectors !
+    ' "file?" 7 fkey-vectors !
+    ' "each.file?" 8 fkey-vectors !
+    ' panic.button 11 fkey-vectors !
+\
+    kh-history kh_history_size erase
+    kh-counter off
+;
+
+: AUTO.INIT
+    auto.init
+    history.on
+\    0 #tib ! \ 00001 , moved to kernel 00005
+;
+
+if.forgotten history.off
+
+history.reset
+history.on

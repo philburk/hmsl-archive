@@ -1,0 +1,76 @@
+\ Support for Serial I/O
+\
+\ Author: Phil Burk
+\ Copyright 1987 Delta Research
+
+include? createport() ju:exec_support
+include? IOExtSer ji:devices/serial.j
+include? BeginIO() ju:device-calls
+
+ANEW TASK-SERIAL
+
+\ Serial IO
+: SERIAL.OPEN ( flags 0$name -- SerReq error )
+    exec?
+    0 createport()  ( -- flags serport )
+    sizeof() IOExtSer CreateExtIO() ( -- flags extio )
+    swap over ..! io_serflags
+    0" serial.device" 0  2 pick  0 opendevice()
+;
+
+: SERIAL.SET.BUF ( addr count serreq -- )
+    dup >r .. ioser ..! io_length ( set length )
+    >abs r> .. ioser ..! io_data  ( set address )
+;
+
+: SERIAL.BEGINIO() ( serreq -- )
+   IOF_QUICK over .. ioser ..! io_flags
+   beginio()  drop ( %Q should not return error )
+;
+
+: SERIAL.WRITE   ( addr count serreq -- error )
+   dup >r serial.set.buf
+   CMD_WRITE r@ .. ioser ..! io_command
+   r> doio()
+;
+
+: SERIAL.WRITE.ASYNC   ( addr count serreq -- )
+   dup >r serial.set.buf
+   CMD_WRITE r@ .. ioser ..! io_command
+   r> serial.beginio()
+;
+
+: SERIAL.SETPARAMS  ( serreq -- error )
+    SDCMD_SETPARAMS over .. ioser ..! io_command
+    doio()
+;
+    
+: SERIAL.READ   ( addr count serreq -- error )
+   dup >r serial.set.buf
+   CMD_READ r@ .. ioser ..! io_command
+   r> doio()
+;
+
+: SERIAL.READ.ASYNC   ( addr count serreq -- )
+   dup >r serial.set.buf
+   CMD_READ r@ .. ioser ..! io_command
+   r> serial.beginio()
+;
+
+: SERIAL.CLOSE ( serreq -- )
+    dup closedevice()
+    dup .. io_message ..@ mn_replyport >rel
+    swap  sizeof() IOExtSer deleteextio()
+    deleteport()
+;
+
+: DUMP.SERREQ ( serreq -- )
+    dup ..@ io_rbuflen   ." io_RBuflen  = " . cr
+    dup ..@ io_CtlChar   ." io_CtlChar  = " .hex cr
+    dup ..@ io_baud      ." io_baud     = " . cr
+    dup ..@ io_ReadLen   ." io_ReadLen  = " . cr
+    dup ..@ io_WriteLen  ." io_WriteLen = " . cr
+    dup ..@ io_StopBits  ." io_StopBits = " . cr
+    ..@ io_SerFlags      ." io_Serflags = " binary . decimal cr
+;
+

@@ -1,0 +1,31 @@
+/* Send commands to SAMPLEAPP */
+/* Note that the first line of an ARexx program must be a comment! */
+
+/* Use host to add two numbers together. */
+myvar = 2345
+options results
+CALCSUM 111 myvar
+say 'result = ' result
+
+/* Print some commands */
+TYPETEXT '"Hello World!" 3'
+
+/* Print rest of line */
+TYPEREM 'This entire line gets printed without needing embedded quotes!'
+
+/* Send a string for processing. */
+INCTEXT '"Qcapcr," 2'
+say 'Processed string = ' result
+
+options
+
+/* Send a bogus command. */
+BADCOMM 123
+
+/* Send a bogus parameter. */
+CALCSUM 111 '3X4qqz'
+
+/* Print some commands */
+TYPETEXT '"All Done..." 2'
+
+say 'Finished MACRO1.SRH'

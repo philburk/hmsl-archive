@@ -1,0 +1,140 @@
+\ Benchmark different parts of HMSL
+\
+\ RESULTS
+\   BenchDO  -> 3.14 with Commodore clock running
+\   HB1
+\	Original version, run.safer, with MIDI
+\	   20 10 ->  14.06
+\	   20  1 ->   4.84
+\       RUN.FASTER
+\	   20 10 ->  13.48
+\	   20  1 ->   4.44
+\	RUN.FASTER, without MIDI, 3drop as interpreter
+\	   20 10 ->  11.76
+\	   20  1 ->   2.84
+\
+\       RUN.FASTER, with HMSL-count, suddenly faster !!
+\	   20 10 ->   7.82
+\	just Comment out HMSL.KEYS
+\	   20 10 ->   7.70
+\	just Comment out HMSL.CHECK.EVENT
+\	   20 10 ->   7.62
+\          20  1 ->   2.46
+\ Time spent mostly in AO.SCAN and below
+\
+\   HB2
+\	0       ->  0.40 ; just open and close window
+\	100,000 -> 23.16
+\
+\ Author: Phil Burk
+
+ANEW TASK-HBENCH
+
+: BenchDO  ( -- , test general processor performance )
+    1,000,000 0 DO LOOP
+;
+
+: HMSL.SCAN  ( -- done? , perform one scan of the HMSL cycle )
+    'c hmsl.abort set.abort
+    stack.mark
+    ao.scan    ( process active objects stored in multitasker )
+    ao.scan
+    midi-parser @ IF midi.parse.many THEN
+    ao.scan
+    ao.scan
+\    use-graphics @
+\    IF  hmsl.check.event  ( -- flag , process user input )
+\    THEN
+\    quit-hmsl @ OR
+    quit-hmsl @
+    >r stack.check r>  ( make sure just flag is returned )
+    reset.abort
+;
+
+\ Test versions of HMSL loop to see where time is spent
+: HMSL    ( -- , DO HMSL )
+    false quit-hmsl !    ( set flag for QUIT on main menu )
+    use-graphics @
+    IF  hmsl.open
+    THEN
+    hmsl.startup
+    hmsl-count off
+    BEGIN
+      hmsl.keys
+      hmsl.scan
+      1 hmsl-count +!
+    UNTIL
+    ao.reset
+    hmsl.close
+;
+
+: HMSL.PLAY.MANY   ( morph -- , execute/play a morph )
+    depth 0= abort" HMSL.PLAY requires a morph!"
+    hmsl.delay.exec
+    hmsl
+;
+
+: HMSL.PLAY ( morph -- , execute/play one morph )
+    clear: actobj    ( prevent crashes from full list. )
+    hmsl.play.many
+;
+
+
+OB.PLAYER HB-PLAYER
+OB.SHAPE HB-SHAPE
+OB.MIDI.INSTRUMENT HB-INSTR
+OB.JOB HB-JOB
+
+\ Benchmark polymorphous executive.
+: TIME+1  ( increment timer )
+    1 time+!
+;
+
+: STOP.HMSL ( player -- )
+    drop quit-hmsl on
+;
+
+: HB1.INIT ( Ntimes duration -- , setup player )
+    depth 2 < abort" Need NTIMES on stack!"
+    16 3 new: hb-shape
+    16 0
+    DO dup 6 i + 90 add: hb-shape
+    LOOP drop
+\
+    hb-shape hb-instr build: hb-player
+    'c 3drop put.on.function: hb-instr
+    'c 3drop put.off.function: hb-instr
+    ( -- N ) put.repeat: hb-player
+    'c stop.hmsl put.stop.function: hb-player
+;
+
+: HB1.PLAY  ( -- , stop clock and play using software time )
+    use.software.timer
+    'c time+1 is ao.repeat
+    hb-player hmsl.play
+    'c noop is ao.repeat
+    use.hardware.timer
+;
+
+: HB1.TERM ( -- )
+    default.hierarchy: hb-player
+    default: hb-player
+    free.hierarchy: hb-player
+    free: hb-player
+;
+
+: HB1 ( ntimes duration -- )
+    hb1.init
+    hb1.play
+    hb1.term
+;
+
+if.forgotten hb1.term
+
+\ Benchmark event polling.
+: HB2  ( N -- )
+    hmsl.open
+    0 DO hmsl.check.event drop LOOP
+    hmsl.close
+;
+

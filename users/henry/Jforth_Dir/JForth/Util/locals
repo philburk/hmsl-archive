@@ -1,0 +1,705 @@
+\ Local Variables for JForth and HForth
+\
+\  { will turn on a special mode where FIND looks first
+\    in a table of local names.  If found, it compiles the
+\    appropriate code.  Otherwise it CALLS the old FIND.
+\
+\   -- or ---   terminates the input variable list
+\   YES@  ( -- , makes locals self fetch  , default )
+\   NO@   ( -- , makes locals leave their address )
+\   -->   ( -- , start auto return list )
+\   |     ( start list of temporary variables )
+\
+\ Based on the style of local variables used by NEON, Mach2 and JForth
+\
+\ Local variables are stored on the return stack during the
+\ execution of the word.
+\ A frame is built using the LINK instruction with A2.
+\ Then the data is copied to the return stack using
+\   MOVE.L  A7,A1
+\   MOVE.L  (DSP)+,-(A1)
+\
+\ The variables will be stored in the stack frame at increasing addresses.
+\ A2 will point to the previous value of A2 on the stack.
+\
+\  Here is a picture of the stack frame for  { aa 2 bb | cc }
+\   indx offs  cont
+\             old-A2   <---  A2
+\     3   -4    cc
+\     2   -8   bb1
+\     1  -12   bb0
+\     0  -16    aa     <---  A7 (right after LINK)
+\
+\ *********************************************************************
+\ * HMSL Forth System                                                 *
+\ * Author: Phil Burk                                                 *
+\ * Copyright 1989 Phil Burk , All Rights Reserved                    *
+\ *********************************************************************
+\
+\ MOD: PLB/MDH 9/26/90 Added JForth support & Debugger compatability.
+\ MOD: PLB 9/29/90 Redefine RETURN
+\ MOD: PLB 10/1/90 Add RETURN and EXIT
+\ MOD: PLB 10/9/90 Allow "---" as well as "--" in stack diagram
+\ MOD: PLB 10/?/90 Added support for ;M on Amiga
+\ MOD: PLB 10/19/90 Add error checking for missing } or use of )
+\ MOD: MDH 10/27/90 FLUSHOPTS? added for optimizer.
+\ MOD: PLB 12/12/90 Trap EXIT in CFA, or NFACALL,
+\ MOD: PLB 6/6/91 Turn off state when doing LV.OLD.FIND
+\          so that FLushOPTS doesn't show up in debugger.
+\ MOD: PLB 8/14/91 Now traps if 1 too many variables.
+\		Added multi-cell variables. Fixed No@
+\ 00001 PLB 11/12/91 Only one fetch per reference.
+\ 00002 PLB 11/18/91 Add +-> , use LOACL.REFERENCE for Mac
+\ 00003 PLB 11/19/91 Add +-> for Amiga, optimize Amiga
+\ 00004 PLB 11/19 91 Fix --> , used to choke on comments after ','
+\ 00005 PLB 11/20/91 Removed redefs of EXIT and RETURN cuz
+\         made EXIT inline on Mac
+\ 00006 PLB 2/21/92 Return 1 for LOCAL.REFERENCE since it is IMMEDIATE
+
+include? (->value) ju:value
+
+ANEW TASK-LOCALS
+
+\ ---------------------------------------------------------
+decimal
+16 constant LV_MAX_VARS    \ maximum number of local variables
+31 constant LV_MAX_CHARS   \ maximum number of letters in name
+
+.NEED $ARRAY
+: $ARRAY  ( n -- $addr )
+	CREATE  ( nvars nchars <name> )
+		even-up dup w,
+		* 2+ allot
+	DOES>   ( n addr -- $addr )
+		dup w@ >r
+		swap r> * + 2+
+;
+.THEN
+
+lv_max_vars lv_max_chars $array LV-NAMES
+create LV-RETURNS lv_max_vars allot  ( marked if returned )
+lv_max_vars array LV-SIZES ( number of cells )
+lv_max_vars array LV-OFFSETS ( offset of variable )
+
+variable LV-#NAMES   \ number of names currently defined
+variable LV-1ST-TEMP  \ index of first temporary variable
+variable LV-#RETURNS
+variable LV-#INIT    \ number of initialized vars
+variable LV-#TEMP    \ number of UNinitialized temp var
+variable LV-SELF-FETCH
+variable LV-TEMP-SIZE \ frame size of temp vars
+variable LV-FRAME-SIZE \ frame size total
+
+\ 68000 specific code for building stack frames and references.
+.NEED host=amiga 
+exists? DOS_LIB constant HOST=AMIGA
+.THEN
+.NEED host=mac 
+exists? DOS_LIB not constant HOST=MAC
+.THEN
+
+: LV.MAKE.LINK  ( #tempbytes -- , compile a link instruction )
+	?comp
+	$ 4E52   ( 2 for A2 )  w,    \		 LINK	A2,#x
+	negate w,   ( use negative displacement )
+;
+
+: LV.INDEX>OFFSET  ( index -- offset )
+    lv-offsets @
+;
+
+: LV.MAKE.UNLINK  ( -- , compile UNLINK opcode )
+	?comp   $ 4E5A  w,
+;
+
+host=amiga .IF
+: LV.PUSH.TOS ( -- , push TOS to memory stack )
+	[ $ 2d07 w, ] \ move.l  tos,-(dsp)
+	INLINE
+;
+: LV.POP.TOS ( -- , pop TOS from memory stack )
+	[ $ 2e1e w, ] \ move.l   (dsp)+,tos    reload TOS
+	INLINE TAIL \ 00003
+;
+
+: LV.STORE.SINGLE  ( index -- , compile store local var )
+	?comp
+	$ 2547 w, lv.index>offset w,	\  move.l	tos,$x(a2)
+	$ 2e1e w, \ move.l   (dsp)+,tos    reload TOS
+;
+
+: TOSS.TOS  ( -- ) \ get rid of "optimized" MOVE.L (DSP),TOS
+\ we don't need tos loaded
+	here 2- w@ $ 2E16 =
+	IF
+		-2 allot \ back up over it
+	THEN
+;
+
+: LV.FETCH.SINGLE  ( index -- , compile fetch from local var )
+	?comp
+	compile lv.push.tos
+	toss.tos
+	$ 2E2A w, lv.index>offset w,   \  move.l	$x(a2),tos
+;
+
+: LV.ADD.SINGLE  ( index -- , compile fetch from local var , 00003 )
+	?comp
+	$ DEAA w,   dup lv.index>offset w,   \  add.l	$x(a2),tos
+	$ 2547 w,   lv.index>offset w,	\  move.l	tos,$x(a2)
+	compile lv.pop.tos
+;
+
+: LV.COPY.VARS  ( #initvars -- , compile code to copy variables to stack frame )
+	?comp
+	dup 0>
+	IF $ 2f07 w,  \ move.l (tos,-(a7)
+	THEN
+\ now load ones from (A6)
+	1- dup 0>
+	IF 0
+		DO $ 2f1e w,  \ move.l (dsp)+,-(a7)
+		LOOP
+	ELSE drop
+	THEN
+	compile lv.pop.tos
+;
+
+: LV.LEA  ( index -- , compile LEA for local var )
+	?comp $ 41EA w, lv.index>offset w,   \  lea	$x(a2),a0
+	$ 91CC w, \ adda.l  a4,a0 \ convert to relative
+	$ 2d07 w, \ move.l  tos,-(dsp)
+	$ 2E08 w, \  move.l	a0,tos
+;
+
+.ELSE \ ------------ -----Mac---- -------------- -----------
+
+: LV.STORE.SINGLE  ( index -- , compile store local var )
+	?comp $ 255E w, lv.index>offset w,	\  move.l	(dsp)+,$x(a2)
+;
+
+: LV.FETCH.SINGLE  ( index -- , compile fetch from local var )
+	?comp
+	$ 2D2A w, lv.index>offset w,   \  move.l	$x(a2),-(dsp)
+;
+
+: LV.GET.TOS  ( -- , move TOS into D0 ) \ 00002
+	[ $ 201E w,  ]                   \  move.l  (dsp)+,d0
+;  SET.INLINE SET.HEAD
+
+: LV.ADD.SINGLE  ( index -- , compile fetch from local var ) \ 00002
+	?comp
+	compile  lv.get.tos   \ use head tail optimizer
+	$ D1AA w,   lv.index>offset w,   \  add.l	d0,$x(a2)
+;
+
+: LV.COPY.VARS  ( #initvars -- , compile code to copy variables to stack frame )
+	?comp
+	0
+	DO $ 2f1e w,  \ move.l (dsp)+,-(a7)
+	LOOP
+;
+
+: LV.LEA  ( index -- , compile LEA for local var )
+	?comp $ 41EA w, lv.index>offset w,   \  lea	$x(a2),a0
+	$ 2D08 w, \  move.l	a0,-(dsp)
+;
+.THEN
+
+: LV.FETCH.MANY ( addr many -- v0 v1 v2 etc. )		
+	0
+	DO
+		dup @
+		swap cell+
+	LOOP
+	drop
+;
+
+: LV.FETCH ( index -- )
+	dup lv-sizes @
+	dup 1 >
+	IF
+		( -- index size>1 )
+		swap lv.lea
+		[compile] literal
+		compile lv.fetch.many
+	ELSE
+		drop lv.fetch.single
+	THEN
+;
+
+: LV.STORE.MANY ( v0 v1 ... vN-1 addr many --  )
+	dup>r
+	cells +
+	r> 0
+	DO
+		cell-
+		tuck !
+	LOOP
+	drop
+;
+
+: LV.STORE ( index -- )
+	dup lv-sizes @
+	dup 1 >
+	IF
+		( -- index size>1 )
+		swap lv.lea
+		[compile] literal
+		compile lv.store.many
+	ELSE
+		drop lv.store.single
+	THEN
+;
+
+\ Search name table for match
+: LV.MATCH ( $string -- index true | $string false )
+    0 swap
+    lv-#names @ 0
+    DO  i lv-names
+        over $=
+        IF  2drop true i LEAVE
+        THEN
+    LOOP swap
+;
+
+variable LV-ACTIVE  \ true if active
+
+: LV.RESTORE  ( -- , unlink stack frame, copy auto.return vars )
+	lv-active @
+	IF	lv-#returns @ ?dup
+		IF	0
+			DO i lv-returns + c@ lv.fetch
+			LOOP
+		THEN
+		lv.make.unlink
+	THEN
+;
+
+defer LV.OLD.QUIT
+variable LV-LAST-FOUND
+-1 lv-last-found !
+
+: LV.COMPILE.REF ( index -- )
+	lv-self-fetch @
+	IF lv.fetch
+	ELSE lv.lea
+	THEN
+;
+
+: LOCAL.REFERENCE ( -- , compile reference to last local )
+	lv-last-found @ dup 0<
+	IF
+		drop
+	ELSE
+		lv.compile.ref
+		-1 lv-last-found !  \ turn off for next time 00001
+	THEN
+;
+immediate  \ find returns this cfa if hits local
+
+host=amiga .IF \ ---------------------------------------
+
+defer LV.OLD.FIND
+defer LV.OLD.CFA,
+
+: LV.CFA,  ( cfa -- )
+	dup ' exit =
+	IF lv.restore 
+	THEN
+	lv.old.cfa,
+;
+
+: LV.OFF  ( -- )
+	lv-active @
+	IF	what's lv.old.find is find
+		what's lv.old.quit is quit
+		what's lv.old.cfa, is cfa,
+		lv-active off
+	THEN
+;
+
+: FLUSHOPTS?  ( -- )
+\ fix for optimizer...
+\
+  also forth
+  state @ >r  state off   \ so debugger doesn't compile ref.
+  " FLUSHOPTS" lv.old.find
+  r> state !
+  IF
+     execute
+  ELSE
+     drop
+  THEN
+  previous
+;
+
+: LV.FIND ( $name -- $name 0 | cfa -1 | cfa 1 )
+\ Return the CFA of LOCAL.REFERENCE if it finds a LOCAL variable.
+	dup lv.match
+	IF  ( -- $name index )
+		FLUSHOPTS? ( mdh 10/03/90 )
+		swap lv.old.find 2drop \ needed for Debugger
+		lv-last-found !
+		' local.reference 1
+	ELSE drop lv.old.find
+		over 'c ;M =		\ needed on Amiga cuz ;M doesn't call ;
+		IF lv.restore lv.off
+		THEN
+	THEN
+;
+
+.ELSE \ -----------------------------------
+
+defer LV.OLD.FINDNFA
+defer LV.OLD.NFACALL,
+
+: LV.NFACALL,  ( nfa -- )
+	dup nfa->cfa ' exit =
+	IF lv.restore
+	THEN
+	lv.old.nfacall,
+;
+
+: LV.FINDNFA ( $name -- $name 0 | nfa_imm 1 | nfa -1 )
+\ Return the CFA of LOCAL.REFERENCE if it finds a LOCAL variable.
+	dup lv.match
+	IF  ( string index )
+		swap lv.old.findnfa 2drop \ needed for Debugger
+		lv-last-found !
+		'n local.reference 1 \ 1 for immediate!! 00006
+	ELSE drop lv.old.findnfa
+	THEN
+;
+
+: LV.OFF  ( -- )
+	lv-active @
+	IF	what's lv.old.findnfa is findnfa
+		what's lv.old.quit is quit
+		what's lv.old.nfacall, is nfacall,
+		lv-active off
+	THEN
+;
+.THEN \ ---------------------------------
+
+: LV.QUIT  ( -- , abort that cleans up locals system )
+	lv.off quit
+;
+
+: YES@  ( -- , make locals self fetching )
+	lv-self-fetch on
+; IMMEDIATE
+: NO@  ( -- , make locals NOT self fetching )
+	lv-self-fetch off
+; IMMEDIATE
+
+
+
+host=amiga .IF \ --------------------------
+: LV.ON  ( -- , turn on local variable find )
+	lv-active @ 0=
+	IF lv-active on
+		what's find is lv.old.find
+		['] lv.find is find
+		what's quit is lv.old.quit
+		['] lv.quit is quit
+		what's cfa, is lv.old.cfa,
+		['] lv.cfa, is cfa,
+	THEN
+;
+
+: LV.ABORT.COMP ( -- , abort compilation )
+	."  , in " latest id. cr
+	0 error
+;
+
+.ELSE \ -------------------------------
+
+: LV.ON  ( -- , turn on local variable find )
+	lv-active @ 0=
+	IF lv-active on
+		what's findnfa is lv.old.findnfa
+		['] lv.findnfa is findnfa
+		what's quit is lv.old.quit
+		['] lv.quit is quit
+		what's nfacall, is lv.old.nfacall,
+		['] lv.nfacall, is nfacall,
+	THEN
+;
+: LV.ABORT.COMP ( -- , abort compilation )
+	."  , in " latest id. cr
+	abort
+;
+
+.THEN \ -------------------------------------------
+
+: LV.EAT.}  ( -- eat line till } )
+	ascii } parse
+	+ c@ ascii } - IF ." missing }" lv.abort.comp THEN
+;
+
+: LV.AUTO.RETURN  ( -- , read names and mark for auto.return )
+	lv_max_vars 0
+	DO	bl word
+		dup " ," $=
+		IF
+			lv.eat.}  \ eat rest of stack diagram 00004
+			drop LEAVE
+		ELSE
+			dup " }" $=
+			IF drop LEAVE
+			ELSE lv.match
+				IF	i lv-returns + c!
+					1 lv-#returns +!
+				ELSE cr ." --> - unrecognized local var = " id. cr
+					lv.abort.comp
+				THEN
+			THEN
+		THEN
+	LOOP
+;
+
+: LV.DUMP  ( -- )
+	cr lv-#names @ 0
+	DO
+		i .
+		i lv-sizes @ .
+		i lv-offsets @ .
+		i lv-names count type cr
+	LOOP
+	lv-#init @ ." lv-#init = " . cr
+	lv-#temp @ ." lv-#temp = " . cr
+	lv-#returns @ ." lv-#returns = " . cr
+	lv-frame-size @ ." lv-frame-size = " . cr
+	lv-temp-size @ ." lv-temp-size = " . cr
+;
+
+: LV.CALC.OFFSETS  ( sum limit start -- sum' )
+	DO
+		lv-#names @ 1- i -  ( index of last variable )
+		dup>r lv-sizes @ cells - \ add to offset
+		dup r> lv-offsets !
+		
+	LOOP
+;
+
+: {  ( -- , start declaring locals )
+	?comp
+	0 lv-#names !
+	0 lv-#temp !
+	0 lv-#init !
+	-1 lv-1st-temp !
+	0 lv-#returns !
+	lv-self-fetch on
+\
+\ set default sizes
+	lv_max_vars 0
+	DO
+		1 i lv-sizes !
+	LOOP
+\
+	BEGIN
+		BL word
+		dup number?
+		IF
+			drop \ convert to single precision
+			lv-#names @ lv-sizes !
+			drop bl word  \ following must be a valid local
+		THEN
+\
+		dup " }" $=
+		IF ." { } missing  -- or --- !!" lv.abort.comp
+		THEN
+\
+		dup " )" $=
+		IF ." { should end with } , not )" lv.abort.comp
+		THEN
+\
+		dup " |" $=
+		IF drop lv-#names @ lv-1st-temp ! false
+		ELSE dup " --" $= over " ---" $= or
+			IF  drop true
+				lv.eat.}  \ eat rest of stack diagram
+			ELSE ( name )
+				dup " -->" $=
+				IF drop lv.auto.return true
+				ELSE
+					lv-#names @ dup 1+  \ increment count
+					dup lv_max_vars >
+					IF
+						." Too many local variables"
+						lv.abort.comp
+					ELSE
+						lv-#names !
+					THEN
+					lv-names dup>r $move \ copy name to array
+					r@ find ( %! ) nip
+					IF
+						>newline ." Note: "
+						r@ $type ."  redefined as a local variable in "
+						latest id. cr
+					THEN
+					rdrop
+					false
+				THEN
+			THEN
+		THEN
+	UNTIL
+	lv.on
+\
+\ Figure out how many of each type
+	lv-1st-temp @ 0<  ( no temps? )
+	IF lv-#names @  ( use all vars )
+	ELSE  lv-1st-temp @  ( = # initialized vars )
+	THEN
+	lv-#init !
+\
+    lv-1st-temp @ 0<
+	IF 0
+	ELSE lv-#names @ lv-#init @ -
+	THEN
+	lv-#temp !
+\
+\ Calculate the offsets for each variable
+	0
+	lv-#temp @ 0 lv.calc.offsets
+	dup negate lv-temp-size !
+	lv-#names @ lv-#temp @ lv.calc.offsets
+	negate lv-frame-size !
+\
+\ Compile link instruction, make room for temp vars.
+    lv-temp-size @ lv.make.link
+\ Compile code to copy variables from data stack to locals frame.
+	lv-frame-size @ lv-temp-size @ - cell/ ?dup
+	IF lv.copy.vars
+	THEN
+\
+\ print statistics about locals
+\	lv.dump
+; IMMEDIATE
+
+: ->  ( <local> -- , compile store ) ( n -- , store at run time )
+	bl word state @
+	IF	lv.match
+		IF ( index ) lv.store
+		ELSE (->value)  ( try -> for value )
+		THEN
+	ELSE (->value)  ( try -> for value )
+	THEN
+; IMMEDIATE
+
+
+: LV.ADD ( index -- , compile local add ) \ 00002
+	dup lv-sizes @ 1 >
+	IF
+		." +-> only supported for single precision local variables." LV.ABORT.COMP
+	ELSE
+		lv.add.single
+	THEN
+;
+		
+: +->  ( <local> -- , compile store ) ( n -- , store at run time ) \ 00002
+	bl word state @
+	IF	lv.match
+		IF ( index ) lv.add
+		ELSE (+->value)  ( try +-> for value )
+		THEN
+	ELSE (+->value)  ( try +-> for value )
+	THEN
+; IMMEDIATE
+
+: ; ( -- )
+	lv.restore
+	lv.off
+	[compile] ;
+; immediate
+
+if.forgotten lv.off
+
+\ Set flag to TRUE to compile tests. -----------------
+false .IF
+: TL1 { aa bb -- aa-bb }
+	aa bb -
+;
+
+: TL.AUTO { aa bb  | cc dd --> aa dd , return AA and DD automatically }
+	aa bb + -> cc
+	cc -> dd
+;
+
+: TL.MULTI { 2 dbl-aa sngl-bb 3 trpl-cc -- }
+\	0sp dbl-aa .s
+\	0sp sngl-bb .s
+\	0sp trpl-cc .s
+	sngl-bb dbl-aa -> trpl-cc
+	trpl-cc
+;
+
+: TL.ADD { aa bb -- aa+bb }
+	aa +-> bb
+	bb
+;
+
+: TL.EXIT  { aa bb -- bb aa , test exit }
+	bb aa
+	exit
+	2drop 0 0
+;
+
+: TL.RETURN  { aa -- aa+1 , test RETURN }
+	aa
+	10 1
+	DO
+		i +
+		i 1 =
+		IF  RETURN
+		THEN
+	LOOP
+	drop 0
+;
+
+: TL.LOCARR { aa | 100 locarr -- aa }
+	aa  no@ locarr 3 cells + !
+	5 0
+	DO
+		i . locarr i cells + @ . cr
+	LOOP
+	locarr 3 cells + @
+	yes@
+;
+
+: ?PASS  ( flag -- , show result )
+	IF ."  passed." cr
+	ELSE ."  failed!   Hit key to continue:" key drop cr 
+	THEN
+;
+
+: TEST.LOCALS
+	depth >r
+	." Test 1:"     100 10 tl1 90 = ?pass
+	." Auto:  "  5 3 tl.auto 8 = swap 5 = and ?pass
+	." Add:   "  100 50 tl.add 150 = ?pass
+	." Exit:  "  11 22 tl.exit  11 = swap 22 = and ?pass
+	." Return: "  100 tl.return 101 = ?pass
+	." Multi: "   11 22 33 44 55 66 tl.multi    22 = swap 11 = AND swap 33 = AND ?pass
+	." LocArr:"   77 tl.locarr 77 = ?pass
+	." Stack: " depth r> = ?pass
+;
+." Enter: TEST.LOCALS" cr
+
+\ set LV_MAX_VARS to 4 for these tests
+: TL.JUST.ENOUGH { aa bb cc dd -- }
+	aa . bb . cc . dd . cr 
+;
+
+\ this definition should abort if lv_max_vars is 4
+: TL.1.TOO.MANY { aa bb cc dd ee -- }
+	aa . bb . cc . dd . ee . cr
+;
+
+: TL.2.TOO.MANY { aa bb cc dd ee ff -- }
+	aa . bb . cc . dd . ee . ff . cr
+;
+
+
+.THEN

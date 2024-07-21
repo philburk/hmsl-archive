@@ -1,0 +1,88 @@
+Memo to HMSL 3.0 Users from Phil Burk
+6/17/87
+
+HMSL 3.1 software is different from 3.0 in the following ways:
+
+* The MIDI Parser now supports System Common and System
+Real Time messages. This allows HMSL to be controlled from
+an external sequencer using START and STOP, etc.  Active
+Sensing no longer causes problems.  MP.CHANNEL@ gets MIDI
+channel of last incoming message.  The MIDI Parser
+is now an integral part of the multitasker and has
+a much faster response to MIDI keyboard input.
+
+* Vectored TIME@ to allow software based timing as well as
+hardware timing.  Added TIME! and TIME+! .
+
+* Improved ODE.  Now approx. 30% faster and uses the
+Object Stack more efficiently when referencing SELF.
+
+* Forth ABORT now triggers cleanup of HMSL to avoid
+getting into "nasty" states.
+
+* PRINT: method improved for Translators, Instruments,
+Control Grids and others. Now prints more information.
+
+* Perform Screen improved.  Probabilities that control
+action priorities can now be controlled interactively
+from screen.  The MIDI Parser can be toggled on/off
+from this screen.  The PERFORM button will now
+always reflect the true state of whether PERFORM is on.
+Drawing has been sped up.  Unweighted behavior greatly
+sped up.
+
+* Morphs can now be reexecuted even if they are already
+executing.  They will send STOP: messages down the tree
+to stop themselves and all executing component morphs.
+Then restart execution.
+
+* Two words have been added to help clean up after
+executing a piece. FREE.HIERARCHY will free all allocated
+memory for an entire hierarchy. DEFAULT.HIERARCHY will
+set all parameters to their default state for an entire
+hierarchy.  DEFAULT: will work on one Morph.
+
+* 0STUFF: is a new method for Collections to simplify
+the building of hierarchies.
+
+* A new class of Morph call "JOB" has been added. These
+provide background tasks that repeat some Forth function
+at a specified duration.  Useful for rhythm experiments
+by changing durations.
+
+* Several new examples have been added that demonstrate MIDI
+Parsing, Gamuts, Jobs, Algorithmic Composition, DUMP.SOURCE:,
+etc.
+
+* A function called INTERP for interpolating values along a
+line has been added.
+
+* A 1/F Noise function has been added.
+
+* A repeat count of 0 will now work to disable a Morph.
+
+* Actions will now be evenly distributed among the four
+priorities by default, instead of randomly distributed.
+
+* Several small bugs have been fixed.
+
+* (Internal note.) AO.POST no longer calls REGISTER: so
+the stack diagram has been changed to:
+
+    AO.POST  ( morph -- )
+
+* Translators can now be customized so that they will use
+an optional translation function instead of a table lookup.
+
+----- Amiga Specific Changes ---------------------------
+
+* Amiga Instruments now allocate channels when opened.
+
+* Equal Tempered Tuning (TUNING-EQUAL) extended to 5 octaves.
+
+------------------
+The following items have NOT made it into this Version. Sorry.
+
+* No IFF sample files.
+
+* No Hierarchy or Structure Editor.

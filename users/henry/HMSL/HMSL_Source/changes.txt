@@ -1,0 +1,9 @@
+Partial list of changes made to HMSL
+
+2/17/92 HH:TIMER_DRIVEN  for AMIGA
+	Put priority in variable TDR-PRIORITY
+	
+2/17/92	H:SCREEN
+	Added PUT.DOWN.FUNCTION to screens, also UP and MOVE.
+	The function's stack diagram is:
+		( x y -- , of mouse, in device coordinates, pixels )

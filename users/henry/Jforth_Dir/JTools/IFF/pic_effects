@@ -1,0 +1,141 @@
+\ Provide special effects for pictures.
+\ Effects currently supported are:
+\
+\  Wipes - slowly copy a picture in.
+\  Fades - fade to black or vice versa.
+\  Rotate - rotate planes for color flashing.
+\
+\ Author: Phil Burk
+\ Copyright: Phil Burk 1988
+\
+\ 00001 11/13/91 Make PIC.DRAW.WIPE use ClipBlit(), not CLIP.BLIT.RASTPORT
+
+decimal
+include? pic.blit jiff:pictures
+
+ANEW TASK-PIC_EFFECTS
+
+0 constant WIPE_LEFT
+1 constant WIPE_RIGHT
+2 constant WIPE_UP
+3 constant WIPE_DOWN
+
+: PIC.SETUP.WIPE { xd yd nlines direction pict -- }
+	pict pic.check
+	xd pict ..! pic_dst_x
+	yd pict ..! pic_dst_y
+	direction pict ..! pic_direction
+\ Set defaults for wipe_right
+	0 pict ..! pic_wipe_xoff
+	0 pict ..! pic_wipe_yoff
+	direction 2 AND 0= ( left or right )
+	IF  nlines pict ..! pic_wipe_w
+		pict ..@ pic_src_h pict ..! pic_wipe_h
+		pict ..@ pic_src_w nlines / pict ..! pic_count
+		direction wipe_left =
+		IF  pict ..@ pic_src_w nlines - pict ..! pic_wipe_xoff
+		THEN
+	\ Set defaults for up and down
+	ELSE pict ..@ pic_src_w   pict ..! pic_wipe_w
+		nlines pict ..! pic_wipe_h
+		pict ..@ pic_src_h nlines / pict ..! pic_count
+		direction wipe_up =
+		IF  pict ..@ pic_src_h nlines - pict ..! pic_wipe_yoff
+		THEN
+	THEN
+;
+
+
+: PIC.DRAW.WIPE ( picture -- , draw current wipe )
+	dup>r ..@ pic_rastport
+	r@ ..@ pic_wipe_xoff
+	r@ ..@ pic_src_x + ( srcx )
+	r@ ..@ pic_wipe_yoff
+	r@ ..@ pic_src_y + ( srcy )
+\
+	gr-currport @ >rel
+\
+	r@ ..@ pic_wipe_xoff
+	r@ ..@ pic_dst_xoff +
+	r@ ..@ pic_dst_x + ( dstx )
+	r@ ..@ pic_wipe_yoff
+	r@ ..@ pic_dst_yoff +
+	r@ ..@ pic_dst_y + ( dsty )
+\
+	r@ ..@ pic_wipe_w  ( srcw )
+	r@ ..@ pic_wipe_h  ( srch )
+	pic-cur-minterm @
+	ClipBlit()
+	rdrop
+;
+
+: PIC.ADVANCE.WIPE ( picture -- ,  adjust wipe parameters)
+	dup>r ..@ pic_direction
+	CASE
+		wipe_right
+		OF  r@ ..@ pic_wipe_xoff   r@ ..@ pic_wipe_w +
+			r@ ..! pic_wipe_xoff
+		ENDOF
+		wipe_left
+		OF  r@ ..@ pic_wipe_xoff   r@ ..@ pic_wipe_w -
+			r@ ..! pic_wipe_xoff
+		ENDOF
+		wipe_up
+		OF  r@ ..@ pic_wipe_yoff   r@ ..@ pic_wipe_h -
+			r@ ..! pic_wipe_yoff
+		ENDOF
+		wipe_down
+		OF  r@ ..@ pic_wipe_yoff   r@ ..@ pic_wipe_h +
+			r@ ..! pic_wipe_yoff
+		ENDOF
+	ENDCASE
+	rdrop
+;
+
+: PIC.NEXT.WIPE ( picture -- done? )
+	dup>r  pic.check
+	r@ ..@ pic_count 0>
+	IF  r@ pic.draw.wipe
+		r@ pic.advance.wipe
+	THEN
+	r@ ..@ pic_count 1- dup r@ ..! pic_count  1 <
+	rdrop
+;
+
+: PIC.WIPE ( xd yd nlines direction pict -- , wipe a picture )
+	dup>r pic.setup.wipe
+	BEGIN r@ pic.next.wipe
+		WaitTOF()
+	UNTIL
+	rdrop
+;
+
+\ Fade a picture by scaling its RGB color table.
+: PIC.BRIGHTNESS { level pict -- , scale colormaps }
+	pict pic.check
+	pict ..@ pic_ctable
+	siff-ctable pict ..@ pic_num_colors
+	level scale.ctable
+	siff-ctable pict ..@ pic_num_colors siff.use.ctable
+;
+
+: PIC.FADEIN ( rate picture -- )
+	max_rgb_scalar 1+ 0
+	DO  over wait.frames
+		i over pic.brightness
+	LOOP 2drop
+;
+
+: PIC.FADEOUT ( rate picture -- )
+	max_rgb_scalar 1+ 0
+	DO  over wait.frames
+		max_rgb_scalar i - over pic.brightness
+	LOOP 2drop
+;
+
+: PIC.ROTATE ( -- , rotate siff-screen )
+	siff-screen @ ?dup
+	IF dup .. sc_bitmap rotate.planes
+		remake.screen
+	THEN
+;

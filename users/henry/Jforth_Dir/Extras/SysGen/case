@@ -1,0 +1,47 @@
+\ ================= CASE STATEMENT ===============
+\
+\ PLB MOD: 8/31/90 Added RANGEOF and ?OF
+\ PLB MOD: 8/1/91 Use [compile] IF in ?OF, c/[]/[compile]/
+\ 00001 PLB 12/31/91 Use OF_FLAG to check for missing ENDOF
+
+6 CONSTANT OF_FLAG
+
+: CASE ( -- , start case statement )
+    ?COMP CSP @ !CSP IF_FLAG
+; IMMEDIATE
+
+: ?OF  ( flag -comp- flag , n flag -run- n | )
+    IF_FLAG ?PAIRS
+    [compile] IF
+    compile drop
+    drop of_flag  \ for ENDOF 00001
+; IMMEDIATE
+
+: OF ( -- )
+    compile over compile = 
+    [compile] ?of
+; IMMEDIATE
+
+: (RANGEOF?)  ( n lo hi -- n flag )
+	>r >r dup r> r> within?
+;
+
+: RANGEOF ( -- )
+    compile (rangeof?)
+    [compile] ?OF
+; IMMEDIATE
+
+: ENDOF
+	of_flag ?pairs \ 00001
+	if_flag
+	[compile] ELSE
+; IMMEDIATE
+
+: ENDCASE
+    IF_FLAG ?PAIRS
+    compile drop
+    BEGIN sp@ csp @ = 0=
+    WHILE IF_FLAG [compile] then
+    REPEAT
+    csp !
+; IMMEDIATE

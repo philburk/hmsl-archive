@@ -1,0 +1,13 @@
+\  ANIM-5 support for JForth
+\  This is the topfile for loading the various ANIM
+\  support utilities
+getmodule includes
+include? picture          jiff:load_pic
+include? animation        janim:anim.j
+include? task-decode      janim:decode.asm
+include? task-ytable      janim:ytable.f
+include? task-anim        janim:anim.f
+include? task-anim_iff    janim:anim_iff.f
+include? task-animbrush   janim:animbrush.f
+include? task-convert	  janim:convert.f
+include? task-editanimbr  janim:editanimbr.f

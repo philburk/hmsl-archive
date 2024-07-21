@@ -1,0 +1,30 @@
+\ Support Amiga HARDWARE Sprites.
+\ Warning - There are rumours that the Amiga VIRTUAL Sprites
+\ won't work.  Check it out before spending mucho time on them.
+\
+\ Author: Phil Burk
+\ Copyright 1987 Delta Research
+\ 
+INCLUDE? SPRITES JI:GRAPHICS/VIEW.j
+INCLUDE? SIMPLESPRITE JI:GRAPHICS/SPRITE.J
+
+: GETSPRITE() ( rel_sprite req# -- actual# , allocate a sprite )
+    call>abs graphics_lib getsprite
+;
+
+: CHANGESPRITE() ( viewport sprite newdata -- , Change data for sprite)
+    >abs >r
+    >abs >r
+    if>abs r> r>
+    callvoid graphics_lib changesprite
+;
+
+: MOVESPRITE() ( viewport sprite x y -- , Reposition a sprite)
+    >r >r >abs >r if>abs r> r> r>
+    callvoid graphics_lib movesprite
+;
+
+: FREESPRITE() ( sprite# -- , Relenquish sprite to allocator )
+    callvoid graphics_lib freesprite
+;
+

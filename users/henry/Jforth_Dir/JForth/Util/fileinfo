@@ -1,0 +1,64 @@
+
+\ this file defines the standard Amiga FileInfoBlock
+\ the techniques used in this file are obsolete
+\ use the .J files instead
+
+\ MOD: PLB 10/26/90 Add ANEW
+
+ANEW TASK-FileInfo
+
+.NEED +field
+: +FIELD  ( OFFSET SIZE --- FOFSET+SIZE ) CREATE OVER , + 
+      DOES>  ( ADR <BODY> --- ADR+ )   @ +  ;
+.THEN
+
+.NEED 0TYPE
+: 0TYPE  ( addr -- , type null-terminated string )
+  begin  dup c@ dup
+  while  emit 1+
+  repeat 2drop  ;
+.THEN
+
+variable (FIB)   256 allot   \ 2 more in case long-word align is needed
+
+\ (FIB) 3 + -4 and constant FIB     ( -- addr , longword aligned )
+: FIB  (FIB) 3 + -4 and   ;
+   0
+   4 +field fib/diskkey
+   4 +field fib/direntrytype
+ 108 +field fib/filename
+   4 +field fib/protection
+   4 +field fib/entrytype
+   4 +field fib/size
+   4 +field fib/numblocks  ( 512 byte blocks! )
+  12 +field fib/datestamp
+ 116 +field fib/comment
+drop
+
+: EXAMINE-FIB  ( lock -- , fill in FIB from the file that is 'locked' )
+  fib >abs  call dos_lib Examine  0=
+  IF  .err  cr ." dos.library Examine() failed!"  QUIT
+  THEN ;
+
+: callLock    ( abs-adr mode -- lock or 0 )
+  call dos_lib Lock  ;
+
+: callUnlock  ( lock -- )
+  call dos_lib unlock drop ;
+
+: lockW  ( addr-null-term-filename -- lock OR 0 , lock for writing )
+  >abs access_write  callLock  ;
+  
+: lockR  ( addr-null-term-filename -- lock OR 0 , lock for reading )
+  >abs access_read  callLock  ;
+
+: ReadInfo  ( addr-of-null-string -- )
+  lockr  ?dup
+  IF   dup examine-fib
+       callUnlock
+  ELSE .err ." can't Lock " dos0 1- $type  quit
+  THEN cr
+;
+
+: FILESIZE?  ( null-term-name-adr -- size )
+  Readinfo  fib fib/size @  ;

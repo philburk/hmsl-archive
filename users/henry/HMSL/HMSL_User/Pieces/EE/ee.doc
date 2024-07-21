@@ -1,0 +1,165 @@
+Doc as of Apr 6 89
+(amended June 30 1992)
+
+Here is some doc on these HMSL files:
+
+
+EE is a file which requires locals ( .rstack, Locals) and the new
+floating point package "Float.ffp". This package is only available
+after JForth 1.3. there may be some junk left on the stack - 
+I'm not sure whence it comes. I also use "Fexp" which is easily
+added to your float.ffp package.
+
+It provides a number of words for building scales for a few tunable
+synthesizers: the DX7/E!, TX81Z and two Mirage systems (note: Soundprocess
+doesn't work yet in Jforth ... Triton is updating the tuning system 
+anyway). Also, a few words are given for creating primative scores.
+
+A tuning program (or scoring program...) which uses the EE system
+may start with the proper environment word:
+ ENVIR:E!, ENVIR:Lord , ENVIR:SProc, ENVIR:TX81Z, or Envir:List
+ Envir:PROteus ENVIR:DX7II
+
+The default is ENVIR:E!. This correctly sets EE to make System exclusives
+for the target machine,  or lists in the case of Upward Concepts'
+disk or "Envir:List", which gives the tuning as a table.
+
+Next, you must must must say Start-List to initialize the MIDI and perhaps
+the synthesizer.
+
+  Now you can use any of the powers of Forth to feed
+numbers to the word E!> .
+
+E!> is the basic operating ingredient of EE .
+     E!> ( NoteNum Points)
+
+ translates the points into the correct SYSEX format
+for that note. In some systems (e.g. Soundprocess), the note is stored 
+in an array and not transmitted until the END-LIST is encountered.
+
+@% ( notenum Octave points -- notenum+1) is a convenient way
+to send point values to consecutive spots on a keyboard. You must
+"Prime" the word with a MIDI notenumber, and drop the extra number
+when you are done, but it saves some headaches.
+
+%% ( notenum octave numerator denominator -- notenum+1 )
+ I use extensively for making just ratios, as wth @% above. By the way,
+%? ( octave numerator denominator -- result in points ) is a nice
+thing to have around. 
+
+Finally, you must use "End-list" when you finish.
+
+Also of note: ENVIR:Ding! is a switch which will transmit the
+note you have just tuned while you tune it (if you are a DX7/E!).
+
+ENVIR:LISTPT means print envir:Lists in points. 
+ENVIR:LISTCt means print envir:Lists in cents. 
+
+Words which all start with @ are "point" versions of popular equal
+tempered notes. E.G. @E = 1365 points , where there are 4096 points
+to the octave (my internal standard, which corresponds to E!s as well.)
+There are some additional adjustments you can make to the 12et notes
+with a few other words: 
+ @F @1/4+ will give you f, a quartertone sharp. see EE for more examples.
+
+Sometimes, you want a MIDI notenumber, but cant remember it offhand.
+The midi notes are coded as <octave> \name, e.g. 6 \Ab = 80. Middle C
+is  5 \C (= 60) and "440 hertz" is usually 4 \A.
+
+
+
+The basic syntax for use on your machine is to make words which  say:
+
+\ this is the file Thirds, included here
+\
+\ first insure that ee is loaded...
+\
+include?  ee.spot ee:ee
+\
+\ do anew to guarantee fresh words
+\
+anew j1.spot
+\
+\ Harmonize...
+\
+\ this word types a value before sending it
+\
+: @.% dup . @% ;
+\
+\ here is the word for real:
+\
+: Thirds
+start-list   \ initialize midi and other things
+0	\ this is the first note-number
+11 0 do  \ repeat for 11 octaves, please 
+\    this will make 11 * 12 = 132 notes : the extra ones will be ignored
+dup . ." :" \ say which octave group
+\
+\ the food for @.% is <note-number> <octave> <notename>
+\ it registers the tuning, and spits out
+\ <notenumber + 1>
+\ so you can concentrate on making the tuning fit.
+\
+\ the "@note" words are constants with the 12-ET values of notes
+\ stuck in them
+\ so 0 i @e @.%  means note number 0 is the e in the ith octave.
+\ ( the intended  notes usually follow in comments )
+\
+\ this file makes a tuning where the keys play thirds above 
+\ the real notes.. but not just major thirds...
+
+i @e @.%  \ C
+i @e @.%  \ C#
+i @F @.%  \ D
+i @F @.%  \ Eb
+i @G @.%  \ E
+i @A @.%  \ F
+i @A @.%  \ F#
+i @B @.%  \ G
+i @B @.%  \ Ab
+i 1+ @C  @.%  \ A   maps an octave higher (new octave at c)
+i 1+ @C @.%  \ Bb
+i 1+ @D @.%  \ B
+cr
+loop  \ end of this octave, get next
+
+end-list \ finished with the tuning
+drop \ remove the excess note-number, which remains on stack.
+; 
+
+and that's it!   
+
+There are a healthy number of just 11-limit, 5-limit and 3-limit
+tunings in TJ11 , each with a whimsical name.
+Note how some remap the keys so that "octaves" are really fifths
+and notes are clustered for easy access to the 11th and 9ths.
+
+Chrom contains a mapping for the chromelodeon, which is a retuned 
+harmonium used in many of Harry Partch's pieces.
+
+If anyone has the "real" Dx7II or the EPS or SQ80 tuning sysex scheme, 
+I'd like to include it!
+
+   J Henry H Lowengard ..
+   43 W 16th St, apt 2D
+   NYC 10011-6320  USA
+
+Obviously, this file is useless without HMSL, available from 
+ Frog Peak Music, Po Box 151051 San Rafael CA 94915-1051
+ (415) 461-1442
+which in turn requires Jforth on Amiga or on Macintosh.
+
+
+----- notes:
+
+Soundprocess is an odd fish.  It takes a table of up to 132 notes , which
+it uses for transposing purposes.  Since an S'Proc voice can have four
+oscillators in it, each transposed in a different direction, this can cause
+headaches when the tuning is not octave based in groups of 12.
+Furthermore, the first "slot" is used for tuning note #36 (the bottom of
+the Mirage keyboard) and not note #0.  Transposing (parm [97]) adjusts the
+pointer upward, but not downward.  You may fiddle with parm [69] and parm
+[71] to retune the oscillators lower. This is not a big problem if you
+intend to use S'Proc by itself, but it may be easier to customize the other
+machine's patches. 
+ 

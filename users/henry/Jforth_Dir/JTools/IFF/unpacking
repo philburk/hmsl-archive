@@ -1,0 +1,170 @@
+\ Unpacking Routine needed by IFF files
+\
+\ Unpacks Run-Length-Encoded data.
+\ Can be used to unpack IFF data in "cmpByteRun1" form.
+\
+\ Technique:
+\   Normal Data is stored as a positive count followed
+\      by N+1 bytes of data.
+\   Redundant data is stored as a negative count
+\      followed by the byte to be repeated 1-N times.
+\
+\ Translated from 'C' by Phil Burk
+\
+\ Original By Jerry Morrison and Steve Shaw, Electronic Arts.
+\ Author: Phil Burk
+\ Copyright 1988 Phil Burk
+\ All Rights reserved
+
+decimal
+exists? includes
+.IF  getmodule includes
+.ELSE include? bm_rows ji:graphics/gfx.j
+.THEN
+include? { ju:locals
+
+ANEW TASK-UNPACKING
+
+ASM UNPACKROW ( src dst #src #dst -- src' dst' #src' error? )
+\ Register Usage
+\ D0 = source count
+\ D1 = destination count
+\ D2 = count/opcode
+\ A0 = source
+\ A1 = destination
+\ TOS = scratch
+	move.l	tos,d1
+	move.l	(a6)+,d0
+	move.l	(a6)+,a1
+	adda.l	org,a1		\ Convert to absolute
+	move.l	(a6)+,a0
+	adda.l	org,a0
+\
+1$:	cmp.l	#0,d1		\ room left in dst?
+	ble.s	6$
+	subq.l	#1,d0		\ data left
+	blt.s	5$		\ error if run out
+\
+	moveq.l	#0,d2
+	move.b	(a0)+,d2	\ get next source byte
+	blt.s	3$
+\ -----------------------------------------
+\ Copy normal data if less than 128
+	addq.l	#1,d2		\ N+1 bytes
+	sub.l	d2,d0		\ update pointers
+	blt.s	5$
+	sub.l	d2,d1
+	blt.s	5$
+\
+\ Move literal bytes from source to destination
+	subq.l	#1,d2		\ adjust for dbrq
+2$:	move.b	(a0)+,(a1)+
+	dbra.w	d2,2$
+	bra.s	1$
+\
+\ -----------------------------------------
+\ Copy many of the same bytes.
+3$:	cmp.b	#$80,d2
+	beq.l	1$		\ NOOP if $80  ( -128)
+	move.l	#$101,tos
+	sub.l	d2,tos		\ tricky 1-N
+	subq.l	#1,d0		\ one from source
+	blt.s	5$
+	sub.l	tos,d1		\ bytes from dst
+	blt.s	5$
+\
+	move.b	(a0)+,d2	\ copy redundant data byte
+	subq.l	#1,tos		\ adjust for DBRA
+4$:	move.b	d2,(a1)+
+	dbra.w	tos,4$
+	bra.s	1$
+\ ----------------------------------
+5$:	move.l	#-1,tos		\ error return
+	bra.s	7$
+\
+6$:	moveq.l	#0,tos		\ normal return
+7$:	sub.l	org,a0
+	move.l	a0,-(dsp)
+	sub.l	org,a1
+	move.l	a1,-(dsp)
+	move.l	d0,-(dsp)
+	rts
+END-CODE
+
+\ Test Unpacker ----------------------------------
+false .IF
+
+hex
+CREATE SRCROW
+	4 c, 11 c, 22 c, 33 c, 44 c, 55 c,
+	-4 c, 66 c,  80 c, 1 c, 77 c, 88 c,
+decimal
+
+CREATE DSTROW 256 allot
+: TUN
+	dstrow 100 erase
+	srcrow dstrow 12 12 unpackrow .s
+	dstrow 20 dump
+;
+.THEN
+
+\ Unpack BITMAPs ----------------------------------------
+: COPYROW { src dst src_many dst_many -- src' dst' src_many' error? }
+	src_many dst_many <
+	IF  src dst src_many true
+	ELSE  src dst dst_many move  ( just move bytes !! )
+		src dst_many + ( src' )
+		dst dst_many + ( dst' )
+		src_many dst_many -  ( src_many' )
+		false
+	THEN
+;
+
+\ Compression form 1 is Run length encoded.
+\ Body form 0 is uncompressed.
+: BODY>BITMAP  { bodyptr bsize bmap compr | bresult -- bmap | NULL }
+	compr 0= compr 1 = OR 0=
+	IF ." Illegal compression = " compr . 0 exit
+	THEN
+	bmap -> bresult
+	bmap ..@ bm_rows 0  ( for each row )
+	DO bmap ..@ bm_depth 0 ( for each plane )
+	DO  bodyptr  ( source )
+\ next plane base
+		bmap .. bm_planes i cells + @ >rel
+\ offset to row
+		j bmap ..@ bm_bytesperrow * +
+		( -- data current-row )
+		bsize
+		bmap ..@ bm_bytesperrow
+			compr 0=
+			IF copyrow
+			ELSE unpackrow ( -- s d #s e )
+			THEN
+		IF .s 2drop drop
+			0 -> bresult
+			leave
+		THEN
+		-> bsize
+		drop
+		-> bodyptr
+	LOOP
+	bresult 0= IF leave THEN
+	LOOP
+	bresult
+;
+
+: CMAP>CTABLE ( color-map color-table #entries -- , pack )
+\ Pack Color Map data (3 bytes/RGB) to colortable.
+	>r swap r>
+	0
+	DO  ( -- ct cm )
+	0 3 0
+	DO  ( -- ct cm accum )
+		4 ashift
+		over c@ -4 ashift +
+		swap 1+ swap ( -- ct cm+1 accum )
+	LOOP  ( -- ct cm+3 rgb4 )
+	2 pick i 2* + w!
+	LOOP 2drop
+;

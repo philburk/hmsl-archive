@@ -1,0 +1,88 @@
+\ Interrupt based 60 Hz timer.
+\
+\ This demonstrates how to use a Vertical Blanking
+\ Interrupt Server to increment a variable every
+\ 1/60th of a second.
+\
+\ Translated from 'C' by Phil Burk
+\
+\ Warning - Interupts can be very tricky. Proceed with caution
+\ and don't get discouraged.  Be careful about what you do
+\ inside an interrupt server.  Don't change things that can
+\ mess up other code.
+
+include? interrupt ji:exec/interrupts.j
+include? INTB_VERTB ji:hardware/intbits.j
+
+ANEW TASK-INT_TIME
+decimal
+variable VERTBINTR
+variable TIME-COUNT
+
+: ADDINTSERVER() ( type interrupt -- )
+	>abs
+	call exec_lib addintserver drop
+;
+
+: REMINTSERVER() ( type interrupt -- )
+	>abs
+	call exec_lib remintserver drop
+;
+
+ASM TIME.INT.SERVER ( -- , called when vertical blanking occurs )
+\ The manual implies that A1 points to the is_data member.
+\ I found through experimentation that A1 actually contains
+\ the contents of is_data.
+	addq.l    #1,(a1)       ( increment counter )
+	moveq.l   #0,d0         ( continue chain )
+	rts
+END-CODE
+
+: TIME.INT.INIT  ( -- , setup interrupt)
+	0 time-count !
+	vertbintr @ 0=  ( make sure not done twice )
+	IF
+		MEMF_PUBLIC sizeof() interrupt allocblock ?dup
+		IF
+			dup>r vertbintr !  ( save for TERM )
+\ Set values in structure.
+			NT_INTERRUPT r@ .. is_node ..! ln_type
+			-60  r@ .. is_node ..! ln_pri
+			0" VertB Timer" >abs r@ .. is_node ..! ln_name
+			time-count >abs r@ ..! is_data
+			' time.int.server >abs r@ ..! is_code
+\
+\ Add to EXEC List of Interrupt Servers for VERTB.
+			INTB_VERTB r> addintserver()
+		ELSE
+			." TIME.INT.INIT - Not enough space for timer interrupt!" cr
+			abort
+		THEN
+	THEN
+;
+
+: TIME.INT.TERM ( -- , remove and free timer interrupt )
+	vertbintr @ ?dup
+	IF  INTB_VERTB over remintserver()
+		freeblock
+		0 vertbintr !
+	THEN
+;
+
+: TIME@  ( -- , current_time )
+	time-count @
+;
+
+: WATCH ( -- , watch timer increment )
+	time.int.init
+	BEGIN
+		time@ . cr
+		?terminal
+	UNTIL
+	time.int.term
+;
+
+
+cr
+." Enter:  WATCH    to see counter being incremented!" cr
+." Then hit a key to stop." cr

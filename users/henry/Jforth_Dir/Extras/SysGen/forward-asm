@@ -1,0 +1,659 @@
+\ Forward parsing assembler ... Mike Haas, Delta Research
+\
+\ This module adds a parser to convert normal 68000 source code
+\ (for the most part) into that compatible with the JForth reverse-polish
+\ assembler.
+\
+\ 09/27/87 mdh Fixed several problems...1) the parser would not recognize
+\              the '+64k' text as a register  2) negative signs were not
+\              being handled correctly  3) DBcc operands were not being
+\              passed on to the rev-polish assembler correctly.  Changed the
+\              parsed char for FORTH" <expression> " to FORTH{ expression }
+\              so that quoted strings could be handled.
+\ ?        mdh new EOL algorithm
+\ 06/20/88 mdh higher max-inline for speedup
+\ 1/25/89  plb set DPL in ASM to avoid 1,2,3 # problem
+\ 00001 27-sep-90 mdh/plb Add explicit LONG for .L, add ADD-SIZE
+\ 00002 15-aug-91 mdh/plb Use LWORD in Forth{ , not WORD
+\ 00003 18-aug-91 mdh     Incorporated XBLK
+\ 00004 25-sep-91 mdh     use ADD-SIZE? in PARSE-OPCODE instead of ADD-SIZE
+
+max-inline @  256 max-inline !
+include? <res-code> jf:asm
+include? $interpret jf:string-interpret
+
+only forth definitions
+
+anew task-forward-asm
+
+decimal
+
+variable ShowASM?
+
+assembler definitions
+forth
+  
+\ variables ...
+
+variable DestExists
+variable +R+B
+variable DestAt
+variable DestLen
+variable TempMem
+
+variable $BUFFER  80 allot
+
+: SET.LINETEXT  ( -- )
+  CLINENUM @ >in @  eol lword count  ( >in@ text cnt )  80 min 2dup
+  LINETEXT 1+ swap move  LINETEXT c!   drop  >IN !  CLINENUM !
+;
+
+
+: GETSCAN  ( -- cstart cline# lastscan )
+  clinestart @  clinenum @  lastscan @   both ;
+
+: PUTSCAN  ( cstart cline# lastscan -- )
+  lastscan !  clinenum !  clinestart !   both ;
+
+: CALLCFA   ( -- , input: <name> )
+  [compile] '  cfa,   \ dup cell- @ 0<
+\ IF   .err  ." This word cannot be CALLED (INLINE compile only!)"
+\      only forth definitions   quit
+\ THEN CALLADR,
+;
+
+: char>BUFFER  ( char -- )  showasm? @
+  IF  dup emit flushemit
+  THEN
+  $buffer count + c!
+  $buffer dup c@ 1+ swap c!  ;
+
+: $>BUFFER  ( adr cnt -- )
+  showasm? @
+  IF  2dup type  flushemit
+  THEN
+  $buffer $append  ;
+
+: >BUFFER  ( cnt-addr -- )  count $>buffer ;
+
+: FILL-TIB?  ( -- , make sure TIB is not at end... )
+\  >in @  #tib @ >=     \ at end?
+  tib >in @ + #tib @ >in @ - bl skip nip 0=
+  IF    bl word  drop  \ yes, force a read from the file...
+        >in off        \ and point >in back to the beginning of it.
+  THEN  ;
+
+
+: IN-STRING?  ( $cntaddr-large $cnt-addr-small -- addr-matched OR 0 )
+  swap count
+  rot  count match?  both ;
+
+: FORTH{  ( -- , executes whatever is in the { } )
+  also forth
+  eol lword  ( -- here ) " }"  in-string?  ?dup \ 00002
+  IF
+     here -  1- here c!   here  pad 100 +  $move
+     pad 100 + count $interpret
+  ELSE
+     " Improper 'FORTH{' directive: no trailing '}'"  $error
+  THEN
+  previous   ;
+
+
+: WHATS-NEXT  ( char -- here , do 'WORD' but restore >IN )
+  tib >in @ +
+  BEGIN  dup c@ dup
+         bl = swap  9 =  or
+  WHILE  1+
+  REPEAT tib - dup >in !  getscan 3 x>r
+  swap  word  swap >in !  3 xr> putscan  ;
+
+
+variable OpCnt
+
+: get-operands  ( -- , get the operand string, put at here )
+  OpCnt off
+  0 eol whats-next count   ( -- IfIn[] $adr cnt )  0
+  DO
+     dup c@ >r     ( -- IfIn[] $adr )   ( -r- char )   over
+     IF
+        r@ ascii ] =
+        IF
+           nip 0 swap
+        THEN
+     ELSE
+        r@ ascii [ =
+        IF
+           nip true swap
+        ELSE
+           r@    bl =
+           r@     9 =  or
+           r@  $ 0a =  or  ( -- flag adr flag )
+           IF
+              rdrop leave
+           THEN
+        THEN
+     THEN
+     rdrop 1+   1 OpCnt +!
+  LOOP
+  drop
+  IF
+     >newline latest id. ." : unbalanced '[' and ']' combination" cr  0
+  ELSE
+     OpCnt @
+  THEN
+  here c!
+\
+\  eol whats-next   " ]" in-string?  -dup
+\  IF   BEGIN  1+ dup c@ >r
+\              r@    bl =
+\              r@     9 =  or
+\              r>  $ 0a =  or  ( -- adr flag )
+\              over  here -  here c@ 1+ = or
+\       UNTIL
+\  ELSE here c@ 1+ here c!  here "  " in-string?
+\  THEN 
+\  here 1+ -  here c!
+;
+
+
+: GoPastThis  ( addr char -- addr2 , find the addr2 just past char )
+  swap
+  BEGIN   dup c@  ( -- char adr <adr> )   2 pick -
+  WHILE   1+
+  REPEAT  swap drop  ;
+
+: #COMMAS?  ( -- flag , true if there is a comma in the text at here )
+  0  ( , counter )   here 1+ ( address )
+  BEGIN  dup c@  dup ascii , =
+         IF    drop   swap 1+  swap
+         ELSE  ascii [ =
+               IF    ascii ]  GoPastThis
+               THEN
+         THEN  ( #commas addr )
+         1+ dup  here dup c@ + >  ( #commas addr flag )
+  UNTIL  drop ;
+
+
+: CALC-DEST  ( -- )
+  here 1+
+  BEGIN   dup c@ dup ascii , -  ( -- addr char flag )
+  WHILE   dup ascii ( =         ( -- addr char flag )
+          IF   drop  ascii ) gopastthis  ( -- addr' )
+          ELSE ascii [ =
+               IF   ascii ] gopastthis
+               THEN
+          THEN 1+
+  REPEAT  drop dup destat ! ( addr of comma )
+  here -   here c@  swap -  destlen !  ( #chars AFTER comma )  ;
+
+: GET-DEST  ( -- , moves the destination operands to 'HERE' )
+  here 32 bl fill
+  TempMem @  here  $move
+;
+
+\  destexists @ here c!
+\  1 destat +!  DestAt @  here 1+ -  dup 0<
+\  IF    " ASM: DestAt not SET"  $error
+\  THEN  here c@ - abs 1+ DestAT @  here 1+  2 pick move  dup here c!
+\  1+ here +  bl swap c!  ;
+
+
+: (ADR/CNT)  ( -- addr cnt , of the parens & the text between them )
+  here   " (" in-string?  dup
+  here   " )" in-string?  swap -  -dup
+  IF   1+
+  THEN ;
+
+
+: (,)?  ( -- flag , true if those chars are found in that order )
+  here  " ("  in-string? 
+  here  " ,"  in-string? 
+  here  " )"  in-string? ( -- a1 a2 a3 )
+  2 x>r  r@ <  2 xr>  < and  ;
+
+
+: END-CODE?  ( -- flag , true if the first text on the line is 'end-code' )
+  fblk @  blk @ or    xblk @ or ( 00003 )   0=
+  IF   cr query
+  THEN
+  SET.LINETEXT
+  getscan 3 x>r
+  >in @ bl word 1+      \ Save pointer, get the text      ( -- >in here )
+  " END-CODE" 1+          \ check the text      ( -- >in $END-CODE here+1 )
+  8 compare            ( -- >in flag )
+  IF   >in ! 3 xr> putscan  false
+  ELSE 3 xr> 2drop 2drop  true
+  THEN ;
+
+
+: LABEL?  ( -- flag , true if first col is a Moltorola-stype local label )
+          ( NOTE: the format is:   5$:  for example. )
+  bl whats-next    ( -- here )
+  " $:"  in-string? ;             \ Is there a '$:' there?   
+ 
+
+: PARSE-LABEL  ( -- , interpret the number, create a 'branchpoint' )
+  0.  bl word
+  convert  drop 2dup + 0=
+  IF   only forth definitions
+       " Invalid MC68000-ASM local label" $error
+  THEN drop showasm? @
+  IF
+     dup .  ." BR: "  flushemit
+  THEN  [ also assembler ]  br:  [ previous ]   ;
+
+
+: COMMENT?   ( -- flag , true if 1st char is '\', '(', or '*'
+   here  1+ c@
+   dup ascii ( = swap
+   dup ascii \ = swap
+   ascii * = or or
+;
+
+variable JustNum
+
+: ABS?  ( charadr-after-num -- )  JustNum off
+  dup c@          ( -- charadr char )
+  CASE
+       ascii , OF    ascii L JustNum !   ENDOF
+            bl OF    ascii L JustNum !   ENDOF
+             9 OF    ascii L JustNum !   ENDOF
+       ascii . OF  dup 1+ c@ JustNum !   ENDOF
+  ENDCASE
+  drop
+;
+
+
+
+: GET[]?  ( addr -- true / false , moves forth cmd to $buffer, if there )
+  drop  here  " [" in-string? dup
+  IF   ( -- addr-of-[ ) 1+  here c@ here + over - 1+ ( -- addr maxlen )  0
+       DO   dup c@  ascii ] =  ?LEAVE
+            dup c@ ( -- addr char )  char>buffer  1+
+       LOOP bl char>buffer  ( -- adr-of-] )
+       here 1+ c@  dup ascii [ = swap ascii $ = or
+       IF   dup  1+ ABS?
+       THEN drop  true
+  THEN ;       
+
+
+: ADD-SIZE  ( char -- , add string to buffer  )
+	CASE
+		ascii B   OF   " BYTE " >buffer  ENDOF
+		ascii S   OF   " BYTE " >buffer  ENDOF
+		ascii W   OF   " WORD " >buffer  ENDOF
+		ascii L   OF   " LONG " >buffer  ENDOF ( 00001)
+	ENDCASE
+;
+
+: ADD-SIZE?  ( addr-of-period? -- )
+  dup c@  ascii . =
+  IF   dup 1+ c@ add-size
+  THEN  drop  ;
+
+: STD-REG?  ( text-addr -- flag , true if Motorola-style reg  A2, d7, a3 etc)
+  dup c@ dup ascii D = swap ascii A = or   \ is Dx or Ax ?
+  ( -- addr flag1 )
+  swap 1+ c@  ascii 0 ascii 7 within?      and ;   \ is X0 thru X7 ?
+
+variable lastreg  variable pastreg
+: PARSE-REG  ( addr-of-text flag -- , flag is whether to include DN or AN )
+  over  std-reg?
+        ( -- addr flag1 flag2 )  \ true if standard type reg notation
+  IF   swap ( -- flag1 addr ) dup 2+ >r  ( need later )
+       dup 1+ c@ dup >r ( save digit)   char>buffer  ( -- flag addr )
+       c@ dup >r dup char>buffer  " R " >buffer  swap
+       IF    char>buffer   " N " >buffer
+       ELSE  drop
+       THEN  ( -- )     ( --r-- # D-or-A )
+       $ 30  r> ascii A -
+       IF  $ 10 -
+       THEN  r> - abs lastreg !
+       r>   ( -- addr-of-next-char ) dup pastreg !
+  ELSE \ its a NAMED REGISTER!  ( -- adr flag )
+       \ first build the name as a string...
+       >r  0 swap ( -- counter addr ) ( -r- flag)
+       BEGIN  dup c@   ( -- cntr addr char )
+              dup  ascii , =
+              over bl     <= or
+              over ascii ) = or
+              over ascii ( = or
+              over ascii / = or
+              over 9       = or
+              over ascii . = or   0=
+              ( -- cntr addr char flag )
+       WHILE  char>buffer  ( -- cntr addr )  1+ swap 1+ swap
+       REPEAT drop dup pastreg !     ( -- cntr addr )
+       "  " >buffer  ( follow with a space )
+       ( -- cnt addr )  r> swap >r
+       ( --R-- addr )  ( -- cnt flag1 )  >r
+       \ string has been added to buffer
+       $BUFFER count +  ( -- count  next-char-adr )
+       over - 1- swap      ( -- $addr $cnt )
+       here pad $ 100 + $move
+       @reg  also assembler
+       $interpret   ( -- reg# )   previous
+       pad $ 100 + here $move  dup lastreg !  r>
+       IF   $ 10 and   IF  " DN " ELSE " AN "  THEN >buffer
+       ELSE drop
+       THEN  r>  ( -- Padr )
+  THEN ADD-SIZE?  ;
+
+: PARSE-NUM  ( addr -- )
+  dup get[]?           ( -- addr flag )
+  IF   drop
+  ELSE dup c@ ascii $ =
+       IF   "  $ " >buffer    1+
+       THEN
+       BEGIN  dup c@   ( -- adr char )
+              dup  ascii 0  ascii 9 within?
+              over ascii A  ascii F within? or
+              over ascii -  = or
+              over ascii +  = or
+       WHILE  char>buffer 1+
+       REPEAT 2drop
+  THEN "  " >buffer
+  JustNum @ -dup
+  IF
+     " ABS." >Buffer
+     char>buffer  bl char>buffer
+  THEN  ;
+
+
+: PARSE-IMM  ( -- )
+  here 2+ parse-num
+  " #  " >buffer   ;
+
+
+: PARSE-PC   ( -- )
+  here  " PC,"  in-string? dup
+  IF   3 + false parse-reg  true
+  THEN
+  here 1+ parse-num
+  IF   " PC+R+B "
+  ELSE " PC+W "
+  THEN  >buffer
+  ;
+
+
+: PARSE-AN+R+B  ( -- )
+  here  " ("  in-string? 1+ 0 parse-reg
+  here  " ,"  in-string? 1+ 0 parse-reg
+  here 1+  parse-num
+  " AN+R+B " >buffer  
+  ;
+
+
+: PARSE-INDIRECT  ( -- )
+  here   " (" in-string? dup 1+ 0 PARSE-REG
+  1- c@ ascii - =
+  IF   " -A@ "
+  ELSE here   " )"  in-string? 1+ c@ ascii + =
+       IF   " A@+ "
+       ELSE here 1+ c@  ascii ( =
+            IF   " A@ "
+            ELSE here 1+ parse-num  " AN+W "
+            THEN
+       THEN
+  THEN >buffer
+;
+
+: NumberFirst?   ( -- flag )
+  base @ >r
+  here dup 1+ c@ ascii $ =
+  IF
+     1+  hex
+  THEN  ( -- charadr )  dup 1+ c@  ascii [ -
+  IF
+     0 0   ( -- adr d1 )  rot
+     convert  -rot 2drop    ( -- charadr )
+     dup ABS?  JustNum @
+     IF
+        drop true
+     ELSE
+        c@ ascii $ =      \ EXAMPLE:  23$
+     THEN
+  ELSE
+     drop here " ]" in-string? 1+ abs?  justnum @
+  THEN
+  r> base !
+;
+  
+: PARSE-MODE  ( -- , builds text into $MODE-BUFFER )
+  \ formats to parse for:
+  \   reg ........... DN or AN
+  \   (An) .......... adr reg indirect
+  \   (An)+ ......... adr reg indirect w/ post-increment
+  \   -(An) ......... adr reg indirect w/ pre-decrement
+  \   d(An) ......... adr reg indirect w/ displacement
+  \   d(An,Xi) ...... adr reg indirect w/ index
+  \   d(PC) ......... PC relative
+  \   d(PC,Xi) ...... RC relative with index
+  \   # ............. immediate
+  \   [???] ......... Forth expression  
+  NumberFirst?
+  IF   here 1+ parse-num  \ does the local-labels, branches
+  ELSE
+       here 1+ c@  ascii # =         \ EXAMPLE:  #4
+       IF    PARSE-IMM
+       ELSE  here   " PC"  in-string?
+             IF    PARSE-PC
+             ELSE  +R+B @
+                   IF    PARSE-AN+R+B
+                   ELSE  here  " ("  in-string?
+                         IF    PARSE-INDIRECT
+                         ELSE  here 1+   true  PARSE-REG 
+                         THEN
+                   THEN
+             THEN
+       THEN
+  THEN    ;
+
+
+: SETDEST  ( -- )
+  DestExists @ 0=
+  IF
+     \
+     \ Find where dest ops are...
+     \
+     calc-dest
+     \
+     \ Save 'em in temp buffer...
+     \
+     TempMem @ dup >r  off
+     destat @ 1+  DestLen @  r> $append
+     \
+     \ Reflect source count...
+     \
+     here c@ destexists !             \ holds original len
+     destat @  here 1+ -  here c!     \ set for just source string
+  THEN  ;
+
+: PARSE-HERE  ( -- )
+  +R+B OFF  #COMMAS?  -dup
+  IF   (,)?
+       IF    1 >  IF   setdest then
+             +R+B ON
+       ELSE  drop setdest
+       THEN
+  THEN PARSE-MODE
+;
+
+
+: PARSE-SOURCE  ( -- )
+  destlen off
+  parse-here   ;
+
+: PARSE-DEST  ( -- )
+  get-dest
+  parse-here ;
+
+
+: PARSE-OPCODE  ( -- , opcode is at pad )
+  pad   " ." in-string? dup>r
+  \
+                \ 00004 dup
+                \ 00004 IF   1+ c@
+                \ 00004 THEN
+                \ 00004 add-size
+  ?dup IF       \ 00004
+     add-size?  \ 00004
+  THEN          \ 00004
+  \
+  pad count   r>
+  IF  2-
+  THEN  $>buffer      ;
+
+  
+: PARSE-NOT-MOVEM  ( -- )
+  [ also assembler ]
+  sourcem @ destinationm @
+  opcodem @ $ f000 [ previous ]  and $ 6000 =  or or
+  IF     get-operands
+         parse-source   destexists @ -dup
+         IF   here c!   parse-dest
+         THEN
+  THEN   parse-opcode
+;
+
+: SRC-REGLIST?  ( -- FLAG )
+  here " (" in-string?   setdest    DESTAT @  >=  ;
+
+: ADDREG  ( reg# -- )   dup $ 30 or  char>buffer  $ 10 and
+  IF  " DR "   ELSE  " AR "  THEN  >BUFFER  ;
+
+: PARSE-REG-LIST  ( adr -- )
+  1- dup >r    ( -- &cnt )    ( -r- &cnt )
+  dup c@ >r    ( -- &cnt )    ( -r- &cnt cnt )
+  -1 over c!   ( -- &cnt )    ( -r- &cnt cnt )
+  BEGIN  dup c@ 0   ( -- addr char flag )
+         over $ 0a    = or
+         over ascii , = or
+         over 9       = or
+         swap bl      = or 0=
+  WHILE  1+  ( -- addr )  \ not at end of reglist...
+         0 parse-reg  \ goes to buffer
+         pastreg @ dup c@ ascii - =   ( -- nextcharadr flag )
+         IF   ( continuous regs... )
+              lastreg @ 1+   swap 1+ 0 parse-reg  lastreg @ swap
+              DO   i addreg
+              LOOP  pastreg @
+         THEN
+  REPEAT drop r> r> c! ;
+
+: PARSE-MOVEM   ( -- )
+  get-operands  src-reglist?
+  IF    here 1+ parse-reg-list
+        parse-dest
+  ELSE  parse-source
+        get-dest here 1+  parse-reg-list
+  THEN  parse-opcode ;        
+
+: >ASM  ( -- )
+  also assembler  $buffer count $interpret  previous
+;
+
+: PARSE-ASM  ( -- , parse the 'OPCODE OPERANDS' syntax, disregard rest of line)
+  pad 20 erase          ( clear pad )
+  $buffer off  DestAt off
+  bl word dup pad $move    ( -- )   \ get the opcode & save it
+  CLINENUM @ ASMLINENUM !
+  " CALLCFA" $=
+  IF
+     [ also assembler ] callcfa  [ previous ]  true
+  ELSE
+     here  " BSR"  in-string?
+     IF
+        " ' " >buffer  bl word >buffer "  " >buffer  PARSE-OPCODE >ASM true
+     ELSE
+        here  " FORTH{"  $=
+        IF    [ also assembler ] forth{   [ previous ] true  
+        ELSE  false
+        THEN
+     THEN
+  THEN  0= dup >r
+  IF   
+       destexists off   here " ." in-string?
+       IF     here c@ 2- dup here c!  bl swap 1+ here + c!
+       THEN
+              here also assembler  find previous 0=
+       IF     only forth definitions   0 error  
+       then   do-does-size + [ also assembler ]  masks ! [ previous ]
+       pad  " MOVEM"  in-string? 
+       IF    PARSE-MOVEM 
+       ELSE  PARSE-NOT-MOVEM
+       THEN  showasm? @
+       IF    cr
+       THEN
+  THEN r>  ;
+
+: ASM-LINE  ( -- )
+  bl whats-next c@
+  IF   \
+       label?   \ .................. Is the first column a label?
+       IF
+              parse-label  \ ......... Yes, process it.
+       THEN
+       comment?  \ ........... Do we disregard the entire line?
+       IF
+          eol word drop
+       ELSE
+          parse-asm   \ ..... No, assemble the line.
+          IF  >ASM
+         THEN
+       THEN
+       [compile] \    \ comment out any rest of the line...
+   THEN  ;
+
+variable 'FASM-QUIT
+
+: FASM.QUIT  ( -- , cause module to get hidden )
+  FASM.WHERE
+  'FASM-QUIT @ dup is quit  execute
+;
+
+: INSTALL.FASM ( --- )
+  what's quit 'FASM-QUIT !
+  also assembler  " FASM.QUIT" find drop is quit  previous
+;
+ 
+only forth definitions
+
+: ASM   ( -- ) ( --- ) ( name --in-- )  
+\
+    -1 dpl !
+    BLK @
+    IF " ASM not available from screens; use CODE (RPN Assembler)" $ERROR
+    THEN
+    FBLK @ [ also assembler ] ASMFBLK [ previous ]  !
+    CLINEFILE @ [ also assembler ] ASMFNAME [ previous ]  !
+    base @ [ decimal ] 10 -
+    IF
+       >newline ." ASM: Forcing BASE to DECIMAL until END-CODE." cr
+    THEN
+    base @ >r  decimal
+    MEMF_CLEAR  64  allocblock?
+    dup [ also assembler ]  TempMem [ previous ]  !   markfreeblock
+    [ also assembler ]      INSTALL.FASM  [ previous ]
+    [compile] <res-code>  previous
+    BEGIN  [ also assembler ]
+           FILL-TIB?
+           end-code?  0=    \ .......... Is it the end?
+    WHILE  asm-line
+    REPEAT
+    [ previous ]
+    [compile] \
+    also assembler  [ also assembler ]
+    [compile] <res-end-code>
+    TempMem @ dup unmarkfreeblock  freeblock
+    'FASM-QUIT @ is quit
+    ASMFBLK off
+    [ previous ] r> base !
+;
+
+
+\  immediate
+
+
+max-inline !

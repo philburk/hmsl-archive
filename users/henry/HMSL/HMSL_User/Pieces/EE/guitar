@@ -1,0 +1,73 @@
+\ tunings for the midi guitar...
+
+anew guitar.spot
+\ taking advantage of the guitar's string arrangement
+\ for new tunings
+\
+\ midi string numbers
+3 constant 8ve
+
+8ve 2 + \E constant St1 
+8ve 1 + \B constant St2
+8ve 1 + \G constant st3
+8ve 1 + \d constant st4
+8ve \A constant st5
+8ve \E constant st6
+
+Variable BaseNote
+0 Basenote !
+
+: %P
+{ Note Oct Num Den -- }
+Note  0 127 within?  If
+note oct num den %? BaseNote @ + E!>
+else note  ." :>>bad" .
+then 
+Note 1+
+;
+
+: git1
+Start-list
+zero-set
+st6
+8ve 0 +  1 1 %P
+8ve 0 +  9 8 %P
+8ve 0 +  5 4 %P
+8ve 0 +  4 3  %P
+8ve 0 +  3 2 %P
+drop st5
+8ve 0 +  3 2 %P
+8ve 0 +  5 3 %P
+8ve 0 + 15 8 %P
+8ve 1 +  1 1 %P
+8ve 1 +  9 8 %P
+drop st4
+8ve 1 +  9 8 %P
+8ve 1 +  5 4 %P
+8ve 1 +  4 3  %P
+8ve 1 +  3 2 %P
+8ve 1 +  5 3 %P
+drop st3
+8ve 1 +  5 3 %P
+8ve 1 + 15 8 %P
+8ve 2 +  1 1 %P
+8ve 2 +  9 8 %P
+drop st2
+8ve 2 +  5 4 %P
+8ve 2 +  4 3  %P
+8ve 2 +  3 2 %P
+8ve 2 +  5 3 %P
+8ve 2 + 15 8 %P
+drop st1
+8ve 2 + 15 8 %P
+8ve 3 + 1 1 %P
+8ve 3 + 9 8 %P
+8ve 3 + 5 4 %P
+8ve 3 + 4 3 %P
+8ve 3 + 3 2 %P
+8ve 3 + 5 3 %P
+8ve 3 + 15 8 %P
+8ve 4 + 1  1 %P
+drop
+end-list
+;

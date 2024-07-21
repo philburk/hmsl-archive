@@ -1,0 +1,63 @@
+\ Display an Alert!!
+\
+\ An Alert String consists of one or more substrings with
+\ a 16 bit X, an 8 bit Y, followed by a NUL terminated
+\ string. Between each substring is a non-zero continuation
+\ byte.  The complete string is terminated with 2 NULS.
+\
+\ Author: Phil Burk
+\ Copyright 1988 Delta Research
+
+exists? includes
+.IF getmodule includes
+.THEN
+include? recovery_alert ji:intuition/intuition.j
+
+ANEW TASK-EZALERT
+decimal
+CREATE ALERT-STRING 256 allot
+VARIABLE ALERT-POS
+
+: ALERT.STRING ( size -- addr_start , allot space in string)
+    alert-string alert-pos @ +  ( offset to current position )
+    swap alert-pos @ +
+    dup 254 > abort" Alert string too long!"
+    alert-pos !
+;
+    
+: ADD.ALERT.SUBSTRING ( $string x y -- )
+    alert-pos @ 0>
+    IF -1 1 alert.string c! ( continuation byte )
+    THEN
+    swap 2 alert.string oddw!  ( set x )
+    1 alert.string c!
+    count dup ( -- saddr count )
+    alert.string ( -- saddr count daddr )
+    swap cmove
+( terminate substring )
+    0 1 alert.string c!
+( terminate string but allow overwriting )
+    0 0 alert.string c!
+;
+
+: BUILD.ALERT.STRING ( $string x y -- )
+    0 alert-pos !
+    add.alert.substring
+;
+
+: EZALERT ( $string -- flag , display alert)
+    intuition?
+    20 20 build.alert.string
+" OK/YES - left button,  CANCEL/NO - right button."
+    20 40 add.alert.substring
+\
+\ Build parameter list.
+    RECOVERY_ALERT alert-string >abs 60
+    call intuition_lib DisplayAlert
+    -intuition
+;
+
+    
+: TEST.EZALERT ( -- )
+    " Uh, Oh!!!  Try again???" ezalert
+;

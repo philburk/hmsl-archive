@@ -1,0 +1,153 @@
+\ OBJECT Stack =========================================
+\ This stack is used for storing the current object address.
+\ Access to instance variables is based on that address.
+\ This code is a good candidate for optimization.
+\
+\ Author: Phil Burk
+\ Copyright 1986 Delta Research
+\
+\ MOD: PLB 1/21/87 Add OS.DEPTH
+\ MOD: PLB 2/10/87 Assemble and optimize OS.PUSH and OS.DROP
+\ MOD: PLB 4/19/87 Optimize for Mac too.
+\ MOD: PLB 4/26/88 Add OS_MAX_DEPTH
+\ MOD: MDH 7/9/88 Use variable reference in OS.PUSH and OS.DROP
+\      for CLONE.
+\ MOD: PLB 4/26/91 Optimized OS.COPY
+
+ANEW TASK-OBJ_STACK
+
+256 constant OS_SIZE
+
+VARIABLE OBJECT-STACK os_size VALLOT
+
+os_size cell/ constant OS_MAX_DEPTH
+
+( Hyphens had to be removed to prevent Mac assembler from crashing.)
+VARIABLE OSSTACKPTR
+VARIABLE OSTOP		\ this is a copy of the top of the object stack
+\ the actual top is also on the real stack
+
+: OS.SP!  ( -- , Set Object Stack Pointer )
+	object-stack os_size + osstackptr !
+; OS.SP!
+
+\ These three words need to be optimized for object speed.
+\ : OS.PUSH  ( N -- , Push onto object stack )
+\	dup ostop !
+\	osstackptr @ cell-  ( predecrement )
+\	dup osstackptr !    ( update pointer )
+\	!            ( write value )
+\ ;
+\ : OS.DROP  ( -- , drop top of object stack )
+\	osstackptr @
+\	cell+
+\	dup @ ostop !  ( cache )
+\	osstackptr !
+\ ;
+
+#host_amiga_jforth
+.IF
+
+ASM	OS.DROP   ( -- )
+	lea		[ OSSTACKPTR here - 2- ](PC),a0	\ &OSSTACKPTR in A0
+	move.l	(a0),d0					\ REL stack ptr in D0
+	add.l	#4,d0
+	lea		[ OSTOP HERE - 2- ](PC),A1
+	move.l	$0(org,d0.l),(a1) 		\ update cache
+	move.l	d0,(a0)
+END-CODE
+
+\ WARNING - do NOT change D2 or D3 because OB.BIND.RUN assumes it isn't
+ASM OS.PUSH  ( n1 -- )
+	lea		[ OSTOP HERE - 2- ](PC),A0
+	move.l	tos,(A0)
+	lea		[ OSSTACKPTR HERE - 2- ](PC),a0	\ a0 = &osstackptr
+	move.l	(a0),d0		\ &top of stack
+	subq.l  #$4,d0
+	move.l  tos,$0(org,d0.l)
+	move.l  d0,(a0)
+	move.l  (dsp)+,tos
+END-CODE
+
+\ : OS.COPY  ( -- N , make copy of top of object stack )
+\	ostop @
+\ ;   ( must be fast for objects )
+
+ASM OS.COPY  ( -- n , get from OSTOP )
+	move.l	tos,-(dsp)
+	move.l	[ OSTOP HERE - 2- ](pc),tos
+END-CODE
+
+
+DECIMAL
+\ This could probably be optimized )
+: OS+ ( M -- N+M , add top of object stack )
+	os.copy +
+;
+
+\ OS+PUSH is used for instance object binding.
+: OS+PUSH ( N -- , combine OS+ and OS.PUSH )
+	os+ os.push
+;
+.THEN
+
+#HOST_MAC_MACH2 .IF
+ALSO ASSEMBLER
+CODE OS.PUSH  ( N -- , Push onto object stack )
+	MOVE.L OSSTACKPTR,A0
+	MOVE.L  (A6)+,-(A0)
+	MOVE.L A0,OSSTACKPTR
+	RTS
+END-CODE
+
+CODE OS.DROP  ( -- , drop top of object stack )
+	ADDQ.L #$4,OSSTACKPTR
+	RTS
+END-CODE
+
+CODE OS.COPY  ( -- N , make copy of top of object stack )
+	MOVE.L OSSTACKPTR,A0
+	MOVE.L (A0),-(A6)
+	RTS
+END-CODE
+
+ONLY MAC ALSO FORTH
+CODE OS+ ( M -- N+M , add top of object stack )
+	MOVE.L OSSTACKPTR,A0
+	ADD.L (A0),(A6)
+	RTS
+END-CODE
+
+CODE OS+PUSH  ( N -- , Add to OS TOP and push onto object stack )
+	MOVE.L OSSTACKPTR,A0
+	MOVE.L (A0),D0  ( Get top. )
+	ADD.L  (A6)+,D0
+	MOVE.L D0,-(A0)
+	MOVE.L A0,OSSTACKPTR
+	RTS
+END-CODE
+
+.THEN
+
+: OS.POP  ( -- N , pop from object stack )
+	os.copy  os.drop
+;
+
+: OS.DEPTH ( -- #cells , depth of object stack )
+	object-stack os_size +
+	osstackptr @ - cell/
+;
+
+: OS.PICK ( n -- Vn , pick value off object stack )
+	cell* osstackptr @ + @
+;
+
+\ Benchmark
+if-testing @ .IF
+VARIABLE #OS.BENCH
+1000 #OS.BENCH !
+: OS.BENCH  123 #OS.BENCH @ 0
+	DO  os.push os.copy os.drop
+	LOOP drop
+;
+.THEN

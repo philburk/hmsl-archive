@@ -1,0 +1,53 @@
+\
+\
+\ tuning for s1938
+\
+
+include? ee.spot  ee:ee
+anew JS.spot
+
+: %> ( nn oct n d -- ) \ more primative than %%, thus self doc.
+%? E!>
+;
+
+
+: JS { | 8ve -- }
+
+\ physical octave starter
+
+1 -> 8ve
+
+start-list
+\ zap certain notes in certain spots:
+\ first, set tuning to low octave.. ?
+12ET-Set 
+\ first, the harmonics in their " approximate" positions
+\
+1 \c  8ve 01 1 %>  
+2 \c  8ve 02 1 %>  
+2 \G  8ve 03 1 %>  
+3 \c  8ve 04 1 %>  
+3 \e  8ve 05 1 %>  
+3 \g  8ve 06 1 %>  
+3 \Bb 8ve 07 1 %>  
+4 \c  8ve 08 1 %>  
+4 \d  8ve 09 1 %>  
+4 \e  8ve 10 1 %>  
+4 \f  8ve 11 1 %>  \ or f#
+4 \g  8ve 12 1 %>  
+4 \a  8ve 13 1 %>  \ or ab
+4 \Bb 8ve 14 1 %>  
+4 \B  8ve 15 1 %>  
+5 \C  8ve 16 1 %>  
+5 \C# 8ve 17 1 %>  
+5 \D  8ve 18 1 %>  
+5 \Eb 8ve 19 1 %>  
+\ any more ? who knows !!
+cr ." -- sound ok? " cr
+5 \Eb 1+ 0 do
+5 i <>
+loop
+end-list
+;
+JS
+

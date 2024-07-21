@@ -1,0 +1,94 @@
+\ Simple Double Buffered display.
+\
+\ NOTE: You may want to change the filenames in DP.INIT
+\  to use your own files.
+\
+\ Author: Phil Burk
+\ Copyright 1992 Phil Burk
+
+include? goto.error ju:goto_error
+include jiff:load_pic
+
+ANEW TASK-DOUBLE_PIC
+
+picture BACKG0
+picture BACKG1
+picture SHIP
+
+: DP.TERM ( -- , free all pictures )
+	backg0 pic.free
+	backg1 pic.free
+	ship pic.free
+	gr.term
+;
+
+: DP.INIT  ( -- error? )
+	gr.init
+\ Load pictures from disk.  Change these to your files if desired.
+	" jpics:mountains.pic" backg0 $pic.load? ?goto.error
+	" jpics:ship.br"       ship $pic.load? ?goto.error
+\
+\ Make second background same as first
+	backg0 backg1 pic.duplicate? ?goto.error
+	backg0 backg1 pic.copy
+\
+\ Allocate backup buffers for brush
+	0 ship pic.alloc.backup? ?goto.error
+	1 ship pic.alloc.backup? ?goto.error
+\
+\ Allocate shadow for transparent blit
+	ship pic.alloc.shadow? ?goto.error
+	ship pic.cast.shadow
+\
+\ return false for ALL OK?
+	false
+	exit
+ERROR:
+	true \ return true if error
+	exit
+;
+
+variable CUR-BUFFER# \ 0 or 1
+
+: DP.DRAW  { | x y curbuf -- }
+	100 0
+	DO
+\
+\ figure out which buffer is for drawing and which for display
+		cur-buffer# @ 1 xor 1 and dup cur-buffer# !
+		IF backg1
+		ELSE backg0
+		THEN
+		-> curbuf
+		curbuf pic.drawto
+\
+\ restore what was underneath previous picture
+		i 1 >  \ only after having done a backup
+		IF
+			cur-buffer# @ ship pic.restore.nth
+		THEN
+\
+\ draw ship at new position x and y position
+		30 i 2* + -> x
+		5 i + -> y
+		x y cur-buffer# @ ship pic.backup.nth
+		x y ship pic.trans.blit
+\
+\ now display picture we just drew, and wait
+		curbuf pic.view
+		2 wait.frames
+	LOOP
+;
+
+: DBLPIC ( -- )
+	dp.init 0=
+	IF
+		dp.draw
+	ELSE ." Error in initialization!" cr
+	THEN
+	dp.term
+;
+
+if.forgotten dp.term
+
+cr ." Enter:   DBLPIC" cr
