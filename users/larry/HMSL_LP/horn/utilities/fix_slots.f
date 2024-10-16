@@ -1,0 +1,1 @@
+\ this word jams the proper short jump to 56k-NullCircuit into the DSP code.ANEW TASK_FIX.SLOTS: FIX.SLOTS  { | slot# -- }	dsp_max_circuits 0	DO		i -> slot# 		56k-NullCircuit 56k_jsr.s OR		dup slot# 56k-MultiAudio + dsp.p!  ( load nullCircuit )		slot# 56k-MultiControl + dsp.p!  ( load nullCircuit )	LOOP;

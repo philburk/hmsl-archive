@@ -1,0 +1,1 @@
+anew task-tests: test.pedal . . ;: revstuff d-rev-time! dep-5.send ;	: ped->rev  2* revstuff drop ;	\ 'c ped->rev mp-control-vector !: ped->depth 2* depthstuff drop ;	

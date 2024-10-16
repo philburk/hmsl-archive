@@ -1,0 +1,1 @@
+\ "Script file" for turnkeying EK\ actions don't seem to be in 421\ forget task-action_utilsforget task-shape_editorinclude ek:ek_loadinclude hsys:turnkey.f\ 2/8/93: added this to avoid HMSL confusions, as per new manual\ but didn't work\ " EKCM" ostype: 'EKCM''c ek.turnkey.init 'c hmsl 'c ek.turnkey.term turnkey

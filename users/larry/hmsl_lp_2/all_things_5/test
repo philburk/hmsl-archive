@@ -1,0 +1,1 @@
+: SET.PRESET	what-instrument @	cello =	IF cello.preset	ELSE		viola = 		IF 			viola.preset		ELSE			violin.preset		THEN	THEN;

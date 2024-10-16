@@ -1,0 +1,1 @@
+: p-m { pulse -- mm }	rtc.rate@ float	pulse float f/	60.0 f* f.;: m-p { mm -- pulse }	rtc.rate@ float 60.0 f*	mm float f/	f.;: FIXROUND ( float -- roundfix )	fdup fdup \ float float float	f>i float \ float float fix	f-  \ float fract-part	.5 f>	IF		1.0 f+		f>i	ELSE		f>i	THEN;	

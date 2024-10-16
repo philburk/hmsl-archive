@@ -1,0 +1,1 @@
+\ Piano Study initializiation...anew task-p_init: INIT.PSTUDY	init.whole-piece	init.sections	make.shapes	new.shapes	fill.data	init.p-arrays	init.all-groups	3 places;: IP	init.pstudy;ip: TERM.PSTUDY	freeall: whole-piece	free: whole-piece	free: s-whole-piece	free: all-groups	free: p-notes	free: p-intervals;if.forgotten term.pstudy

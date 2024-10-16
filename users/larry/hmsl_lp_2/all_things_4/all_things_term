@@ -1,0 +1,1 @@
+\ terminate and free up all filesanew task-all_things_term: ALL_THINGS.TERM	free: p-dist-uniform	free: p-dist-triangle	free: p-dist-harm	free: harm-int-array	free: p-dist-array	free: p-dist-adjusted	free: d-dist-uniform	free: p-dist-array\ statistics	free: p-stats	free: d-stats;if.forgotten all_things.term

@@ -1,0 +1,1 @@
+\ preset fileanew task-ek_presets: INIT.EK-PRESETS	64 new: ek-melody-array 	64 new: ek-rhythm-array 	64 new: ek-sustain-array;: TERM.EK-PRESETS	free: ek-melody-array	free: ek-rhythm-array	free: ek-sustain-array;if.forgotten term.ek-presets
